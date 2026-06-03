@@ -1,8 +1,0 @@
-# Use this workspace to collaborate
-workspace:
-  id: cf535e9e-fc5c-46a2-8e68-14be4bbdd1cf
-
-localResources:
-  docs:
-    - ..\vendor\laravel\framework\src\Illuminate\Translation\LICENSE.md
-
