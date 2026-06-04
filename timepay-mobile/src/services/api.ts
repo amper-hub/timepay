@@ -16,6 +16,8 @@ import {
   LoginCredentials,
   UserSession,
   isLaravelAuthResponse,
+  AttendancePunchRequest,
+  AttendancePunchResponse,
 } from "../types";
 
 /**
@@ -395,6 +397,75 @@ export const apiService = {
         showNetworkAlert(axiosError);
       }
       
+      throw error;
+    }
+  },
+
+  /**
+   * POST /attendance/punch
+   * Submit attendance punch with biometric face capture and GPS coordinates
+   * Builds FormData payload with image file for multipart/form-data upload
+   */
+  submitAttendancePunch: async (
+    type: 'clock_in' | 'clock_out',
+    latitude: number,
+    longitude: number,
+    photoUri: string
+  ): Promise<AttendancePunchResponse> => {
+    try {
+      console.log("[API] Submitting attendance punch:", {
+        type,
+        latitude,
+        longitude,
+        photoUri: photoUri.substring(0, 50) + "...", // Log only first 50 chars
+      });
+
+      // Build FormData payload
+      const formData = new FormData();
+      formData.append('type', type);
+      formData.append('latitude', latitude.toString());
+      formData.append('longitude', longitude.toString());
+
+      // Convert photoUri to file object
+      const filename = `selfie_${Date.now()}.jpg`;
+      const photoFile = {
+        uri: photoUri,
+        name: filename,
+        type: 'image/jpeg',
+      };
+
+      // Append the file to FormData
+      formData.append('photo', photoFile as any);
+
+      // Create a custom axios config for FormData
+      const config = {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      };
+
+      // Make the request with FormData
+      const response = await apiClient.post<AttendancePunchResponse>(
+        '/attendance/punch',
+        formData,
+        config
+      );
+
+      console.log("[API] Attendance punch submitted successfully:", response.data);
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError<ApiErrorResponse>;
+
+      console.error("[API] Attendance punch error:", {
+        status: axiosError.response?.status,
+        message: axiosError.message,
+        responseData: axiosError.response?.data,
+      });
+
+      if (!axiosError.response && axiosError.request) {
+        showNetworkAlert(axiosError);
+      }
+
       throw error;
     }
   },

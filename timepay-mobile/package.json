@@ -1,5 +1,4 @@
 {
-<<<<<<< HEAD
   "name": "timepay-mobile",
   "version": "1.0.0",
   "main": "index.ts",
@@ -24,21 +23,4 @@
     "typescript": "~5.9.2"
   },
   "private": true
-=======
-    "$schema": "https://www.schemastore.org/package.json",
-    "private": true,
-    "type": "module",
-    "scripts": {
-        "build": "vite build",
-        "dev": "vite"
-    },
-    "devDependencies": {
-        "@tailwindcss/vite": "^4.0.0",
-        "axios": "^1.11.0",
-        "concurrently": "^9.0.1",
-        "laravel-vite-plugin": "^2.0.0",
-        "tailwindcss": "^4.0.0",
-        "vite": "^7.0.7"
-    }
->>>>>>> 1d6e0eb0cfed70e92c259232bdb6b8cbd19bfa09
 }

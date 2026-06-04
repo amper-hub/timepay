@@ -83,3 +83,43 @@ export interface AuthContextState {
   loading: boolean;
   error: string | null;
 }
+
+/**
+ * Attendance Punch API Request/Response Types
+ */
+export interface AttendancePunchRequest {
+  type: 'clock_in' | 'clock_out';
+  latitude: number;
+  longitude: number;
+  photoUri: string;
+}
+
+export interface GeofenceInfo {
+  user_coordinates: {
+    latitude: number;
+    longitude: number;
+  };
+  office_coordinates: {
+    latitude: number;
+    longitude: number;
+  };
+  geofence_radius_meters: number;
+  distance_from_office_meters: number;
+}
+
+export interface AttendanceLogResponse {
+  id: number;
+  user_id: number;
+  timestamp: string;
+  type: 'clock_in' | 'clock_out';
+  status: 'verified' | 'rejected';
+  distance_meters: number;
+  photo_path: string | null;
+}
+
+export interface AttendancePunchResponse {
+  success: boolean;
+  message: string;
+  attendance_log: AttendanceLogResponse;
+  geofence_info: GeofenceInfo;
+}
