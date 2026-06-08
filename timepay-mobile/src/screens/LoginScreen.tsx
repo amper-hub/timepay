@@ -1,24 +1,23 @@
 /**
  * TimePay Login Screen
- * Responsive authentication interface with modern SaaS styling
+ * Modern employee authentication UI with Laravel validation-safe error handling.
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  ScrollView,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
+  View,
 } from "react-native";
-import { AxiosError } from "axios";
-import { LoginCredentials, UserSession, ApiErrorResponse } from "../types";
-import { apiService } from "../services/api";
+import { LoginCredentials, UserSession } from "../types";
+import { apiService, getApiErrorMessage } from "../services/api";
 
 interface LoginScreenProps {
   onLoginSuccess: (userSession: UserSession) => void;
@@ -29,7 +28,7 @@ interface FormState {
   password: string;
 }
 
-interface ValidationErrors {
+interface FieldErrors {
   email?: string;
   password?: string;
 }
@@ -39,64 +38,40 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     email: "",
     password: "",
   });
-
-  const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<ValidationErrors>({});
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  /**
-   * Validate form inputs
-   */
   const validateForm = useCallback((): boolean => {
-    const newErrors: ValidationErrors = {};
+    const nextErrors: FieldErrors = {};
+    const email = form.email.trim();
 
-    if (!form.email.trim()) {
-      newErrors.email = "Email is required";
-    } else if (!isValidEmail(form.email)) {
-      newErrors.email = "Please enter a valid email address";
+    if (!email) {
+      nextErrors.email = "Email is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      nextErrors.email = "Enter a valid email address.";
     }
 
-    if (!form.password.trim()) {
-      newErrors.password = "Password is required";
-    } else if (form.password.length < 6) {
-      newErrors.password = "Password must be at least 6 characters";
+    if (!form.password) {
+      nextErrors.password = "Password is required.";
     }
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    setFieldErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   }, [form]);
 
-  /**
-   * Email validation helper
-   */
-  const isValidEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
-
-  /**
-   * Handle form input changes
-   */
-  const handleInputChange = useCallback(
+  const updateField = useCallback(
     (field: keyof FormState, value: string) => {
-      setForm((prev) => ({
-        ...prev,
-        [field]: value,
-      }));
-      // Clear field error when user starts typing
-      if (errors[field]) {
-        setErrors((prev) => ({
-          ...prev,
-          [field]: undefined,
-        }));
+      setForm((current) => ({ ...current, [field]: value }));
+      setApiError(null);
+
+      if (fieldErrors[field]) {
+        setFieldErrors((current) => ({ ...current, [field]: undefined }));
       }
     },
-    [errors]
+    [fieldErrors]
   );
 
-  /**
-   * Handle login submission
-   */
   const handleLogin = useCallback(async () => {
     setApiError(null);
 
@@ -113,239 +88,252 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       };
 
       const userSession = await apiService.login(credentials);
-
-      // Login succeeded if we got a UserSession object
-      if (userSession && userSession.token && userSession.user) {
-        // Clear form on successful login
-        setForm({ email: "", password: "" });
-        // Trigger parent callback with session data
-        onLoginSuccess(userSession);
-      }
+      setForm({ email: "", password: "" });
+      onLoginSuccess(userSession);
     } catch (error) {
-      const axiosError = error as AxiosError<ApiErrorResponse>;
-
-      let errorMessage = "An unexpected error occurred. Please try again.";
-
-      if (axiosError.response) {
-        const status = axiosError.response.status;
-        const responseData = axiosError.response.data;
-
-        if (status === 401) {
-          errorMessage = "Invalid email or password. Please try again.";
-        } else if (status === 422) {
-          // Validation errors from server
-          if (responseData.errors) {
-            const errorMessages = Object.values(responseData.errors)
-              .flat()
-              .join("\n");
-            errorMessage = errorMessages || responseData.message;
-          } else {
-            errorMessage = responseData.message || "Validation error occurred.";
-          }
-        } else if (status === 429) {
-          errorMessage = "Too many login attempts. Please try again later.";
-        } else {
-          errorMessage = responseData.message || errorMessage;
-        }
-      } else if (axiosError.request) {
-        errorMessage =
-          "Unable to reach the server. Please check your connection and the server URL configuration.";
-      }
-
-      setApiError(errorMessage);
+      setApiError(
+        getApiErrorMessage(
+          error,
+          "We could not sign you in. Please check your credentials and try again."
+        )
+      );
     } finally {
       setLoading(false);
     }
-  }, [form, validateForm]);
+  }, [form, onLoginSuccess, validateForm]);
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.container}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.keyboardView}
       >
-        {/* Header Section */}
-        <View style={styles.headerSection}>
-          <Text style={styles.appTitle}>TimePay</Text>
-          <Text style={styles.appSubtitle}>Employee Attendance System</Text>
-        </View>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.shell}>
+            <View style={styles.brandMark}>
+              <Text style={styles.brandMarkText}>TP</Text>
+            </View>
 
-        {/* API Error Banner */}
-        {apiError && (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorBannerText}>{apiError}</Text>
+            <Text style={styles.logoText}>TimePay</Text>
+            <Text style={styles.heading}>Sign in to your workspace</Text>
+            <Text style={styles.subheading}>
+              Track attendance, verify location, and keep your day moving.
+            </Text>
+
+            {apiError ? (
+              <View style={styles.alertBox}>
+                <Text style={styles.alertTitle}>Sign in failed</Text>
+                <Text style={styles.alertMessage}>{apiError}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.formCard}>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  value={form.email}
+                  onChangeText={(value) => updateField("email", value)}
+                  placeholder="john@example.com"
+                  placeholderTextColor="#94a3b8"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  autoCorrect={false}
+                  editable={!loading}
+                  keyboardType="email-address"
+                  style={[
+                    styles.input,
+                    fieldErrors.email ? styles.inputInvalid : null,
+                  ]}
+                />
+                {fieldErrors.email ? (
+                  <Text style={styles.fieldError}>{fieldErrors.email}</Text>
+                ) : null}
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Password</Text>
+                <TextInput
+                  value={form.password}
+                  onChangeText={(value) => updateField("password", value)}
+                  placeholder="Enter your password"
+                  placeholderTextColor="#94a3b8"
+                  autoComplete="password"
+                  editable={!loading}
+                  secureTextEntry
+                  style={[
+                    styles.input,
+                    fieldErrors.password ? styles.inputInvalid : null,
+                  ]}
+                />
+                {fieldErrors.password ? (
+                  <Text style={styles.fieldError}>{fieldErrors.password}</Text>
+                ) : null}
+              </View>
+
+              <TouchableOpacity
+                activeOpacity={0.88}
+                disabled={loading}
+                onPress={handleLogin}
+                style={[
+                  styles.signInButton,
+                  loading ? styles.signInButtonDisabled : null,
+                ]}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text style={styles.signInButtonText}>Sign In</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
-        )}
-
-        {/* Form Section */}
-        <View style={styles.formSection}>
-          {/* Email Input */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Email Address</Text>
-            <TextInput
-              style={[styles.input, errors.email && styles.inputError]}
-              placeholder="you@example.com"
-              placeholderTextColor="#999"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!loading}
-              value={form.email}
-              onChangeText={(value) => handleInputChange("email", value)}
-            />
-            {errors.email && (
-              <Text style={styles.fieldError}>{errors.email}</Text>
-            )}
-          </View>
-
-          {/* Password Input */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Password</Text>
-            <TextInput
-              style={[styles.input, errors.password && styles.inputError]}
-              placeholder="••••••••"
-              placeholderTextColor="#999"
-              secureTextEntry
-              editable={!loading}
-              value={form.password}
-              onChangeText={(value) => handleInputChange("password", value)}
-            />
-            {errors.password && (
-              <Text style={styles.fieldError}>{errors.password}</Text>
-            )}
-          </View>
-
-          {/* Login Button */}
-          <TouchableOpacity
-            style={[styles.loginButton, loading && styles.loginButtonDisabled]}
-            onPress={handleLogin}
-            disabled={loading}
-            activeOpacity={0.8}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={styles.loginButtonText}>Sign In</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Footer Section */}
-        <View style={styles.footerSection}>
-          <Text style={styles.footerText}>
-            Secured by{" "}
-            <Text style={styles.footerTextBold}>TimePay Security</Text>
-          </Text>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: "#f8fafc",
+  },
+  keyboardView: {
+    flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: "center",
     paddingHorizontal: 24,
-    paddingVertical: 40,
+    paddingVertical: 32,
   },
-  headerSection: {
-    alignItems: "center",
-    marginBottom: 50,
+  shell: {
+    width: "100%",
+    maxWidth: 420,
+    alignSelf: "center",
   },
-  appTitle: {
-    fontSize: 36,
-    fontWeight: "700",
-    color: "#1a1a1a",
-    marginBottom: 8,
-  },
-  appSubtitle: {
-    fontSize: 16,
-    color: "#666",
-    fontWeight: "400",
-  },
-  errorBanner: {
-    backgroundColor: "#fee",
-    borderLeftWidth: 4,
-    borderLeftColor: "#c33",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 4,
-    marginBottom: 24,
-  },
-  errorBannerText: {
-    color: "#c33",
-    fontSize: 14,
-    fontWeight: "500",
-    lineHeight: 20,
-  },
-  formSection: {
-    marginBottom: 40,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1a1a1a",
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: "#1a1a1a",
-  },
-  inputError: {
-    borderColor: "#c33",
-    backgroundColor: "#fff9f9",
-  },
-  fieldError: {
-    color: "#c33",
-    fontSize: 12,
-    marginTop: 6,
-    fontWeight: "500",
-  },
-  loginButton: {
-    backgroundColor: "#007AFF",
-    paddingVertical: 14,
-    borderRadius: 6,
+  brandMark: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 28,
+    backgroundColor: "#4f46e5",
+    shadowColor: "#4f46e5",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 5,
   },
-  loginButtonDisabled: {
-    opacity: 0.7,
+  brandMarkText: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
-  loginButtonText: {
-    color: "#fff",
+  logoText: {
+    marginTop: 18,
+    fontSize: 34,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
+  heading: {
+    marginTop: 12,
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  subheading: {
+    marginTop: 8,
+    marginBottom: 24,
+    color: "#64748b",
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  alertBox: {
+    marginBottom: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    backgroundColor: "#fef2f2",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  alertTitle: {
+    color: "#991b1b",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  alertMessage: {
+    marginTop: 4,
+    color: "#b91c1c",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  formCard: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 24,
+    backgroundColor: "#ffffff",
+    padding: 20,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+    elevation: 4,
+  },
+  fieldGroup: {
+    marginBottom: 18,
+  },
+  label: {
+    marginBottom: 8,
+    color: "#334155",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  input: {
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 14,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 15,
+    color: "#0f172a",
     fontSize: 16,
+  },
+  inputInvalid: {
+    borderColor: "#ef4444",
+    backgroundColor: "#fff7f7",
+  },
+  fieldError: {
+    marginTop: 7,
+    color: "#dc2626",
+    fontSize: 13,
     fontWeight: "600",
   },
-  footerSection: {
+  signInButton: {
+    minHeight: 54,
     alignItems: "center",
-    marginTop: 20,
+    justifyContent: "center",
+    borderRadius: 14,
+    backgroundColor: "#4f46e5",
+    shadowColor: "#4f46e5",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    elevation: 4,
   },
-  footerText: {
-    fontSize: 12,
-    color: "#999",
-    fontWeight: "400",
+  signInButtonDisabled: {
+    opacity: 0.68,
   },
-  footerTextBold: {
-    fontWeight: "600",
-    color: "#666",
+  signInButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "800",
   },
 });
 

@@ -3,45 +3,39 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
     /**
      * Handle user login and issue an API token.
-     *
-     * @param Request $request
-     * @return JsonResponse
-     * @throws ValidationException
      */
     public function login(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'email' => 'required|email',
-            'password' => 'required|string|min:6',
+            'password' => 'required|string',
         ]);
 
-        $user = User::where('email', $validated['email'])->first();
-
-        if (!$user || !Hash::check($validated['password'], $user->password)) {
+        if (! Auth::attempt($validated)) {
             throw ValidationException::withMessages([
-                'email' => ['The provided credentials are invalid.'],
+                'email' => ['The provided credentials do not match our records.'],
             ]);
         }
 
-        // Load the company relationship to include it in the response
+        $user = Auth::user();
         $user->load('company');
 
-        // Create a Sanctum token for the mobile app
-        $token = $user->createToken('mobile-auth-token')->plainTextToken;
+        $token = $user->createToken('mobile-app')->plainTextToken;
 
         return response()->json([
+            'token' => $token,
             'user' => [
                 'id' => $user->id,
+                'company_id' => $user->company_id,
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->role,
@@ -49,14 +43,13 @@ class AuthController extends Controller
                 'daily_rate' => $user->daily_rate,
             ],
             'company' => [
-                'id' => $user->company->id,
-                'name' => $user->company->name,
-                'latitude' => $user->company->latitude,
-                'longitude' => $user->company->longitude,
-                'geofence_radius_meters' => $user->company->geofence_radius_meters,
-                'pay_metric' => $user->company->pay_metric,
+                'id' => $user->company?->id,
+                'name' => $user->company?->name,
+                'latitude' => $user->company?->latitude,
+                'longitude' => $user->company?->longitude,
+                'geofence_radius_meters' => $user->company?->geofence_radius_meters,
+                'pay_metric' => $user->company?->pay_metric,
             ],
-            'token' => $token,
         ], 200);
     }
 

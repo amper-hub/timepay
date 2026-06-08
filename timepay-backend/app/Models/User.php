@@ -30,6 +30,7 @@ class User extends Authenticatable
         'cloud_face_id',
         'hourly_rate',
         'daily_rate',
+        'payment_method',
     ];
 
     /**
@@ -54,6 +55,7 @@ class User extends Authenticatable
             'role' => 'string',
             'hourly_rate' => 'decimal:2',
             'daily_rate' => 'decimal:2',
+            'payment_method' => 'string',
         ];
     }
 
@@ -79,5 +81,13 @@ class User extends Authenticatable
     public function leaveRequests(): HasMany
     {
         return $this->hasMany(LeaveRequest::class);
+    }
+
+    /**
+     * Get the attendance logs for the user.
+     */
+    public function attendanceLogs(): HasMany
+    {
+        return $this->hasMany(AttendanceLog::class);
     }
 }

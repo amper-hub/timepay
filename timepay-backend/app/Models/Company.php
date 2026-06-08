@@ -61,4 +61,12 @@ class Company extends Model
     {
         return $this->hasMany(LeaveRequest::class);
     }
+
+    /**
+     * Get the attendance logs for the company.
+     */
+    public function attendanceLogs(): HasMany
+    {
+        return $this->hasMany(AttendanceLog::class);
+    }
 }

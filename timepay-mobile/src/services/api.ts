@@ -137,13 +137,56 @@ const apiClient: AxiosInstance = axios.create({
     // Note: Authorization header is added in request interceptor as needed
   },
   
-  // Local development specific settings
-  ...(isDevelopment && {
-    // Disable SSL verification for self-signed certificates (dev only!)
-    // In production, NEVER do this
-    validateStatus: (status) => status < 500, // Don't throw on 4xx
-  }),
+  validateStatus: (status) => status >= 200 && status < 300,
 });
+
+/**
+ * Extract the best user-facing message from Laravel's standard error payload.
+ * Handles 422 responses shaped like: { message: string, errors: { field: [] } }.
+ */
+export const getApiErrorMessage = (
+  error: unknown,
+  fallback = "Something went wrong. Please try again."
+): string => {
+  if (axios.isAxiosError<ApiErrorResponse>(error)) {
+    const status = error.response?.status;
+    const data = error.response?.data;
+
+    if (status === 422 && data?.errors) {
+      const firstFieldErrors = Object.values(data.errors)[0];
+
+      if (Array.isArray(firstFieldErrors) && firstFieldErrors.length > 0) {
+        return firstFieldErrors[0];
+      }
+
+      if (typeof firstFieldErrors === "string") {
+        return firstFieldErrors;
+      }
+    }
+
+    if (data?.message) {
+      return data.message;
+    }
+
+    if (!error.response && error.request) {
+      return "Unable to reach the server. Please check your connection and try again.";
+    }
+
+    if (status === 401) {
+      return "Invalid email or password. Please try again.";
+    }
+
+    if (status === 429) {
+      return "Too many login attempts. Please try again later.";
+    }
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
+};
 
 /**
  * Request Interceptor

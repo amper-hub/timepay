@@ -277,7 +277,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
     );
   }
 
-  const { user, company, pay_metric, geofence_radius_meters } = userSessionData;
+  const { user, company } = userSessionData;
   const isCameraReady = cameraPermission?.granted && locationPermission;
 
   return (
@@ -418,7 +418,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
           <View style={[styles.statusPanel, styles.panelPrimary]}>
             <Text style={styles.statusLabel}>Pay Metric</Text>
             <Text style={styles.statusValue}>
-              {pay_metric || "N/A"}
+              {company.pay_metric || "N/A"}
             </Text>
           </View>
 
@@ -426,8 +426,8 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
           <View style={[styles.statusPanel, styles.panelSecondary]}>
             <Text style={styles.statusLabel}>Geofence Radius</Text>
             <Text style={styles.statusValue}>
-              {geofence_radius_meters
-                ? `${geofence_radius_meters}m`
+              {company.geofence_radius_meters
+                ? `${company.geofence_radius_meters}m`
                 : "N/A"}
             </Text>
           </View>

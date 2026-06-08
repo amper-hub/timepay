@@ -72,9 +72,9 @@ export const isLaravelAuthResponse = (
 };
 
 export interface ApiErrorResponse {
-  success: boolean;
-  message: string;
-  errors?: Record<string, string[]>;
+  success?: boolean;
+  message?: string;
+  errors?: Record<string, string[] | string>;
 }
 
 export interface AuthContextState {

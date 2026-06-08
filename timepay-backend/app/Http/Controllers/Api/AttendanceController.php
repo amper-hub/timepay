@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceRecord;
+use App\Models\AttendanceLog;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class AttendanceController extends Controller
 {
@@ -96,6 +98,99 @@ class AttendanceController extends Controller
             ],
             'geofence_radius_meters' => $company->geofence_radius_meters,
         ], 403);
+    }
+
+    /**
+     * Handle attendance punch request with biometric face capture and GPS geofencing.
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function punch(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'type' => 'required|in:clock_in,clock_out',
+            'latitude' => 'required|numeric|between:-90,90',
+            'longitude' => 'required|numeric|between:-180,180',
+            'photo' => 'required|image|mimes:jpeg,jpg,png|max:5120', // 5MB
+        ]);
+
+        $user = $request->user();
+        $user->load('company');
+        $company = $user->company;
+
+        // Calculate distance using Haversine formula
+        $distance = $this->calculateHaversineDistance(
+            $validated['latitude'],
+            $validated['longitude'],
+            (float) $company->latitude,
+            (float) $company->longitude
+        );
+
+        $distanceInMeters = (float) round($distance, 2);
+
+        // Determine verification status based on geofence
+        $isVerified = $distanceInMeters <= $company->geofence_radius_meters;
+        $status = $isVerified ? 'verified' : 'rejected';
+
+        // Store the image file
+        $photoPath = null;
+        if ($request->hasFile('photo')) {
+            $file = $request->file('photo');
+            // Generate unique filename with timestamp
+            $filename = 'selfie_' . $user->id . '_' . now()->timestamp . '.jpg';
+            $photoPath = $file->storeAs(
+                'selfies',
+                $filename,
+                'public'
+            );
+        }
+
+        // Create attendance log
+        $attendanceLog = AttendanceLog::create([
+            'user_id' => $user->id,
+            'company_id' => $company->id,
+            'timestamp' => now(),
+            'type' => $validated['type'],
+            'latitude' => $validated['latitude'],
+            'longitude' => $validated['longitude'],
+            'distance_meters' => $distanceInMeters,
+            'photo_path' => $photoPath,
+            'status' => $status,
+        ]);
+
+        // Prepare response
+        $responseMessage = $isVerified
+            ? ucfirst($validated['type']) . ' successful. You are within the office geofence.'
+            : ucfirst($validated['type']) . ' recorded as out-of-bounds. You are outside the office geofence.';
+
+        $statusCode = $isVerified ? 200 : 403;
+
+        return response()->json([
+            'success' => $isVerified,
+            'message' => $responseMessage,
+            'attendance_log' => [
+                'id' => $attendanceLog->id,
+                'user_id' => $attendanceLog->user_id,
+                'timestamp' => $attendanceLog->timestamp,
+                'type' => $attendanceLog->type,
+                'status' => $attendanceLog->status,
+                'distance_meters' => $attendanceLog->distance_meters,
+                'photo_path' => $attendanceLog->photo_path ? asset('storage/' . $attendanceLog->photo_path) : null,
+            ],
+            'geofence_info' => [
+                'user_coordinates' => [
+                    'latitude' => $validated['latitude'],
+                    'longitude' => $validated['longitude'],
+                ],
+                'office_coordinates' => [
+                    'latitude' => $company->latitude,
+                    'longitude' => $company->longitude,
+                ],
+                'geofence_radius_meters' => $company->geofence_radius_meters,
+                'distance_from_office_meters' => $distanceInMeters,
+            ],
+        ], $statusCode);
     }
 
     /**
