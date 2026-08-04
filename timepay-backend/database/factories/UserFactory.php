@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Company;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -24,12 +25,25 @@ class UserFactory extends Factory
      */
     public function definition(): array
     {
+        $company = Company::query()->first();
+
+        if (! $company) {
+            $company = Company::create([
+                'name' => 'Factory Company',
+                'latitude' => 0,
+                'longitude' => 0,
+                'geofence_radius_meters' => 100,
+                'pay_metric' => 'hourly',
+            ]);
+        }
+
         return [
+            'company_id' => $company->id,
             'name' => fake()->name(),
             'email' => fake()->unique()->safeEmail(),
-            'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
+            'role' => User::ROLE_EMPLOYER,
         ];
     }
 

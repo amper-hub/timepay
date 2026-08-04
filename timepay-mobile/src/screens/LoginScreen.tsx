@@ -1,6 +1,6 @@
 /**
  * TimePay Login Screen
- * Modern employee authentication UI with Laravel validation-safe error handling.
+ * Employee authentication with forced temporary-password change flow.
  */
 
 import React, { useCallback, useState } from "react";
@@ -16,7 +16,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { LoginCredentials, UserSession } from "../types";
+import axios from "axios";
+import {
+  LoginCredentials,
+  UserSession,
+  isPasswordChangeRequiredResponse,
+} from "../types";
 import { apiService, getApiErrorMessage } from "../services/api";
 
 interface LoginScreenProps {
@@ -31,6 +36,8 @@ interface FormState {
 interface FieldErrors {
   email?: string;
   password?: string;
+  newPassword?: string;
+  confirmPassword?: string;
 }
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
@@ -42,7 +49,12 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [apiError, setApiError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const validateForm = useCallback((): boolean => {
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [userId, setUserId] = useState<number | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  const validateLoginForm = useCallback((): boolean => {
     const nextErrors: FieldErrors = {};
     const email = form.email.trim();
 
@@ -72,10 +84,24 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     [fieldErrors]
   );
 
+  const resetPasswordChangeState = useCallback(() => {
+    setIsChangingPassword(false);
+    setUserId(null);
+    setNewPassword("");
+    setConfirmPassword("");
+    setFieldErrors({});
+    setApiError(null);
+  }, []);
+
+  const handleCancelPasswordChange = useCallback(() => {
+    resetPasswordChangeState();
+    setForm({ email: "", password: "" });
+  }, [resetPasswordChangeState]);
+
   const handleLogin = useCallback(async () => {
     setApiError(null);
 
-    if (!validateForm()) {
+    if (!validateLoginForm()) {
       return;
     }
 
@@ -89,8 +115,21 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
       const userSession = await apiService.login(credentials);
       setForm({ email: "", password: "" });
+      resetPasswordChangeState();
       onLoginSuccess(userSession);
     } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 403) {
+        const responseData = error.response.data;
+
+        if (isPasswordChangeRequiredResponse(responseData)) {
+          setUserId(responseData.user_id);
+          setIsChangingPassword(true);
+          setApiError(null);
+          setFieldErrors({});
+          return;
+        }
+      }
+
       setApiError(
         getApiErrorMessage(
           error,
@@ -100,7 +139,67 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     } finally {
       setLoading(false);
     }
-  }, [form, onLoginSuccess, validateForm]);
+  }, [form, onLoginSuccess, resetPasswordChangeState, validateLoginForm]);
+
+  const handlePasswordUpdate = useCallback(async () => {
+    setApiError(null);
+
+    const nextErrors: FieldErrors = {};
+
+    if (!newPassword) {
+      nextErrors.newPassword = "New password is required.";
+    } else if (newPassword.length < 8) {
+      nextErrors.newPassword = "Password must be at least 8 characters.";
+    }
+
+    if (!confirmPassword) {
+      nextErrors.confirmPassword = "Please confirm your new password.";
+    } else if (newPassword !== confirmPassword) {
+      nextErrors.confirmPassword = "Passwords do not match.";
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      return;
+    }
+
+    if (!userId) {
+      setApiError("Unable to continue. Please sign in again.");
+      resetPasswordChangeState();
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const userSession = await apiService.updateTemporaryPassword({
+        user_id: userId,
+        current_password: form.password,
+        new_password: newPassword,
+        new_password_confirmation: confirmPassword,
+      });
+
+      setForm({ email: "", password: "" });
+      resetPasswordChangeState();
+      onLoginSuccess(userSession);
+    } catch (error) {
+      setApiError(
+        getApiErrorMessage(
+          error,
+          "We could not update your password. Please try again."
+        )
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    confirmPassword,
+    form.password,
+    newPassword,
+    onLoginSuccess,
+    resetPasswordChangeState,
+    userId,
+  ]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -119,76 +218,202 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             </View>
 
             <Text style={styles.logoText}>TimePay</Text>
-            <Text style={styles.heading}>Sign in to your workspace</Text>
-            <Text style={styles.subheading}>
-              Track attendance, verify location, and keep your day moving.
-            </Text>
+
+            {isChangingPassword ? (
+              <>
+                <Text style={styles.heading}>Secure your account</Text>
+                <Text style={styles.subheading}>
+                  Welcome! Please secure your account by setting a new permanent
+                  password.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.heading}>Sign in to your workspace</Text>
+                <Text style={styles.subheading}>
+                  Track attendance, verify location, and keep your day moving.
+                </Text>
+              </>
+            )}
 
             {apiError ? (
               <View style={styles.alertBox}>
-                <Text style={styles.alertTitle}>Sign in failed</Text>
+                <Text style={styles.alertTitle}>
+                  {isChangingPassword ? "Password update failed" : "Sign in failed"}
+                </Text>
                 <Text style={styles.alertMessage}>{apiError}</Text>
               </View>
             ) : null}
 
             <View style={styles.formCard}>
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Email</Text>
-                <TextInput
-                  value={form.email}
-                  onChangeText={(value) => updateField("email", value)}
-                  placeholder="john@example.com"
-                  placeholderTextColor="#94a3b8"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  autoCorrect={false}
-                  editable={!loading}
-                  keyboardType="email-address"
-                  style={[
-                    styles.input,
-                    fieldErrors.email ? styles.inputInvalid : null,
-                  ]}
-                />
-                {fieldErrors.email ? (
-                  <Text style={styles.fieldError}>{fieldErrors.email}</Text>
-                ) : null}
-              </View>
+              {!isChangingPassword ? (
+                <>
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>Email</Text>
+                    <TextInput
+                      value={form.email}
+                      onChangeText={(value) => updateField("email", value)}
+                      placeholder="john@example.com"
+                      placeholderTextColor="#94a3b8"
+                      autoCapitalize="none"
+                      autoComplete="email"
+                      autoCorrect={false}
+                      editable={!loading}
+                      keyboardType="email-address"
+                      style={[
+                        styles.input,
+                        fieldErrors.email ? styles.inputInvalid : null,
+                      ]}
+                    />
+                    {fieldErrors.email ? (
+                      <Text style={styles.fieldError}>{fieldErrors.email}</Text>
+                    ) : null}
+                  </View>
 
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Password</Text>
-                <TextInput
-                  value={form.password}
-                  onChangeText={(value) => updateField("password", value)}
-                  placeholder="Enter your password"
-                  placeholderTextColor="#94a3b8"
-                  autoComplete="password"
-                  editable={!loading}
-                  secureTextEntry
-                  style={[
-                    styles.input,
-                    fieldErrors.password ? styles.inputInvalid : null,
-                  ]}
-                />
-                {fieldErrors.password ? (
-                  <Text style={styles.fieldError}>{fieldErrors.password}</Text>
-                ) : null}
-              </View>
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>Password</Text>
+                    <TextInput
+                      value={form.password}
+                      onChangeText={(value) => updateField("password", value)}
+                      placeholder="Enter your password"
+                      placeholderTextColor="#94a3b8"
+                      autoComplete="password"
+                      editable={!loading}
+                      secureTextEntry
+                      style={[
+                        styles.input,
+                        fieldErrors.password ? styles.inputInvalid : null,
+                      ]}
+                    />
+                    {fieldErrors.password ? (
+                      <Text style={styles.fieldError}>{fieldErrors.password}</Text>
+                    ) : null}
+                  </View>
 
-              <TouchableOpacity
-                activeOpacity={0.88}
-                disabled={loading}
-                onPress={handleLogin}
-                style={[
-                  styles.signInButton,
-                  loading ? styles.signInButtonDisabled : null,
-                ]}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#ffffff" />
-                ) : (
-                  <Text style={styles.signInButtonText}>Sign In</Text>
-                )}
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    disabled={loading}
+                    onPress={handleLogin}
+                    style={[
+                      styles.primaryButton,
+                      loading ? styles.primaryButtonDisabled : null,
+                    ]}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#ffffff" />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>Sign In</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <View style={styles.infoBox}>
+                    <Text style={styles.infoTitle}>Temporary password active</Text>
+                    <Text style={styles.infoMessage}>
+                      Your temporary password from sign-in will be used to verify
+                      this change.
+                    </Text>
+                    <TextInput
+                      value={form.password.replace(/./g, "•")}
+                      editable={false}
+                      secureTextEntry={false}
+                      style={[styles.input, styles.inputReadOnly]}
+                    />
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>New Password</Text>
+                    <TextInput
+                      value={newPassword}
+                      onChangeText={(value) => {
+                        setNewPassword(value);
+                        setApiError(null);
+                        if (fieldErrors.newPassword) {
+                          setFieldErrors((current) => ({
+                            ...current,
+                            newPassword: undefined,
+                          }));
+                        }
+                      }}
+                      placeholder="Enter a new password"
+                      placeholderTextColor="#94a3b8"
+                      autoCapitalize="none"
+                      autoComplete="password-new"
+                      autoCorrect={false}
+                      editable={!loading}
+                      secureTextEntry
+                      style={[
+                        styles.input,
+                        fieldErrors.newPassword ? styles.inputInvalid : null,
+                      ]}
+                    />
+                    {fieldErrors.newPassword ? (
+                      <Text style={styles.fieldError}>
+                        {fieldErrors.newPassword}
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>Confirm New Password</Text>
+                    <TextInput
+                      value={confirmPassword}
+                      onChangeText={(value) => {
+                        setConfirmPassword(value);
+                        setApiError(null);
+                        if (fieldErrors.confirmPassword) {
+                          setFieldErrors((current) => ({
+                            ...current,
+                            confirmPassword: undefined,
+                          }));
+                        }
+                      }}
+                      placeholder="Re-enter your new password"
+                      placeholderTextColor="#94a3b8"
+                      autoCapitalize="none"
+                      autoComplete="password-new"
+                      autoCorrect={false}
+                      editable={!loading}
+                      secureTextEntry
+                      style={[
+                        styles.input,
+                        fieldErrors.confirmPassword ? styles.inputInvalid : null,
+                      ]}
+                    />
+                    {fieldErrors.confirmPassword ? (
+                      <Text style={styles.fieldError}>
+                        {fieldErrors.confirmPassword}
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    disabled={loading}
+                    onPress={handlePasswordUpdate}
+                    style={[
+                      styles.primaryButton,
+                      loading ? styles.primaryButtonDisabled : null,
+                    ]}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#ffffff" />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>Save & Login</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    disabled={loading}
+                    onPress={handleCancelPasswordChange}
+                    style={styles.secondaryButton}
+                  >
+                    <Text style={styles.secondaryButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </View>
         </ScrollView>
@@ -274,6 +499,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  infoBox: {
+    marginBottom: 18,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  infoTitle: {
+    color: "#1e3a8a",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  infoMessage: {
+    marginTop: 4,
+    marginBottom: 12,
+    color: "#1d4ed8",
+    fontSize: 13,
+    lineHeight: 20,
+  },
   formCard: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -305,6 +551,10 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     fontSize: 16,
   },
+  inputReadOnly: {
+    backgroundColor: "#f8fafc",
+    color: "#64748b",
+  },
   inputInvalid: {
     borderColor: "#ef4444",
     backgroundColor: "#fff7f7",
@@ -315,7 +565,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-  signInButton: {
+  primaryButton: {
     minHeight: 54,
     alignItems: "center",
     justifyContent: "center",
@@ -327,13 +577,28 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 4,
   },
-  signInButtonDisabled: {
+  primaryButtonDisabled: {
     opacity: 0.68,
   },
-  signInButtonText: {
+  primaryButtonText: {
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "800",
+  },
+  secondaryButton: {
+    marginTop: 12,
+    minHeight: 50,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#ffffff",
+  },
+  secondaryButtonText: {
+    color: "#334155",
+    fontSize: 15,
+    fontWeight: "700",
   },
 });
 

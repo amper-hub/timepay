@@ -42,6 +42,7 @@ export interface LoginCredentials {
  */
 export interface LaravelAuthResponse {
   token: string;
+  role?: string;
   user: User;
   company: Company;
 }
@@ -74,8 +75,34 @@ export const isLaravelAuthResponse = (
 export interface ApiErrorResponse {
   success?: boolean;
   message?: string;
+  error?: string;
+  user_id?: number;
   errors?: Record<string, string[] | string>;
 }
+
+export interface PasswordChangeRequiredResponse {
+  error: "password_change_required";
+  message: string;
+  user_id: number;
+}
+
+export interface UpdateTemporaryPasswordRequest {
+  user_id: number;
+  current_password: string;
+  new_password: string;
+  new_password_confirmation: string;
+}
+
+export const isPasswordChangeRequiredResponse = (
+  data: unknown
+): data is PasswordChangeRequiredResponse => {
+  if (!data || typeof data !== "object") return false;
+  const obj = data as Record<string, unknown>;
+  return (
+    obj.error === "password_change_required" &&
+    typeof obj.user_id === "number"
+  );
+};
 
 export interface AuthContextState {
   isAuthenticated: boolean;
@@ -94,6 +121,9 @@ export interface AttendancePunchRequest {
   photoUri: string;
 }
 
+export type AttendanceState = 'clocked_in' | 'clocked_out';
+export type AttendancePunchType = 'clock_in' | 'clock_out';
+
 export interface GeofenceInfo {
   user_coordinates: {
     latitude: number;
@@ -111,8 +141,8 @@ export interface AttendanceLogResponse {
   id: number;
   user_id: number;
   timestamp: string;
-  type: 'clock_in' | 'clock_out';
-  status: 'verified' | 'rejected';
+  type: AttendancePunchType;
+  status: 'verified' | 'rejected' | 'flagged';
   distance_meters: number;
   photo_path: string | null;
 }
@@ -122,4 +152,12 @@ export interface AttendancePunchResponse {
   message: string;
   attendance_log: AttendanceLogResponse;
   geofence_info: GeofenceInfo;
+  current_state?: AttendanceState;
+  next_expected_punch?: AttendancePunchType;
+}
+
+export interface AttendanceStatusResponse {
+  current_state: AttendanceState;
+  last_punch: AttendanceLogResponse | null;
+  next_expected_punch: AttendancePunchType;
 }

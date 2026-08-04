@@ -51,8 +51,14 @@
                                     {{ number_format((float) $log->distance_meters, 1) }} meters away
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4">
-                                    <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold {{ $log->status === 'verified' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-red-50 text-red-700 ring-1 ring-red-200' }}">
-                                        {{ $log->status === 'verified' ? 'Verified' : 'Out of Bounds Alert' }}
+                                    <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold @if ($log->status === 'verified') bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 @elseif ($log->status === 'flagged') bg-amber-50 text-amber-700 ring-1 ring-amber-200 @else bg-red-50 text-red-700 ring-1 ring-red-200 @endif">
+                                        @if ($log->status === 'verified')
+                                            Verified
+                                        @elseif ($log->status === 'flagged')
+                                            Flagged Review
+                                        @else
+                                            Out of Bounds Alert
+                                        @endif
                                     </span>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4">

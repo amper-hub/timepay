@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\User;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
@@ -36,15 +37,34 @@ class RegisteredUserController extends Controller
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);
 
+        $company = Company::query()->first();
+
+        if (! $company) {
+            $company = Company::create([
+                'name' => 'Default Company',
+                'latitude' => 0,
+                'longitude' => 0,
+                'geofence_radius_meters' => 100,
+                'pay_metric' => 'hourly',
+            ]);
+        }
+
         $user = User::create([
+            'company_id' => $company->id,
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
+            'role' => User::ROLE_EMPLOYER,
         ]);
 
         event(new Registered($user));
 
         Auth::login($user);
+        $request->session()->put('user_role', $user->role);
+
+        if ($user->isEmployer()) {
+            return redirect(route('employer.dashboard', absolute: false));
+        }
 
         return redirect(route('dashboard', absolute: false));
     }

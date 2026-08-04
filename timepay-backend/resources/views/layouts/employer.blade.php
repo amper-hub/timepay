@@ -3,12 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'TimePay Employer Portal')</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>[x-cloak] { display: none !important; }</style>
 </head>
 <body class="bg-slate-100 text-slate-950 antialiased">
+    @if (session()->has('impersonated_by'))
+        <div class="sticky top-0 z-50 border-b border-red-950 bg-red-800 px-4 py-3 text-white shadow-lg">
+            <div class="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p class="text-sm font-semibold">
+                    You are currently impersonating {{ auth()->user()->name }}.
+                </p>
+                <form method="POST" action="{{ route('impersonation.leave') }}">
+                    @csrf
+                    <button type="submit" class="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-red-800 transition hover:bg-red-50">
+                        Leave Impersonation
+                    </button>
+                </form>
+            </div>
+        </div>
+    @endif
+
     <div class="min-h-screen lg:flex">
         <aside class="hidden w-72 flex-shrink-0 border-r border-slate-800 bg-slate-950 text-white lg:flex lg:flex-col">
             <div class="border-b border-slate-800 px-6 py-6">

@@ -15,9 +15,12 @@ import {
   ApiErrorResponse,
   LoginCredentials,
   UserSession,
+  UpdateTemporaryPasswordRequest,
   isLaravelAuthResponse,
   AttendancePunchRequest,
   AttendancePunchResponse,
+  AttendancePunchType,
+  AttendanceStatusResponse,
 } from "../types";
 
 /**
@@ -27,7 +30,7 @@ import {
  * IMPORTANT: Update this to match your development machine's IP
  * Find your IP: Windows (ipconfig) | Mac/Linux (ifconfig)
  */
-const BASE_URL = "http://192.168.254.139:8000/api";
+const BASE_URL = "http://10.133.154.55:8000/api";
 
 /**
  * Detect if running in local development (non-HTTPS)
@@ -301,7 +304,10 @@ export const apiService = {
         // Transform Laravel response to UserSession
         const userSession: UserSession = {
           token: response.data.token,
-          user: response.data.user,
+          user: {
+            ...response.data.user,
+            role: response.data.role ?? response.data.user.role,
+          },
           company: response.data.company,
         };
         
@@ -325,6 +331,56 @@ export const apiService = {
       });
 
       // Network-level error (status: 0 or no response)
+      if (!axiosError.response && axiosError.request) {
+        showNetworkAlert(axiosError);
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * POST /auth/update-temporary-password
+   * Replace a temporary password and receive a fresh Sanctum token.
+   */
+  updateTemporaryPassword: async (
+    payload: UpdateTemporaryPasswordRequest
+  ): Promise<UserSession> => {
+    try {
+      console.log("[API] Updating temporary password for user:", payload.user_id);
+
+      const response = await apiClient.post<unknown>(
+        "/auth/update-temporary-password",
+        payload
+      );
+
+      if (isLaravelAuthResponse(response.data)) {
+        console.log("[API] Temporary password updated successfully");
+
+        return {
+          token: response.data.token,
+          user: {
+            ...response.data.user,
+            role: response.data.role ?? response.data.user.role,
+          },
+          company: response.data.company,
+        };
+      }
+
+      const errorMsg =
+        "Password update failed: Unexpected response format from server";
+      console.error("[API] Password update failed:", errorMsg);
+      throw new Error(errorMsg);
+    } catch (error) {
+      const axiosError = error as AxiosError<ApiErrorResponse>;
+
+      console.error("[API] Password update error caught:", {
+        code: axiosError.code,
+        status: axiosError.response?.status,
+        message: axiosError.message,
+        responseData: axiosError.response?.data,
+      });
+
       if (!axiosError.response && axiosError.request) {
         showNetworkAlert(axiosError);
       }
@@ -445,12 +501,34 @@ export const apiService = {
   },
 
   /**
-   * POST /attendance/punch
+   * GET /attendance/status
+   * Read the employee's current clocked-in/out state.
+   */
+  getAttendanceStatus: async (): Promise<AttendanceStatusResponse> => {
+    try {
+      const response = await apiClient.get<AttendanceStatusResponse>(
+        "/attendance/status"
+      );
+
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError<ApiErrorResponse>;
+
+      if (!axiosError.response && axiosError.request) {
+        showNetworkAlert(axiosError);
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * POST /attendance/store
    * Submit attendance punch with biometric face capture and GPS coordinates
    * Builds FormData payload with image file for multipart/form-data upload
    */
   submitAttendancePunch: async (
-    type: 'clock_in' | 'clock_out',
+    type: AttendancePunchType,
     latitude: number,
     longitude: number,
     photoUri: string
@@ -477,8 +555,8 @@ export const apiService = {
         type: 'image/jpeg',
       };
 
-      // Append the file to FormData
-      formData.append('photo', photoFile as any);
+      // Append the file to FormData using the backend's Face++ field name.
+      formData.append('selfie', photoFile as any);
 
       // Create a custom axios config for FormData
       const config = {
@@ -489,7 +567,7 @@ export const apiService = {
 
       // Make the request with FormData
       const response = await apiClient.post<AttendancePunchResponse>(
-        '/attendance/punch',
+        '/attendance/store',
         formData,
         config
       );

@@ -21,11 +21,23 @@
         </div>
 
         <section class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div class="border-b border-slate-200 px-6 py-5">
-                <h2 class="text-base font-semibold text-slate-950">Employee Contract Configurations</h2>
-                <p class="mt-1 text-sm text-slate-500">
-                    Current period: {{ $periodStart->format('M d, Y') }} to {{ $periodEnd->format('M d, Y') }}.
-                </p>
+            <div class="flex flex-col gap-4 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h2 class="text-base font-semibold text-slate-950">Employee Contract Configurations</h2>
+                    <p class="mt-1 text-sm text-slate-500">
+                        Current period: {{ $periodStart->format('M d, Y') }} to {{ $periodEnd->format('M d, Y') }}.
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    @click="$dispatch('open-add-employee-modal')"
+                    class="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+                >
+                    <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add Employee
+                </button>
             </div>
 
             <div class="overflow-x-auto">
@@ -100,4 +112,6 @@
             </div>
         </section>
     </div>
+
+    @include('employer.partials.add-employee-modal')
 @endsection

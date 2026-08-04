@@ -23,10 +23,18 @@ class TenantScope implements Scope
             return;
         }
 
-        // Only apply tenant filtering if a user is authenticated and fully loaded
-        // auth()->hasUser() checks without triggering a new database query
-        if (auth()->hasUser() && auth()->user()->company_id) {
-            $builder->where('company_id', auth()->user()->company_id);
+        if (! auth()->hasUser()) {
+            return;
+        }
+
+        $user = auth()->user();
+
+        if ($user->isSuperAdmin()) {
+            return;
+        }
+
+        if ($user->company_id) {
+            $builder->where('company_id', $user->company_id);
         }
     }
 }

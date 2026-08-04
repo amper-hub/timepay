@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\Route;
 // Public authentication routes
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])->name('api.auth.login');
+    Route::post('/update-temporary-password', [AuthController::class, 'updateTemporaryPassword'])
+        ->name('api.auth.update-temporary-password');
 });
 
 // Protected routes requiring Sanctum authentication
@@ -19,5 +21,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('auth/logout', [AuthController::class, 'logout']);
 
     Route::post('attendance/check-in', [AttendanceController::class, 'checkIn']);
+    Route::get('attendance/status', [AttendanceController::class, 'status']);
+    Route::post('attendance/store', [AttendanceController::class, 'store']);
     Route::post('attendance/punch', [AttendanceController::class, 'punch']);
 });

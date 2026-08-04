@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    'faceplusplus' => [
+        'key' => env('FACEPP_API_KEY'),
+        'secret' => env('FACEPP_API_SECRET'),
+        'compare_url' => env('FACEPP_COMPARE_URL', 'https://api-us.faceplusplus.com/facepp/v3/compare'),
+        'confidence_threshold' => (float) env('FACEPP_CONFIDENCE_THRESHOLD', 80),
+    ],
+
 ];

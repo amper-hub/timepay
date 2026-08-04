@@ -17,8 +17,22 @@ trait BelongsToTenant
 
         // Automatically set company_id on model creation
         static::creating(function ($model) {
-            if (!$model->isDirty('company_id') && Auth::check() && Auth::user()->company_id) {
-                $model->company_id = Auth::user()->company_id;
+            if ($model->isDirty('company_id')) {
+                return;
+            }
+
+            if (! Auth::check()) {
+                return;
+            }
+
+            $user = Auth::user();
+
+            if ($user->isSuperAdmin()) {
+                return;
+            }
+
+            if ($user->company_id) {
+                $model->company_id = $user->company_id;
             }
         });
     }

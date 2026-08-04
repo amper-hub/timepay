@@ -16,6 +16,11 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, HasApiTokens, BelongsToTenant;
 
+    public const ROLE_SUPER_ADMIN = 'SUPER_ADMIN';
+    public const ROLE_ADMIN = 'ADMIN';
+    public const ROLE_EMPLOYER = 'EMPLOYER';
+    public const ROLE_EMPLOYEE = 'EMPLOYEE';
+
     /**
      * The attributes that are mass assignable.
      *
@@ -26,8 +31,11 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'requires_password_change',
         'role',
+        'status',
         'cloud_face_id',
+        'baseline_photo_path',
         'hourly_rate',
         'daily_rate',
         'payment_method',
@@ -52,7 +60,10 @@ class User extends Authenticatable
     {
         return [
             'password' => 'hashed',
+            'requires_password_change' => 'boolean',
             'role' => 'string',
+            'status' => 'string',
+            'baseline_photo_path' => 'string',
             'hourly_rate' => 'decimal:2',
             'daily_rate' => 'decimal:2',
             'payment_method' => 'string',
@@ -89,5 +100,20 @@ class User extends Authenticatable
     public function attendanceLogs(): HasMany
     {
         return $this->hasMany(AttendanceLog::class);
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === self::ROLE_SUPER_ADMIN;
+    }
+
+    public function isEmployer(): bool
+    {
+        return $this->role === self::ROLE_EMPLOYER;
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === self::ROLE_ADMIN;
     }
 }
