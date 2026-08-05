@@ -1,14 +1,17 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\Auth\EmployerRegistrationController;
 use App\Http\Controllers\Employer\EmployerDashboardController;
 use App\Http\Controllers\Employer\EmployerAttendanceController;
 use App\Http\Controllers\Employer\EmployerGeofenceController;
 use App\Http\Controllers\Employer\EmployerPayrollController;
 use App\Http\Controllers\Employer\EmployeeController;
-use App\Http\Controllers\SuperAdmin\AdminUserController;
+use App\Http\Controllers\Employer\LeaveController as EmployerLeaveController;
+use App\Http\Controllers\Employer\SettingsController;
 use App\Http\Controllers\SuperAdmin\EmployerManagementController;
 use App\Http\Controllers\SuperAdmin\ImpersonationController;
+use App\Http\Controllers\SuperAdmin\LeaveAuditController;
 use App\Http\Controllers\SuperAdmin\PlatformOversightController;
 use App\Http\Controllers\SuperAdmin\ReportController;
 use App\Http\Controllers\SuperAdmin\SuperAdminDashboardController;
@@ -23,8 +26,15 @@ Route::get('/', function () {
         return redirect('/super-admin/dashboard');
     }
 
+    if (! $user) {
+        return view('welcome');
+    }
+
     return redirect('/employer/dashboard');
 });
+
+Route::view('/register-employer', 'auth.register-employer')->middleware('guest')->name('employer.register');
+Route::post('/register-employer', [EmployerRegistrationController::class, 'store'])->middleware('guest')->name('employer.register.store');
 
 // 2. --- SUPER ADMIN PORTAL ROUTES ---
 Route::prefix('super-admin')->name('super-admin.')->middleware(['auth', IsSuperAdmin::class])->group(function () {
@@ -43,7 +53,8 @@ Route::prefix('super-admin')->name('super-admin.')->middleware(['auth', IsSuperA
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
     Route::post('/reports/export', [ReportController::class, 'export'])->name('reports.export');
 
-    Route::resource('admins', AdminUserController::class);
+    Route::get('/leaves', [LeaveAuditController::class, 'index'])->name('leaves.index');
+
 });
 
 Route::post('/impersonation/leave', [ImpersonationController::class, 'leave'])
@@ -57,7 +68,13 @@ Route::middleware(['auth'])->prefix('employer')->group(function () {
     Route::get('/geofence', [EmployerGeofenceController::class, 'edit'])->name('employer.geofence');
     Route::post('/geofence', [EmployerGeofenceController::class, 'update'])->name('employer.geofence.update');
 
+    Route::get('/settings', [SettingsController::class, 'index'])->name('employer.settings.index');
+    Route::patch('/settings', [SettingsController::class, 'update'])->name('employer.settings.update');
+
     Route::get('/attendance', [EmployerAttendanceController::class, 'index'])->name('employer.attendance');
+
+    Route::get('/leaves', [EmployerLeaveController::class, 'index'])->name('employer.leaves.index');
+    Route::patch('/leaves/{leaveRequest}', [EmployerLeaveController::class, 'update'])->name('employer.leaves.update');
 
     Route::get('/payroll', [EmployerPayrollController::class, 'index'])->name('employer.payroll');
     Route::post('/payroll/update/{user}', [EmployerPayrollController::class, 'updateEmployeeRate'])->name('employer.payroll.update');

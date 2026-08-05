@@ -4,13 +4,15 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { UserSession } from "../types";
 import HomeScreen from "../screens/HomeScreen";
-import AttendanceScreen from "../screens/AttendanceScreen";
+import AttendanceScreen from "../screens/Attendance";
+import FaceVerificationScreen from "../screens/FaceVerification";
 import LeaveScreen from "../screens/Leaves";
-import ProfileScreen from "../screens/ProfileScreen";
+import ProfileScreen from "../screens/Profile";
 
 export type EmployeeTabParamList = {
   Home: undefined;
   Attendance: undefined;
+  FaceVerification: { action: "clock_in" | "clock_out" };
   Leave: undefined;
   Profile: undefined;
 };
@@ -76,12 +78,22 @@ const AppNavigator: React.FC<AppNavigatorProps> = ({
             tabBarIcon: ({ focused }) => tabIcon("AT", focused),
           }}
         >
-          {() => (
+          {(props) => (
             <AttendanceScreen
+              {...props}
               userSessionData={userSessionData}
               onLogout={onLogout}
             />
           )}
+        </Tab.Screen>
+
+        <Tab.Screen
+          name="FaceVerification"
+          options={{
+            tabBarButton: () => null,
+          }}
+        >
+          {(props) => <FaceVerificationScreen {...props} />}
         </Tab.Screen>
 
         <Tab.Screen

@@ -40,8 +40,14 @@
                 <a href="{{ route('employer.attendance') }}" class="flex items-center rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.attendance') ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-slate-900 hover:text-white' }}">
                     Attendance Log
                 </a>
+                <a href="{{ route('employer.leaves.index') }}" class="flex items-center rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.leaves.*') ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-slate-900 hover:text-white' }}">
+                    Leave Management
+                </a>
                 <a href="{{ route('employer.geofence') }}" class="flex items-center rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.geofence') ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-slate-900 hover:text-white' }}">
                     Geofence Settings
+                </a>
+                <a href="{{ route('employer.settings.index') }}" class="flex items-center rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.settings.*') ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-slate-900 hover:text-white' }}">
+                    Business Settings
                 </a>
                 <a href="{{ route('employer.payroll') }}" class="flex items-center rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.payroll') ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-slate-900 hover:text-white' }}">
                     Payroll Management
@@ -104,7 +110,9 @@
                     <nav class="space-y-1 px-4 py-6">
                         <a href="{{ route('employer.dashboard') }}" class="block rounded-lg px-4 py-3 text-sm font-medium text-slate-300 hover:bg-slate-900 hover:text-white">Dashboard</a>
                         <a href="{{ route('employer.attendance') }}" class="block rounded-lg px-4 py-3 text-sm font-medium text-slate-300 hover:bg-slate-900 hover:text-white">Attendance Log</a>
+                        <a href="{{ route('employer.leaves.index') }}" class="block rounded-lg px-4 py-3 text-sm font-medium text-slate-300 hover:bg-slate-900 hover:text-white">Leave Management</a>
                         <a href="{{ route('employer.geofence') }}" class="block rounded-lg px-4 py-3 text-sm font-medium text-slate-300 hover:bg-slate-900 hover:text-white">Geofence Settings</a>
+                        <a href="{{ route('employer.settings.index') }}" class="block rounded-lg px-4 py-3 text-sm font-medium text-slate-300 hover:bg-slate-900 hover:text-white">Business Settings</a>
                         <a href="{{ route('employer.payroll') }}" class="block rounded-lg px-4 py-3 text-sm font-medium text-slate-300 hover:bg-slate-900 hover:text-white">Payroll Management</a>
                     </nav>
                 </aside>

@@ -248,7 +248,10 @@ apiClient.interceptors.response.use(
     // Comprehensive error logging
     if (error.response) {
       // Server responded with error status
-      console.error("[API Error Response]", {
+      const logResponseError =
+        error.response.status >= 500 ? console.error : console.warn;
+
+      logResponseError("[API Error Response]", {
         status: error.response.status,
         statusText: error.response.statusText,
         url: error.response.config.url,

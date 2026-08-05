@@ -24,6 +24,11 @@ class AttendanceController extends Controller
      */
     private const GEOFENCE_RADIUS_METERS = 100;
 
+    /**
+     * Employees may clock in shortly before the configured shift start.
+     */
+    private const CLOCK_IN_EARLY_BUFFER_MINUTES = 15;
+
     public function __construct(
         private readonly FacePlusPlusService $facePlusPlusService
     ) {
@@ -47,18 +52,33 @@ class AttendanceController extends Controller
 
         $company = $user->company;
 
+        if ($scheduleError = $this->validateClockInSchedule($company)) {
+            return $scheduleError;
+        }
+
+        $officeLatitude = $this->companyGeofenceLatitude($company);
+        $officeLongitude = $this->companyGeofenceLongitude($company);
+        $geofenceRadius = $this->companyGeofenceRadius($company);
+
+        if ($officeLatitude === null || $officeLongitude === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Check-in failed. Company geofence coordinates are not configured.',
+            ], 422);
+        }
+
         // Calculate distance using Haversine formula
         $distance = $this->calculateDistance(
             $validated['latitude'],
             $validated['longitude'],
-            (float) $company->latitude,
-            (float) $company->longitude
+            $officeLatitude,
+            $officeLongitude
         );
 
         $distanceInMeters = (int) round($distance);
 
         // Check if user is within the geofence
-        if ($distanceInMeters <= self::GEOFENCE_RADIUS_METERS) {
+        if ($distanceInMeters <= $geofenceRadius) {
             // Create attendance record for today
             $today = Carbon::today();
 
@@ -89,12 +109,12 @@ class AttendanceController extends Controller
                     'status' => $attendanceRecord->status,
                 ],
                 'distance_meters' => $distanceInMeters,
-                'geofence_radius_meters' => $company->geofence_radius_meters,
+                'geofence_radius_meters' => $geofenceRadius,
             ], 200);
         }
 
         // User is outside the geofence
-        $distanceOutside = $distanceInMeters - $company->geofence_radius_meters;
+        $distanceOutside = $distanceInMeters - $geofenceRadius;
 
         return response()->json([
             'success' => false,
@@ -105,11 +125,23 @@ class AttendanceController extends Controller
                 'longitude' => $validated['longitude'],
             ],
             'office_coordinates' => [
-                'latitude' => $company->latitude,
-                'longitude' => $company->longitude,
+                'latitude' => $officeLatitude,
+                'longitude' => $officeLongitude,
             ],
-            'geofence_radius_meters' => $company->geofence_radius_meters,
+            'geofence_radius_meters' => $geofenceRadius,
         ], 403);
+    }
+
+    /**
+     * Handle explicit clock-in route after biometric verification.
+     */
+    public function clockIn(Request $request): JsonResponse
+    {
+        $request->merge([
+            'type' => 'clock_in',
+        ]);
+
+        return $this->store($request);
     }
 
     /**
@@ -140,15 +172,25 @@ class AttendanceController extends Controller
         $user->load('company');
         $company = $user->company;
 
-        if ($company->latitude !== null && $company->longitude !== null) {
+        if ($validated['type'] === 'clock_in') {
+            if ($scheduleError = $this->validateClockInSchedule($company)) {
+                return $scheduleError;
+            }
+        }
+
+        $officeLatitude = $this->companyGeofenceLatitude($company);
+        $officeLongitude = $this->companyGeofenceLongitude($company);
+        $geofenceRadius = $this->companyGeofenceRadius($company);
+
+        if ($officeLatitude !== null && $officeLongitude !== null) {
             $distanceInMeters = (int) round($this->calculateDistance(
                 $validated['latitude'],
                 $validated['longitude'],
-                (float) $company->latitude,
-                (float) $company->longitude
+                $officeLatitude,
+                $officeLongitude
             ));
 
-            if ($distanceInMeters > self::GEOFENCE_RADIUS_METERS) {
+            if ($distanceInMeters > $geofenceRadius) {
                 return response()->json([
                     'success' => false,
                     'message' => "Punch rejected. You are outside the designated job site boundary (Distance: {$distanceInMeters} meters away).",
@@ -174,15 +216,15 @@ class AttendanceController extends Controller
             ]);
         }
 
-        $distanceInMeters = $company->latitude !== null && $company->longitude !== null
+        $distanceInMeters = $officeLatitude !== null && $officeLongitude !== null
             ? (float) round($this->calculateDistance(
                 $validated['latitude'],
                 $validated['longitude'],
-                (float) $company->latitude,
-                (float) $company->longitude
+                $officeLatitude,
+                $officeLongitude
             ), 2)
             : null;
-        $isWithinGeofence = $distanceInMeters === null || $distanceInMeters <= self::GEOFENCE_RADIUS_METERS;
+        $isWithinGeofence = $distanceInMeters === null || $distanceInMeters <= $geofenceRadius;
 
         $file = $request->file('selfie') ?? $request->file('photo');
         $filename = 'selfie_' . $user->id . '_' . now()->format('YmdHis') . '_' . str()->random(8) . '.' . $file->extension();
@@ -240,10 +282,10 @@ class AttendanceController extends Controller
                         'longitude' => $validated['longitude'],
                     ],
                     'office_coordinates' => [
-                        'latitude' => $company->latitude,
-                        'longitude' => $company->longitude,
+                        'latitude' => $officeLatitude,
+                        'longitude' => $officeLongitude,
                     ],
-                    'geofence_radius_meters' => self::GEOFENCE_RADIUS_METERS,
+                    'geofence_radius_meters' => $geofenceRadius,
                     'distance_from_office_meters' => $distanceInMeters,
                 ],
                 'current_state' => $attendanceLog->type === 'clock_in' ? 'clocked_in' : 'clocked_out',
@@ -279,10 +321,10 @@ class AttendanceController extends Controller
                     'longitude' => $validated['longitude'],
                 ],
                 'office_coordinates' => [
-                    'latitude' => $company->latitude,
-                    'longitude' => $company->longitude,
+                    'latitude' => $officeLatitude,
+                    'longitude' => $officeLongitude,
                 ],
-                'geofence_radius_meters' => self::GEOFENCE_RADIUS_METERS,
+                'geofence_radius_meters' => $geofenceRadius,
                 'distance_from_office_meters' => $distanceInMeters,
             ],
             'current_state' => $attendanceLog->type === 'clock_in' ? 'clocked_in' : 'clocked_out',
@@ -320,6 +362,55 @@ class AttendanceController extends Controller
     }
 
     /**
+     * Return grouped attendance history for the authenticated employee.
+     */
+    public function history(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $logs = AttendanceLog::query()
+            ->where('company_id', $user->company_id)
+            ->where('user_id', $user->id)
+            ->latest('timestamp')
+            ->limit(120)
+            ->get()
+            ->groupBy(fn (AttendanceLog $log) => $log->timestamp->toDateString());
+
+        $history = $logs->map(function ($dayLogs, string $date) {
+            $clockIn = $dayLogs
+                ->where('type', 'clock_in')
+                ->sortBy('timestamp')
+                ->first();
+
+            $clockOut = $dayLogs
+                ->where('type', 'clock_out')
+                ->sortByDesc('timestamp')
+                ->first();
+
+            $totalHours = $clockIn && $clockOut
+                ? round($clockIn->timestamp->floatDiffInHours($clockOut->timestamp), 2)
+                : null;
+
+            $lateThreshold = Carbon::parse($date)->setTime(9, 0);
+            $status = $clockIn && $clockIn->timestamp->greaterThan($lateThreshold)
+                ? 'late'
+                : 'on_time';
+
+            return [
+                'date' => $date,
+                'time_in' => $clockIn?->timestamp?->toIso8601String(),
+                'time_out' => $clockOut?->timestamp?->toIso8601String(),
+                'total_hours' => $totalHours,
+                'status' => $status,
+            ];
+        })->values();
+
+        return response()->json([
+            'data' => $history,
+        ]);
+    }
+
+    /**
      * Calculate the great-circle distance between two coordinates using the Haversine formula.
      *
      * @param float $lat1 Latitude of first point (degrees)
@@ -348,6 +439,104 @@ class AttendanceController extends Controller
         $c = 2 * asin(sqrt($a));
 
         return self::EARTH_RADIUS_METERS * $c;
+    }
+
+    /**
+     * Enforce employer-configured clock-in days and hours.
+     */
+    private function validateClockInSchedule($company): ?JsonResponse
+    {
+        $timezone = config('timepay.attendance_timezone', config('app.timezone', 'UTC'));
+        $now = Carbon::now($timezone);
+        $workingDays = $company->working_days ?? [];
+
+        if (is_string($workingDays)) {
+            $workingDays = json_decode($workingDays, true) ?: [];
+        }
+
+        $workingDays = array_map(
+            fn (string $day): string => strtolower($day),
+            array_filter($workingDays)
+        );
+
+        if ($workingDays !== [] && ! in_array(strtolower($now->format('l')), $workingDays, true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot clock in on a closed day',
+            ], 403);
+        }
+
+        if (! $company->work_start_time || ! $company->work_end_time) {
+            return null;
+        }
+
+        $workStartTime = Carbon::parse($company->work_start_time, $timezone)->format('H:i:s');
+        $workEndTime = Carbon::parse($company->work_end_time, $timezone)->format('H:i:s');
+
+        $shiftStart = Carbon::createFromFormat(
+            'Y-m-d H:i:s',
+            $now->toDateString() . ' ' . $workStartTime,
+            $timezone
+        )
+            ->subMinutes(self::CLOCK_IN_EARLY_BUFFER_MINUTES);
+
+        $shiftEnd = Carbon::createFromFormat(
+            'Y-m-d H:i:s',
+            $now->toDateString() . ' ' . $workEndTime,
+            $timezone
+        );
+
+        if ($shiftEnd->lessThanOrEqualTo($shiftStart)) {
+            $shiftEnd->addDay();
+
+            $endToday = Carbon::createFromFormat(
+                'Y-m-d H:i:s',
+                $now->toDateString() . ' ' . $workEndTime,
+                $timezone
+            );
+
+            if ($now->lessThanOrEqualTo($endToday)) {
+                $shiftStart->subDay();
+                $shiftEnd->subDay();
+            }
+        }
+
+        if ($now->lt($shiftStart) || $now->gt($shiftEnd)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot clock in outside working hours',
+            ], 403);
+        }
+
+        return null;
+    }
+
+    /**
+     * Prefer the strict geofence settings, with legacy coordinate fallback.
+     */
+    private function companyGeofenceLatitude($company): ?float
+    {
+        $latitude = $company->geofence_latitude ?? $company->latitude;
+
+        return $latitude === null ? null : (float) $latitude;
+    }
+
+    /**
+     * Prefer the strict geofence settings, with legacy coordinate fallback.
+     */
+    private function companyGeofenceLongitude($company): ?float
+    {
+        $longitude = $company->geofence_longitude ?? $company->longitude;
+
+        return $longitude === null ? null : (float) $longitude;
+    }
+
+    /**
+     * Prefer the strict geofence radius, with legacy and default fallback.
+     */
+    private function companyGeofenceRadius($company): int
+    {
+        return (int) ($company->geofence_radius ?? $company->geofence_radius_meters ?? self::GEOFENCE_RADIUS_METERS);
     }
 
     /**

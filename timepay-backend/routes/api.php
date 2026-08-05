@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\Employee\LeaveController;
+use App\Http\Controllers\Api\ProfileController as ApiProfileController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -22,9 +23,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('auth/logout', [AuthController::class, 'logout']);
 
     Route::post('attendance/check-in', [AttendanceController::class, 'checkIn']);
+    Route::post('attendance/clock-in', [AttendanceController::class, 'clockIn']);
     Route::get('attendance/status', [AttendanceController::class, 'status']);
     Route::post('attendance/store', [AttendanceController::class, 'store']);
     Route::post('attendance/punch', [AttendanceController::class, 'punch']);
+    Route::get('attendance/history', [AttendanceController::class, 'history']);
+
+    Route::patch('profile/name', [ApiProfileController::class, 'updateName']);
+    Route::patch('profile/password', [ApiProfileController::class, 'updatePassword']);
+    Route::post('profile/reset-face', [ApiProfileController::class, 'resetFace']);
 
     Route::prefix('employee')->group(function () {
         Route::get('leaves', [LeaveController::class, 'index']);

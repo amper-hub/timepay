@@ -55,8 +55,6 @@ class PlatformOversightController extends Controller
             ->withQueryString();
 
         $companies = Company::query()
-            ->whereNotNull('latitude')
-            ->whereNotNull('longitude')
             ->orderBy('name')
             ->get(['id', 'name', 'latitude', 'longitude', 'geofence_radius_meters']);
 

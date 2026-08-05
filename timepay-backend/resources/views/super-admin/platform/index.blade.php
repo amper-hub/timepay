@@ -9,8 +9,8 @@
     $companyMapPoints = $companies->map(fn ($company) => [
         'id' => $company->id,
         'name' => $company->name,
-        'latitude' => (float) $company->latitude,
-        'longitude' => (float) $company->longitude,
+        'latitude' => $company->latitude !== null ? (float) $company->latitude : null,
+        'longitude' => $company->longitude !== null ? (float) $company->longitude : null,
         'radius' => (int) ($company->geofence_radius_meters ?? $defaultGeofenceRadius),
     ])->values();
 @endphp
@@ -150,7 +150,7 @@
 
             <div class="p-5">
                 <div id="company-map" class="h-[520px] w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100"></div>
-                <p class="mt-3 text-xs text-slate-500">{{ $companies->count() }} companies with coordinates are available on the map.</p>
+                <p class="mt-3 text-xs text-slate-500">{{ $companies->count() }} registered companies loaded. Companies without coordinates are skipped until their geofence is configured.</p>
             </div>
         </section>
     </div>
@@ -160,6 +160,9 @@
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const companies = @json($companyMapPoints);
+        const mappedCompanies = companies.filter(function (company) {
+            return company.latitude !== null && company.longitude !== null;
+        });
         const map = L.map('company-map');
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -167,14 +170,14 @@
             attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
 
-        if (companies.length === 0) {
+        if (mappedCompanies.length === 0) {
             map.setView([14.5995, 120.9842], 11);
             return;
         }
 
         const bounds = [];
 
-        companies.forEach(function (company) {
+        mappedCompanies.forEach(function (company) {
             const point = [company.latitude, company.longitude];
             bounds.push(point);
 

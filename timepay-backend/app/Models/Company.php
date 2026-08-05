@@ -20,6 +20,12 @@ class Company extends Model
         'latitude',
         'longitude',
         'geofence_radius_meters',
+        'geofence_latitude',
+        'geofence_longitude',
+        'geofence_radius',
+        'work_start_time',
+        'work_end_time',
+        'working_days',
         'pay_metric',
     ];
 
@@ -34,6 +40,12 @@ class Company extends Model
             'latitude' => 'decimal:8',
             'longitude' => 'decimal:8',
             'geofence_radius_meters' => 'integer',
+            'geofence_latitude' => 'decimal:8',
+            'geofence_longitude' => 'decimal:8',
+            'geofence_radius' => 'integer',
+            'work_start_time' => 'datetime:H:i',
+            'work_end_time' => 'datetime:H:i',
+            'working_days' => 'array',
             'pay_metric' => 'string',
         ];
     }
