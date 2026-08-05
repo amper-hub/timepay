@@ -9,8 +9,24 @@ import {
   View,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as Location from "expo-location";
 import apiClient, { getApiErrorMessage } from "../../services/api";
+
+const MAX_SELFIE_WIDTH = 800;
+const SELFIE_JPEG_QUALITY = 0.3;
+
+const compressSelfie = async (photo) => {
+  const shouldResize = photo?.width && photo.width > MAX_SELFIE_WIDTH;
+  const actions = shouldResize
+    ? [{ resize: { width: MAX_SELFIE_WIDTH } }]
+    : [];
+
+  return ImageManipulator.manipulateAsync(photo.uri, actions, {
+    compress: SELFIE_JPEG_QUALITY,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+};
 
 const FaceVerificationScreen = ({ navigation, route }) => {
   const cameraRef = useRef(null);
@@ -61,13 +77,16 @@ const FaceVerificationScreen = ({ navigation, route }) => {
 
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7,
+        quality: SELFIE_JPEG_QUALITY,
         base64: false,
+        skipProcessing: true,
       });
 
       if (!photo?.uri) {
         throw new Error("Unable to capture selfie. Please try again.");
       }
+
+      const compressedPhoto = await compressSelfie(photo);
 
       const locationPermission =
         await Location.requestForegroundPermissionsAsync();
@@ -81,7 +100,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
       });
 
       const response = await submitSelfie(
-        photo.uri,
+        compressedPhoto.uri,
         location.coords.latitude,
         location.coords.longitude
       );
@@ -93,6 +112,19 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         },
       ]);
     } catch (error) {
+      if (
+        error?.response?.status === 422 &&
+        error?.response?.data?.error === "face_mismatch"
+      ) {
+        const mismatchMessage =
+          error.response.data.message ||
+          "Face not recognized. Please try again.";
+
+        setScreenError(mismatchMessage);
+        Alert.alert("Verification Failed", "Face not recognized. Please try again.");
+        return;
+      }
+
       const errorMessage =
         error?.response?.data?.message ||
         getApiErrorMessage(

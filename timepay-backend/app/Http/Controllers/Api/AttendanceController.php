@@ -237,12 +237,20 @@ class AttendanceController extends Controller
             $user->baseline_photo_path = $photoPath;
             $user->save();
 
-            $status = 'verified';
             $faceMatched = null;
         } else {
             $baselineAbsolutePath = $this->resolveBaselinePhotoPath($user->baseline_photo_path);
             $faceMatched = $this->facePlusPlusService->compare($baselineAbsolutePath, $selfieAbsolutePath);
-            $status = $faceMatched ? 'verified' : 'flagged';
+
+            if (! $faceMatched) {
+                Storage::disk('public')->delete($photoPath);
+
+                return response()->json([
+                    'success' => false,
+                    'error' => 'face_mismatch',
+                    'message' => 'Face not recognized. Please align your face in good lighting and try again.',
+                ], 422);
+            }
         }
 
         $attendanceLog = AttendanceLog::create([
@@ -254,7 +262,7 @@ class AttendanceController extends Controller
             'longitude' => $validated['longitude'],
             'distance_meters' => $distanceInMeters,
             'photo_path' => $photoPath,
-            'status' => $status,
+            'status' => 'verified',
         ]);
 
         if ($isFirstTimeEnrollment) {
@@ -293,12 +301,10 @@ class AttendanceController extends Controller
             ], 200);
         }
 
-        $responseMessage = $status === 'verified'
-            ? ucfirst(str_replace('_', ' ', $validated['type'])) . ' successful. Face match and geofence checks passed.'
-            : ucfirst(str_replace('_', ' ', $validated['type'])) . ' recorded as flagged. Face verification did not meet the confidence threshold.';
+        $responseMessage = ucfirst(str_replace('_', ' ', $validated['type'])) . ' successful. Face match and geofence checks passed.';
 
         return response()->json([
-            'success' => $status === 'verified',
+            'success' => true,
             'message' => $responseMessage,
             'attendance_log' => [
                 'id' => $attendanceLog->id,
