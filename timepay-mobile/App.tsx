@@ -8,7 +8,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { UserSession } from "./src/types";
 import { setAuthToken } from "./src/services/api";
 import LoginScreen from "./src/screens/LoginScreen";
-import AttendanceScreen from "./src/screens/AttendanceScreen";
+import AppNavigator from "./src/navigation/AppNavigator";
 
 interface AppState {
   isAuthenticated: boolean;
@@ -72,7 +72,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       {isAuthenticated ? (
-        <AttendanceScreen
+        <AppNavigator
           userSessionData={userSessionData}
           onLogout={handleLogout}
         />

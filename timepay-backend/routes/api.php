@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AttendanceController;
+use App\Http\Controllers\Api\Employee\LeaveController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -24,4 +25,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('attendance/status', [AttendanceController::class, 'status']);
     Route::post('attendance/store', [AttendanceController::class, 'store']);
     Route::post('attendance/punch', [AttendanceController::class, 'punch']);
+
+    Route::prefix('employee')->group(function () {
+        Route::get('leaves', [LeaveController::class, 'index']);
+        Route::post('leaves', [LeaveController::class, 'store']);
+    });
 });
