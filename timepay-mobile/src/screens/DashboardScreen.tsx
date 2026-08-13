@@ -19,6 +19,10 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
 import { UserSession, AttendancePunchResponse } from "../types";
 import { apiService } from "../services/api";
+import {
+  getHighAccuracyAttendanceLocation,
+  LOCATION_FALLBACK_WARNING,
+} from "../services/location";
 
 interface DashboardScreenProps {
   userSessionData: UserSession | null;
@@ -107,9 +111,12 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
 
       // Get high-accuracy GPS coordinates
       console.log("[Dashboard] Getting GPS coordinates...");
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
+      const { location, usedLastKnownLocation } =
+        await getHighAccuracyAttendanceLocation();
+
+      if (usedLastKnownLocation) {
+        Alert.alert("Location Warning", LOCATION_FALLBACK_WARNING);
+      }
 
       const { latitude, longitude } = location.coords;
       console.log("[Dashboard] GPS coordinates obtained:", {

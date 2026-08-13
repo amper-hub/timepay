@@ -25,6 +25,10 @@ import {
   UserSession,
 } from "../types";
 import { apiService, getApiErrorMessage } from "../services/api";
+import {
+  getHighAccuracyAttendanceLocation,
+  LOCATION_FALLBACK_WARNING,
+} from "../services/location";
 
 interface AttendanceScreenProps {
   userSessionData: UserSession | null;
@@ -154,9 +158,12 @@ const AttendanceScreen: React.FC<AttendanceScreenProps> = ({
         throw new Error("Unable to capture selfie. Please try again.");
       }
 
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
+      const { location, usedLastKnownLocation } =
+        await getHighAccuracyAttendanceLocation();
+
+      if (usedLastKnownLocation) {
+        Alert.alert("Location Warning", LOCATION_FALLBACK_WARNING);
+      }
 
       const response = await apiService.submitAttendancePunch(
         punchType,

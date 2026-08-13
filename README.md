@@ -53,7 +53,10 @@ Open the `.env` file and update the API base URL. *Note: If you are testing on a
 ```env
 EXPO_PUBLIC_API_BASE_URL=http://192.168.1.50:8000/api
 ```
+src --> service --> api.ts
 
+# running laravel
+php artisan serve --host=0.0.0.0 --port=8000   
 ---
 
 ## 🏃‍♂️ Running the App

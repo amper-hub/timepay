@@ -12,6 +12,10 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as Location from "expo-location";
 import apiClient, { getApiErrorMessage } from "../../services/api";
+import {
+  getHighAccuracyAttendanceLocation,
+  LOCATION_FALLBACK_WARNING,
+} from "../../services/location";
 
 const MAX_SELFIE_WIDTH = 800;
 const SELFIE_JPEG_QUALITY = 0.3;
@@ -95,9 +99,13 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         throw new Error("Location permission is required to submit attendance.");
       }
 
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
+      const { location, usedLastKnownLocation } =
+        await getHighAccuracyAttendanceLocation();
+
+      if (usedLastKnownLocation) {
+        setScreenError(LOCATION_FALLBACK_WARNING);
+        Alert.alert("Location Warning", LOCATION_FALLBACK_WARNING);
+      }
 
       const response = await submitSelfie(
         compressedPhoto.uri,

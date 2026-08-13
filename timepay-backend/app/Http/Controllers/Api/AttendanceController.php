@@ -47,10 +47,17 @@ class AttendanceController extends Controller
             'longitude' => 'required|numeric|between:-180,180',
         ]);
 
-        $user = $request->user();
-        $user->load('company');
+        $user = auth()->user();
+        $user->loadMissing('company');
 
         $company = $user->company;
+
+        if (! $company) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Check-in failed. Your account is not assigned to a company.',
+            ], 422);
+        }
 
         if ($scheduleError = $this->validateClockInSchedule($company)) {
             return $scheduleError;
@@ -69,8 +76,8 @@ class AttendanceController extends Controller
 
         // Calculate distance using Haversine formula
         $distance = $this->calculateDistance(
-            $validated['latitude'],
-            $validated['longitude'],
+            (float) $validated['latitude'],
+            (float) $validated['longitude'],
             $officeLatitude,
             $officeLongitude
         );
@@ -90,8 +97,8 @@ class AttendanceController extends Controller
                 ],
                 [
                     'time_in' => now()->toTimeString(),
-                    'latitude_in' => $validated['latitude'],
-                    'longitude_in' => $validated['longitude'],
+                    'latitude_in' => (float) $validated['latitude'],
+                    'longitude_in' => (float) $validated['longitude'],
                     'status' => 'present',
                 ]
             );
@@ -121,8 +128,8 @@ class AttendanceController extends Controller
             'message' => 'Check-in failed. You are outside the office geofence.',
             'distance_from_office_meters' => $distanceOutside,
             'your_coordinates' => [
-                'latitude' => $validated['latitude'],
-                'longitude' => $validated['longitude'],
+                'latitude' => (float) $validated['latitude'],
+                'longitude' => (float) $validated['longitude'],
             ],
             'office_coordinates' => [
                 'latitude' => $officeLatitude,
@@ -168,9 +175,16 @@ class AttendanceController extends Controller
             'photo' => 'required_without:selfie|image|mimes:jpeg,jpg,png|max:5120',
         ]);
 
-        $user = $request->user();
-        $user->load('company');
+        $user = auth()->user();
+        $user->loadMissing('company');
         $company = $user->company;
+
+        if (! $company) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Punch rejected. Your account is not assigned to a company.',
+            ], 422);
+        }
 
         if ($validated['type'] === 'clock_in') {
             if ($scheduleError = $this->validateClockInSchedule($company)) {
@@ -184,8 +198,8 @@ class AttendanceController extends Controller
 
         if ($officeLatitude !== null && $officeLongitude !== null) {
             $distanceInMeters = (int) round($this->calculateDistance(
-                $validated['latitude'],
-                $validated['longitude'],
+                (float) $validated['latitude'],
+                (float) $validated['longitude'],
                 $officeLatitude,
                 $officeLongitude
             ));
@@ -218,8 +232,8 @@ class AttendanceController extends Controller
 
         $distanceInMeters = $officeLatitude !== null && $officeLongitude !== null
             ? (float) round($this->calculateDistance(
-                $validated['latitude'],
-                $validated['longitude'],
+                (float) $validated['latitude'],
+                (float) $validated['longitude'],
                 $officeLatitude,
                 $officeLongitude
             ), 2)
@@ -258,8 +272,8 @@ class AttendanceController extends Controller
             'company_id' => $company->id,
             'timestamp' => now(),
             'type' => $validated['type'],
-            'latitude' => $validated['latitude'],
-            'longitude' => $validated['longitude'],
+            'latitude' => (float) $validated['latitude'],
+            'longitude' => (float) $validated['longitude'],
             'distance_meters' => $distanceInMeters,
             'photo_path' => $photoPath,
             'status' => 'verified',
@@ -286,8 +300,8 @@ class AttendanceController extends Controller
                 'geofence_info' => [
                     'within_geofence' => $isWithinGeofence,
                     'user_coordinates' => [
-                        'latitude' => $validated['latitude'],
-                        'longitude' => $validated['longitude'],
+                        'latitude' => (float) $validated['latitude'],
+                        'longitude' => (float) $validated['longitude'],
                     ],
                     'office_coordinates' => [
                         'latitude' => $officeLatitude,
@@ -323,8 +337,8 @@ class AttendanceController extends Controller
             'geofence_info' => [
                 'within_geofence' => $isWithinGeofence,
                 'user_coordinates' => [
-                    'latitude' => $validated['latitude'],
-                    'longitude' => $validated['longitude'],
+                    'latitude' => (float) $validated['latitude'],
+                    'longitude' => (float) $validated['longitude'],
                 ],
                 'office_coordinates' => [
                     'latitude' => $officeLatitude,
@@ -518,31 +532,31 @@ class AttendanceController extends Controller
     }
 
     /**
-     * Prefer the strict geofence settings, with legacy coordinate fallback.
+     * Use the authenticated employee's assigned company latitude.
      */
     private function companyGeofenceLatitude($company): ?float
     {
-        $latitude = $company->geofence_latitude ?? $company->latitude;
+        $latitude = $company->latitude;
 
         return $latitude === null ? null : (float) $latitude;
     }
 
     /**
-     * Prefer the strict geofence settings, with legacy coordinate fallback.
+     * Use the authenticated employee's assigned company longitude.
      */
     private function companyGeofenceLongitude($company): ?float
     {
-        $longitude = $company->geofence_longitude ?? $company->longitude;
+        $longitude = $company->longitude;
 
         return $longitude === null ? null : (float) $longitude;
     }
 
     /**
-     * Prefer the strict geofence radius, with legacy and default fallback.
+     * Use the authenticated employee's assigned company geofence radius.
      */
     private function companyGeofenceRadius($company): int
     {
-        return (int) ($company->geofence_radius ?? $company->geofence_radius_meters ?? self::GEOFENCE_RADIUS_METERS);
+        return (int) ($company->geofence_radius_meters ?? self::GEOFENCE_RADIUS_METERS);
     }
 
     /**
