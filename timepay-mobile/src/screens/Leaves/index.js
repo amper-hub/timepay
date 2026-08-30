@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -15,7 +15,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import leaveService, { fetchLeaves, submitLeave } from "../../services/leaveService";
+import { useFocusEffect } from "@react-navigation/native";
+import { fetchLeaveBalance, fetchLeaves, submitLeave } from "../../services/leaveService";
 import { getApiErrorMessage } from "../../services/api";
 
 const LEAVE_TYPES = ["Sick", "Vacation", "Emergency", "Unpaid"];
@@ -69,22 +70,59 @@ const LeaveScreen = ({ userSessionData }) => {
   const [typePickerVisible, setTypePickerVisible] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [screenError, setScreenError] = useState(null);
+  const [leaveBalance, setLeaveBalance] = useState(null);
 
-  const balances = useMemo(
-    () => [
-      { label: "Sick Leave", remaining: 8, total: 10, color: "#059669" },
-      { label: "Vacation Leave", remaining: 12, total: 15, color: "#0891b2" },
-    ],
-    []
-  );
+  const balances = useMemo(() => {
+    const sickRemaining = leaveBalance?.sick_leave_remaining ?? 0;
+    const sickLimit = leaveBalance?.sick_leave_limit ?? 0;
+    const vacationRemaining = leaveBalance?.vacation_leave_remaining ?? 0;
+    const vacationLimit = leaveBalance?.vacation_leave_limit ?? 0;
+
+    return [
+      {
+        label: "Sick Leave",
+        type: "Sick",
+        remaining: sickRemaining,
+        total: sickLimit,
+        color: "#059669",
+      },
+      {
+        label: "Vacation Leave",
+        type: "Vacation",
+        remaining: vacationRemaining,
+        total: vacationLimit,
+        color: "#0891b2",
+      },
+    ];
+  }, [leaveBalance]);
+
+  const selectedLeaveBalance = useMemo(() => {
+    if (form.leave_type === "Sick") {
+      return leaveBalance?.sick_leave_remaining ?? null;
+    }
+
+    if (form.leave_type === "Vacation") {
+      return leaveBalance?.vacation_leave_remaining ?? null;
+    }
+
+    return null;
+  }, [form.leave_type, leaveBalance]);
+
+  const isPaidLeaveExhausted =
+    selectedLeaveBalance !== null && selectedLeaveBalance <= 0;
 
   const loadLeaves = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     setScreenError(null);
 
     try {
-      const data = await fetchLeaves();
+      const [data, balance] = await Promise.all([
+        fetchLeaves(),
+        fetchLeaveBalance(),
+      ]);
+
       setLeaves(data);
+      setLeaveBalance(balance);
     } catch (error) {
       setScreenError(
         getApiErrorMessage(
@@ -98,9 +136,11 @@ const LeaveScreen = ({ userSessionData }) => {
     }
   }, []);
 
-  useEffect(() => {
-    loadLeaves();
-  }, [loadLeaves]);
+  useFocusEffect(
+    useCallback(() => {
+      loadLeaves();
+    }, [loadLeaves])
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -140,8 +180,12 @@ const LeaveScreen = ({ userSessionData }) => {
       return "Please add a short reason for your leave request.";
     }
 
+    if (isPaidLeaveExhausted) {
+      return `You have no ${form.leave_type.toLowerCase()} leave days remaining for this month.`;
+    }
+
     return null;
-  }, [form]);
+  }, [form, isPaidLeaveExhausted]);
 
   const handleSubmit = useCallback(async () => {
     const validationError = validateForm();
@@ -160,6 +204,7 @@ const LeaveScreen = ({ userSessionData }) => {
       });
 
       setLeaves((current) => [createdLeave, ...current]);
+      loadLeaves({ silent: true });
       setModalVisible(false);
       setForm(initialForm);
       Alert.alert("Request submitted", "Your leave request is now pending.");
@@ -174,7 +219,7 @@ const LeaveScreen = ({ userSessionData }) => {
     } finally {
       setSubmitting(false);
     }
-  }, [form, validateForm]);
+  }, [form, loadLeaves, validateForm]);
 
   const renderLeave = ({ item }) => {
     const status = (item.status || "pending").toLowerCase();
@@ -244,7 +289,7 @@ const LeaveScreen = ({ userSessionData }) => {
             </View>
             <Text style={styles.balanceLabel}>{balance.label}</Text>
             <Text style={styles.balanceMeta}>
-              {balance.remaining} of {balance.total} days left
+              {balance.remaining} of {balance.total} days left this month
             </Text>
           </View>
         ))}
@@ -321,6 +366,14 @@ const LeaveScreen = ({ userSessionData }) => {
               Dates use YYYY-MM-DD format, like 2026-08-20.
             </Text>
 
+            {leaveBalance?.current_month_name ? (
+              <Text style={styles.balanceNotice}>
+                {form.leave_type === "Sick" || form.leave_type === "Vacation"
+                  ? `${selectedLeaveBalance ?? 0} ${form.leave_type.toLowerCase()} leave days left for ${leaveBalance.current_month_name}.`
+                  : `${form.leave_type} leave does not count against your monthly paid leave balance.`}
+              </Text>
+            ) : null}
+
             <Text style={styles.inputLabel}>Leave type</Text>
             <TouchableOpacity
               style={styles.selectInput}
@@ -378,9 +431,12 @@ const LeaveScreen = ({ userSessionData }) => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                disabled={submitting}
+                disabled={submitting || isPaidLeaveExhausted}
                 onPress={handleSubmit}
-                style={[styles.submitButton, submitting && styles.disabledButton]}
+                style={[
+                  styles.submitButton,
+                  (submitting || isPaidLeaveExhausted) && styles.disabledButton,
+                ]}
               >
                 {submitting ? (
                   <ActivityIndicator color="#ffffff" />
@@ -699,6 +755,17 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     color: "#64748b",
     fontSize: 13,
+    lineHeight: 19,
+  },
+  balanceNotice: {
+    marginBottom: 18,
+    borderRadius: 14,
+    backgroundColor: "#ecfdf5",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: "#047857",
+    fontSize: 13,
+    fontWeight: "800",
     lineHeight: 19,
   },
   inputLabel: {

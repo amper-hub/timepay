@@ -42,6 +42,8 @@ class SettingsController extends Controller
             'working_days' => ['required', 'array', 'min:1'],
             'working_days.*' => ['required', 'string', Rule::in(self::DAYS_OF_WEEK)],
             'currency' => ['required', 'string', Rule::in(['PHP', 'USD'])],
+            'monthly_sick_leave_limit' => ['required', 'integer', 'min:0', 'max:31'],
+            'monthly_vacation_leave_limit' => ['required', 'integer', 'min:0', 'max:31'],
         ]);
 
         $workingDays = array_values(array_unique($validated['working_days']));
@@ -54,6 +56,8 @@ class SettingsController extends Controller
             'work_end_time' => $validated['work_end_time'],
             'working_days' => $workingDays,
             'currency' => $validated['currency'],
+            'monthly_sick_leave_limit' => $validated['monthly_sick_leave_limit'],
+            'monthly_vacation_leave_limit' => $validated['monthly_vacation_leave_limit'],
         ]);
 
         return redirect()

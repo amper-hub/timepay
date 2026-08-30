@@ -28,6 +28,8 @@ class Company extends Model
         'working_days',
         'pay_metric',
         'currency',
+        'monthly_sick_leave_limit',
+        'monthly_vacation_leave_limit',
     ];
 
     /**
@@ -49,6 +51,8 @@ class Company extends Model
             'working_days' => 'array',
             'pay_metric' => 'string',
             'currency' => 'string',
+            'monthly_sick_leave_limit' => 'integer',
+            'monthly_vacation_leave_limit' => 'integer',
         ];
     }
 

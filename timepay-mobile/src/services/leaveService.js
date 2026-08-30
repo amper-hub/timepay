@@ -17,12 +17,18 @@ export const fetchLeaves = async () => {
   return unwrapLeaves(response.data);
 };
 
+export const fetchLeaveBalance = async () => {
+  const response = await apiClient.get("/employee/leave-balance");
+  return response.data;
+};
+
 export const submitLeave = async (data) => {
   const response = await apiClient.post("/employee/leaves", data);
   return response.data?.data ?? response.data;
 };
 
 export default {
+  fetchLeaveBalance,
   fetchLeaves,
   submitLeave,
 };

@@ -9,6 +9,8 @@
         $startTime = old('work_start_time', $company->work_start_time ? \Illuminate\Support\Carbon::parse($company->work_start_time)->format('H:i') : '09:00');
         $endTime = old('work_end_time', $company->work_end_time ? \Illuminate\Support\Carbon::parse($company->work_end_time)->format('H:i') : '17:00');
         $selectedCurrency = old('currency', $company->currency ?? 'PHP');
+        $monthlySickLeaveLimit = old('monthly_sick_leave_limit', $company->monthly_sick_leave_limit ?? 2);
+        $monthlyVacationLeaveLimit = old('monthly_vacation_leave_limit', $company->monthly_vacation_leave_limit ?? 2);
     @endphp
 
     <form method="POST" action="{{ route('employer.settings.update') }}" class="space-y-6">
@@ -74,6 +76,49 @@
                         <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
                     @enderror
                     @error('working_days.*')
+                        <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                    @enderror
+                </div>
+            </div>
+        </section>
+
+        <section class="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-200 px-6 py-5">
+                <h2 class="text-base font-semibold text-slate-950">Monthly Leave Allowance</h2>
+                <p class="mt-1 text-sm text-slate-500">Set the monthly paid leave days employees can use before their balance reaches zero.</p>
+            </div>
+
+            <div class="grid gap-5 p-6 md:grid-cols-2">
+                <div>
+                    <label for="monthly_sick_leave_limit" class="block text-sm font-medium text-slate-700">Sick Leave Days</label>
+                    <input
+                        id="monthly_sick_leave_limit"
+                        name="monthly_sick_leave_limit"
+                        type="number"
+                        min="0"
+                        max="31"
+                        value="{{ $monthlySickLeaveLimit }}"
+                        class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15"
+                        required
+                    >
+                    @error('monthly_sick_leave_limit')
+                        <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                    @enderror
+                </div>
+
+                <div>
+                    <label for="monthly_vacation_leave_limit" class="block text-sm font-medium text-slate-700">Vacation Leave Days</label>
+                    <input
+                        id="monthly_vacation_leave_limit"
+                        name="monthly_vacation_leave_limit"
+                        type="number"
+                        min="0"
+                        max="31"
+                        value="{{ $monthlyVacationLeaveLimit }}"
+                        class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15"
+                        required
+                    >
+                    @error('monthly_vacation_leave_limit')
                         <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
                     @enderror
                 </div>
