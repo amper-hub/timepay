@@ -9,6 +9,7 @@ use App\Http\Controllers\Employer\EmployerPayrollController;
 use App\Http\Controllers\Employer\EmployeeController;
 use App\Http\Controllers\Employer\LeaveController as EmployerLeaveController;
 use App\Http\Controllers\Employer\SettingsController;
+use App\Http\Controllers\SuperAdmin\AdminUserController;
 use App\Http\Controllers\SuperAdmin\EmployerManagementController;
 use App\Http\Controllers\SuperAdmin\ImpersonationController;
 use App\Http\Controllers\SuperAdmin\LeaveAuditController;
@@ -44,6 +45,8 @@ Route::prefix('super-admin')->name('super-admin.')->middleware(['auth', IsSuperA
     Route::get('/platform', [PlatformOversightController::class, 'index'])->name('platform.index');
     Route::patch('/platform/geofence-settings', [PlatformOversightController::class, 'updateGeofenceSettings'])->name('platform.geofence-settings.update');
     Route::patch('/platform/employees/{employee}/reset-photo', [PlatformOversightController::class, 'resetPhoto'])->name('platform.employees.reset-photo');
+
+    Route::resource('admins', AdminUserController::class);
 
     Route::resource('employers', EmployerManagementController::class);
     Route::post('/employers/{employer}/approve', [EmployerManagementController::class, 'approve'])->name('employers.approve');
