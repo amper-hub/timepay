@@ -27,6 +27,7 @@ class Company extends Model
         'work_end_time',
         'working_days',
         'pay_metric',
+        'currency',
     ];
 
     /**
@@ -47,7 +48,27 @@ class Company extends Model
             'work_end_time' => 'datetime:H:i',
             'working_days' => 'array',
             'pay_metric' => 'string',
+            'currency' => 'string',
         ];
+    }
+
+    /**
+     * Get the display symbol for the company's selected payroll currency.
+     */
+    public function currencySymbol(): string
+    {
+        return match ($this->currency) {
+            'USD' => '$',
+            default => '₱',
+        };
+    }
+
+    /**
+     * Format a monetary value using the company's selected payroll currency.
+     */
+    public function formatMoney(float|int|string|null $amount): string
+    {
+        return $this->currencySymbol() . number_format((float) $amount, 2);
     }
 
     /**

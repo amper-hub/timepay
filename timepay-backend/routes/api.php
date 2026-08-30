@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AttendanceController;
+use App\Http\Controllers\Api\PayrollPayslipController;
 use App\Http\Controllers\Api\Employee\LeaveController;
 use App\Http\Controllers\Api\ProfileController as ApiProfileController;
 use Illuminate\Http\Request;
@@ -32,6 +33,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('profile/name', [ApiProfileController::class, 'updateName']);
     Route::patch('profile/password', [ApiProfileController::class, 'updatePassword']);
     Route::post('profile/reset-face', [ApiProfileController::class, 'resetFace']);
+
+    Route::get('payroll/payslips', [PayrollPayslipController::class, 'index']);
+    Route::get('payroll/payslip/{id}/download', [PayrollPayslipController::class, 'download']);
 
     Route::prefix('employee')->group(function () {
         Route::get('leaves', [LeaveController::class, 'index']);

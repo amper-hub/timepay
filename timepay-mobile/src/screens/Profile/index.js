@@ -19,8 +19,13 @@ import {
   updatePassword,
 } from "../../services/profileService";
 import { getApiErrorMessage } from "../../services/api";
+import {
+  downloadAndSharePayslip,
+  getPayslips,
+} from "../../services/payrollService";
 
 const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
+  const [activeTab, setActiveTab] = useState("account");
   const [name, setName] = useState(userSessionData?.user?.name ?? "");
   const [savingName, setSavingName] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
@@ -31,10 +36,35 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
   const [updatingPassword, setUpdatingPassword] = useState(false);
   const [confirmFaceResetVisible, setConfirmFaceResetVisible] = useState(false);
   const [resettingFace, setResettingFace] = useState(false);
+  const [payslips, setPayslips] = useState([]);
+  const [loadingPayslips, setLoadingPayslips] = useState(false);
+  const [downloadingPayslipId, setDownloadingPayslipId] = useState(null);
 
   useEffect(() => {
     setName(userSessionData?.user?.name ?? "");
   }, [userSessionData?.user?.name]);
+
+  const loadPayslips = useCallback(async () => {
+    setLoadingPayslips(true);
+
+    try {
+      const payrollHistory = await getPayslips();
+      setPayslips(payrollHistory);
+    } catch (error) {
+      Alert.alert(
+        "Unable to load payslips",
+        getApiErrorMessage(error, "Unable to load your payroll history.")
+      );
+    } finally {
+      setLoadingPayslips(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "payslips") {
+      loadPayslips();
+    }
+  }, [activeTab, loadPayslips]);
 
   const updatePasswordField = useCallback((field, value) => {
     setPasswordForm((current) => ({ ...current, [field]: value }));
@@ -118,6 +148,21 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
     }
   }, []);
 
+  const handleViewPayslip = useCallback(async (payslipId) => {
+    setDownloadingPayslipId(payslipId);
+
+    try {
+      await downloadAndSharePayslip(payslipId);
+    } catch (error) {
+      Alert.alert(
+        "Unable to open payslip",
+        getApiErrorMessage(error, "Unable to download your payslip right now.")
+      );
+    } finally {
+      setDownloadingPayslipId(null);
+    }
+  }, []);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -136,94 +181,182 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
             </Text>
           </View>
 
-          <View style={styles.infoCard}>
-            <Text style={styles.cardTitle}>Account</Text>
-            <Text style={styles.label}>Email</Text>
-            <Text style={styles.value}>{userSessionData?.user?.email ?? "N/A"}</Text>
-            <Text style={styles.label}>Company</Text>
-            <Text style={styles.value}>{userSessionData?.company?.name ?? "N/A"}</Text>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Edit Name</Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Full name"
-              placeholderTextColor="#94a3b8"
-              style={styles.input}
-            />
+          <View style={styles.tabBar}>
             <TouchableOpacity
-              disabled={savingName}
-              onPress={handleSaveName}
-              style={[styles.primaryButton, savingName && styles.disabledButton]}
-            >
-              {savingName ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <Text style={styles.primaryButtonText}>Save Name</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Update Password</Text>
-            <TextInput
-              value={passwordForm.current_password}
-              onChangeText={(value) => updatePasswordField("current_password", value)}
-              placeholder="Current Password"
-              placeholderTextColor="#94a3b8"
-              secureTextEntry
-              style={styles.input}
-            />
-            <TextInput
-              value={passwordForm.password}
-              onChangeText={(value) => updatePasswordField("password", value)}
-              placeholder="New Password"
-              placeholderTextColor="#94a3b8"
-              secureTextEntry
-              style={styles.input}
-            />
-            <TextInput
-              value={passwordForm.password_confirmation}
-              onChangeText={(value) =>
-                updatePasswordField("password_confirmation", value)
-              }
-              placeholder="Confirm Password"
-              placeholderTextColor="#94a3b8"
-              secureTextEntry
-              style={styles.input}
-            />
-            <TouchableOpacity
-              disabled={updatingPassword}
-              onPress={handleUpdatePassword}
+              activeOpacity={0.86}
+              onPress={() => setActiveTab("account")}
               style={[
-                styles.primaryButton,
-                updatingPassword && styles.disabledButton,
+                styles.tabButton,
+                activeTab === "account" && styles.activeTabButton,
               ]}
             >
-              {updatingPassword ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <Text style={styles.primaryButtonText}>Update Password</Text>
-              )}
+              <Text
+                style={[
+                  styles.tabButtonText,
+                  activeTab === "account" && styles.activeTabButtonText,
+                ]}
+              >
+                Account
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.86}
+              onPress={() => setActiveTab("payslips")}
+              style={[
+                styles.tabButton,
+                activeTab === "payslips" && styles.activeTabButton,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.tabButtonText,
+                  activeTab === "payslips" && styles.activeTabButtonText,
+                ]}
+              >
+                My Payslips
+              </Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.faceCard}>
-            <Text style={styles.faceTitle}>Facial Recognition</Text>
-            <Text style={styles.faceText}>
-              Reset your baseline photo if your verification keeps failing or your appearance has changed.
-            </Text>
-            <TouchableOpacity
-              activeOpacity={0.9}
-              onPress={() => setConfirmFaceResetVisible(true)}
-              style={styles.faceButton}
-            >
-              <Text style={styles.faceButtonText}>Update Facial Recognition</Text>
-              <Text style={styles.faceButtonSubtext}>Re-enroll Face ID</Text>
-            </TouchableOpacity>
-          </View>
+          {activeTab === "account" ? (
+            <>
+              <View style={styles.infoCard}>
+                <Text style={styles.cardTitle}>Account</Text>
+                <Text style={styles.label}>Email</Text>
+                <Text style={styles.value}>{userSessionData?.user?.email ?? "N/A"}</Text>
+                <Text style={styles.label}>Company</Text>
+                <Text style={styles.value}>{userSessionData?.company?.name ?? "N/A"}</Text>
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Edit Name</Text>
+                <TextInput
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Full name"
+                  placeholderTextColor="#94a3b8"
+                  style={styles.input}
+                />
+                <TouchableOpacity
+                  disabled={savingName}
+                  onPress={handleSaveName}
+                  style={[styles.primaryButton, savingName && styles.disabledButton]}
+                >
+                  {savingName ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Save Name</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Update Password</Text>
+                <TextInput
+                  value={passwordForm.current_password}
+                  onChangeText={(value) => updatePasswordField("current_password", value)}
+                  placeholder="Current Password"
+                  placeholderTextColor="#94a3b8"
+                  secureTextEntry
+                  style={styles.input}
+                />
+                <TextInput
+                  value={passwordForm.password}
+                  onChangeText={(value) => updatePasswordField("password", value)}
+                  placeholder="New Password"
+                  placeholderTextColor="#94a3b8"
+                  secureTextEntry
+                  style={styles.input}
+                />
+                <TextInput
+                  value={passwordForm.password_confirmation}
+                  onChangeText={(value) =>
+                    updatePasswordField("password_confirmation", value)
+                  }
+                  placeholder="Confirm Password"
+                  placeholderTextColor="#94a3b8"
+                  secureTextEntry
+                  style={styles.input}
+                />
+                <TouchableOpacity
+                  disabled={updatingPassword}
+                  onPress={handleUpdatePassword}
+                  style={[
+                    styles.primaryButton,
+                    updatingPassword && styles.disabledButton,
+                  ]}
+                >
+                  {updatingPassword ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Update Password</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.faceCard}>
+                <Text style={styles.faceTitle}>Facial Recognition</Text>
+                <Text style={styles.faceText}>
+                  Reset your baseline photo if your verification keeps failing or your appearance has changed.
+                </Text>
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={() => setConfirmFaceResetVisible(true)}
+                  style={styles.faceButton}
+                >
+                  <Text style={styles.faceButtonText}>Update Facial Recognition</Text>
+                  <Text style={styles.faceButtonSubtext}>Re-enroll Face ID</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>My Payslips</Text>
+                <TouchableOpacity
+                  disabled={loadingPayslips}
+                  onPress={loadPayslips}
+                  style={styles.refreshButton}
+                >
+                  <Text style={styles.refreshButtonText}>Refresh</Text>
+                </TouchableOpacity>
+              </View>
+
+              {loadingPayslips ? (
+                <View style={styles.centerState}>
+                  <ActivityIndicator color="#4f46e5" />
+                </View>
+              ) : payslips.length === 0 ? (
+                <Text style={styles.emptyText}>No payslips are available yet.</Text>
+              ) : (
+                payslips.map((payslip) => (
+                  <View key={payslip.id} style={styles.payslipRow}>
+                    <View style={styles.payslipDetails}>
+                      <Text style={styles.payslipPeriod}>{payslip.pay_period}</Text>
+                      <Text style={styles.payslipMeta}>
+                        {payslip.regular_hours} hrs - Net {payslip.formatted_net_pay}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      activeOpacity={0.86}
+                      disabled={downloadingPayslipId === payslip.id}
+                      onPress={() => handleViewPayslip(payslip.id)}
+                      style={[
+                        styles.viewPayslipButton,
+                        downloadingPayslipId === payslip.id && styles.disabledButton,
+                      ]}
+                    >
+                      {downloadingPayslipId === payslip.id ? (
+                        <ActivityIndicator color="#ffffff" />
+                      ) : (
+                        <Text style={styles.viewPayslipButtonText}>View Payslip</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+            </View>
+          )}
 
           <TouchableOpacity
             activeOpacity={0.88}
@@ -309,6 +442,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  tabBar: {
+    flexDirection: "row",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#ffffff",
+    padding: 4,
+    marginBottom: 14,
+  },
+  tabButton: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+  },
+  activeTabButton: {
+    backgroundColor: "#4f46e5",
+  },
+  tabButtonText: {
+    color: "#64748b",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  activeTabButtonText: {
+    color: "#ffffff",
+  },
   infoCard: {
     borderRadius: 22,
     borderWidth: 1,
@@ -330,6 +490,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
     marginBottom: 14,
+  },
+  cardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4,
   },
   label: {
     color: "#64748b",
@@ -367,6 +533,66 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: "#ffffff",
     fontSize: 15,
+    fontWeight: "900",
+  },
+  refreshButton: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  refreshButtonText: {
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  centerState: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 90,
+  },
+  emptyText: {
+    color: "#64748b",
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20,
+    paddingVertical: 16,
+  },
+  payslipRow: {
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+    flexDirection: "row",
+    gap: 12,
+    paddingVertical: 14,
+  },
+  payslipDetails: {
+    flex: 1,
+  },
+  payslipPeriod: {
+    color: "#0f172a",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  payslipMeta: {
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  viewPayslipButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 42,
+    minWidth: 112,
+    borderRadius: 12,
+    backgroundColor: "#0f172a",
+    paddingHorizontal: 12,
+  },
+  viewPayslipButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
     fontWeight: "900",
   },
   faceCard: {

@@ -41,6 +41,7 @@ class SettingsController extends Controller
             'work_end_time' => ['required', 'date_format:H:i', 'different:work_start_time'],
             'working_days' => ['required', 'array', 'min:1'],
             'working_days.*' => ['required', 'string', Rule::in(self::DAYS_OF_WEEK)],
+            'currency' => ['required', 'string', Rule::in(['PHP', 'USD'])],
         ]);
 
         $workingDays = array_values(array_unique($validated['working_days']));
@@ -52,6 +53,7 @@ class SettingsController extends Controller
             'work_start_time' => $validated['work_start_time'],
             'work_end_time' => $validated['work_end_time'],
             'working_days' => $workingDays,
+            'currency' => $validated['currency'],
         ]);
 
         return redirect()

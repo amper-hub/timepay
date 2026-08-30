@@ -18,7 +18,10 @@ class EmployerPayrollController extends Controller
      */
     public function index(): View
     {
-        $companyId = auth()->user()->company_id;
+        $company = auth()->user()->company;
+        abort_unless($company, 404);
+
+        $companyId = $company->id;
         $periodStart = now()->startOfMonth();
         $periodEnd = now()->endOfMonth();
 
@@ -51,6 +54,7 @@ class EmployerPayrollController extends Controller
         });
 
         return view('employer.payroll', [
+            'company' => $company,
             'employeePayroll' => $employeePayroll,
             'periodStart' => $periodStart,
             'periodEnd' => $periodEnd,

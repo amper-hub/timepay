@@ -1,5 +1,6 @@
 <div
     x-data="{
+        currencySymbol: @js(auth()->user()->company?->currencySymbol() ?? '₱'),
         open: false,
         step: 'form',
         loading: false,
@@ -147,7 +148,7 @@
                                 required
                                 autocomplete="name"
                                 class="mt-1.5 block w-full rounded-lg border px-3 py-2.5 text-sm shadow-sm transition focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500"
-                                :class="errors.name ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-slate-300 focus:border-slate-950 focus:ring-slate-200'"
+                                :class="errors.name ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-slate-300 focus:border-emerald-600 focus:ring-emerald-200'"
                                 placeholder="Jane Smith"
                             >
                             <template x-if="errors.name">
@@ -165,7 +166,7 @@
                                 required
                                 autocomplete="email"
                                 class="mt-1.5 block w-full rounded-lg border px-3 py-2.5 text-sm shadow-sm transition focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500"
-                                :class="errors.email ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-slate-300 focus:border-slate-950 focus:ring-slate-200'"
+                                :class="errors.email ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-slate-300 focus:border-emerald-600 focus:ring-emerald-200'"
                                 placeholder="jane@company.com"
                             >
                             <template x-if="errors.email">
@@ -176,7 +177,7 @@
                         <div>
                             <label for="employee-hourly-rate" class="block text-sm font-medium text-slate-700">Hourly Rate</label>
                             <div class="relative mt-1.5">
-                                <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-sm text-slate-500">$</span>
+                                <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-sm text-slate-500" x-text="currencySymbol"></span>
                                 <input
                                     id="employee-hourly-rate"
                                     type="number"
@@ -186,7 +187,7 @@
                                     :disabled="loading"
                                     required
                                     class="block w-full rounded-lg border py-2.5 pl-7 pr-3 text-sm shadow-sm transition focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500"
-                                    :class="errors.hourly_rate ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-slate-300 focus:border-slate-950 focus:ring-slate-200'"
+                                    :class="errors.hourly_rate ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-slate-300 focus:border-emerald-600 focus:ring-emerald-200'"
                                     placeholder="15.00"
                                 >
                             </div>
@@ -207,7 +208,7 @@
                             <button
                                 type="submit"
                                 :disabled="loading"
-                                class="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 <svg
                                     x-show="loading"
@@ -269,7 +270,7 @@
                         </div>
                         <div class="flex justify-between gap-4">
                             <dt class="text-slate-500">Hourly Rate</dt>
-                            <dd class="font-medium text-slate-950" x-text="createdEmployee ? '$' + Number(createdEmployee.hourly_rate).toFixed(2) : ''"></dd>
+                            <dd class="font-medium text-slate-950" x-text="createdEmployee ? currencySymbol + Number(createdEmployee.hourly_rate).toFixed(2) : ''"></dd>
                         </div>
                     </dl>
 
@@ -284,7 +285,7 @@
                         <button
                             type="button"
                             @click="closeModal()"
-                            class="rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+                            class="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700"
                         >
                             Done
                         </button>

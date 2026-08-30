@@ -8,7 +8,7 @@
         <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                    <p class="text-sm font-semibold uppercase tracking-wide text-indigo-600">Employer Review Queue</p>
+                    <p class="text-sm font-semibold uppercase tracking-wide text-emerald-600">Employer Review Queue</p>
                     <h2 class="mt-2 text-2xl font-bold text-slate-950">Employee leave requests</h2>
                     <p class="mt-2 max-w-2xl text-sm text-slate-500">
                         Review pending requests, approve time away, or decline with a clear note for the employee.
@@ -16,13 +16,13 @@
                 </div>
 
                 <form method="GET" action="{{ route('employer.leaves.index') }}" class="flex flex-col gap-2 sm:flex-row">
-                    <select name="status" class="rounded-lg border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <select name="status" class="rounded-lg border-slate-300 text-sm shadow-sm focus:border-emerald-600 focus:ring-emerald-600">
                         <option value="">All statuses</option>
                         <option value="pending" @selected($selectedStatus === 'pending')>Pending</option>
                         <option value="approved" @selected($selectedStatus === 'approved')>Approved</option>
                         <option value="rejected" @selected($selectedStatus === 'rejected')>Rejected</option>
                     </select>
-                    <button type="submit" class="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800">
+                    <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700">
                         Filter
                     </button>
                 </form>
@@ -84,7 +84,7 @@
                                     <form method="POST" action="{{ route('employer.leaves.update', $leave) }}" class="space-y-3">
                                         @csrf
                                         @method('PATCH')
-                                        <textarea name="admin_notes" rows="2" placeholder="Optional admin notes..." class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">{{ old('admin_notes', $leave->admin_notes) }}</textarea>
+                                        <textarea name="admin_notes" rows="2" placeholder="Optional admin notes..." class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-emerald-600 focus:ring-emerald-600">{{ old('admin_notes', $leave->admin_notes) }}</textarea>
                                         <div class="flex flex-wrap gap-2">
                                             <button name="status" value="approved" class="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-700">
                                                 Approve

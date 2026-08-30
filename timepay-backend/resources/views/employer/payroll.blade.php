@@ -12,11 +12,11 @@
             </div>
             <div class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
                 <p class="text-sm font-medium text-slate-500">Verified Hours</p>
-                <p class="mt-3 text-3xl font-bold text-blue-600">{{ number_format($employeePayroll->sum('hours_worked'), 2) }}</p>
+                <p class="mt-3 text-3xl font-bold text-teal-600">{{ number_format($employeePayroll->sum('hours_worked'), 2) }}</p>
             </div>
             <div class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
                 <p class="text-sm font-medium text-slate-500">Pending Pay Calculations</p>
-                <p class="mt-3 text-3xl font-bold text-emerald-600">{{ number_format($employeePayroll->sum('pending_pay'), 2) }}</p>
+                <p class="mt-3 text-3xl font-bold text-emerald-600">{{ $company->formatMoney($employeePayroll->sum('pending_pay')) }}</p>
             </div>
         </div>
 
@@ -31,7 +31,7 @@
                 <button
                     type="button"
                     @click="$dispatch('open-add-employee-modal')"
-                    class="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+                    class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
                 >
                     <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
@@ -61,7 +61,7 @@
                                         @csrf
                                     </form>
                                     <div class="flex items-center gap-3">
-                                        <div class="flex h-10 w-10 items-center justify-center rounded-full bg-slate-950 text-sm font-bold text-white">
+                                        <div class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-sm font-bold text-white">
                                             {{ strtoupper(substr($payroll['employee']->name, 0, 1)) }}
                                         </div>
                                         <div>
@@ -74,30 +74,33 @@
                                     {{ number_format($payroll['hours_worked'], 2) }} hrs
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4">
-                                    <input
-                                        form="{{ $formId }}"
-                                        name="hourly_rate"
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        max="999999.99"
-                                        value="{{ number_format($payroll['hourly_rate'], 2, '.', '') }}"
-                                        class="w-32 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10"
-                                        required
-                                    >
+                                    <div class="relative w-36">
+                                        <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-sm text-slate-500">{{ $company->currencySymbol() }}</span>
+                                        <input
+                                            form="{{ $formId }}"
+                                            name="hourly_rate"
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            max="999999.99"
+                                            value="{{ number_format($payroll['hourly_rate'], 2, '.', '') }}"
+                                            class="w-full rounded-lg border border-slate-300 bg-white py-2 pl-7 pr-3 text-sm shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15"
+                                            required
+                                        >
+                                    </div>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4">
-                                    <select form="{{ $formId }}" name="payment_method" class="w-44 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10" required>
+                                    <select form="{{ $formId }}" name="payment_method" class="w-44 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15" required>
                                         <option value="manual_cash" @selected($payroll['payment_method'] === 'manual_cash')>Personal/Cash</option>
                                         <option value="digital_payout" @selected($payroll['payment_method'] === 'digital_payout')>Digital Gateway</option>
                                     </select>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4">
-                                    <p class="text-sm font-semibold text-slate-950">{{ number_format($payroll['pending_pay'], 2) }}</p>
+                                    <p class="text-sm font-semibold text-emerald-700">{{ $company->formatMoney($payroll['pending_pay']) }}</p>
                                     <p class="text-xs text-slate-500">Based on verified paired punches</p>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-right">
-                                    <button form="{{ $formId }}" type="submit" class="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800">
+                                    <button form="{{ $formId }}" type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700">
                                         Save Configurations
                                     </button>
                                 </td>

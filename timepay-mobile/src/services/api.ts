@@ -30,7 +30,7 @@ import {
  * IMPORTANT: Update this to match your development machine's IP
  * Find your IP: Windows (ipconfig) | Mac/Linux (ifconfig)
  */
-const BASE_URL = "http://192.168.0.105:8000/api";
+const BASE_URL = "http://10.167.254.55:8000/api";
 
 /**
  * Detect if running in local development (non-HTTPS)
@@ -54,6 +54,10 @@ export const setAuthToken = (token: string | null): void => {
     delete apiClient.defaults.headers.common["Authorization"];
   }
 };
+
+export const getAuthToken = (): string | null => authToken;
+
+export const getApiBaseUrl = (): string => BASE_URL;
 
 /**
  * Display comprehensive network troubleshooting alert

@@ -13,8 +13,8 @@
                     <h2 class="text-base font-semibold text-slate-950">Workspace Boundary</h2>
                     <p class="mt-1 text-sm text-slate-500">Drag the pin, click the map, or use your GPS to set the workspace coordinates.</p>
                 </div>
-                <button type="button" id="locate-btn" class="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-950/10">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2z"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                <button type="button" id="locate-btn" class="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 shadow-sm transition hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-600/15">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-600"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2z"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
                     Find My Location
                 </button>
             </div>
@@ -35,7 +35,7 @@
                             readonly
                             value="{{ old('latitude', $company->latitude ?? '') }}"
                             placeholder="e.g. 7.0702000"
-                            class="mt-2 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10 cursor-not-allowed"
+                            class="mt-2 w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15"
                         >
                         @error('latitude')
                             <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
@@ -52,7 +52,7 @@
                             readonly
                             value="{{ old('longitude', $company->longitude ?? '') }}"
                             placeholder="e.g. 125.6171000"
-                            class="mt-2 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10 cursor-not-allowed"
+                            class="mt-2 w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15"
                         >
                         @error('longitude')
                             <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
@@ -62,7 +62,7 @@
 
                 <div>
                     <label for="geofence_radius_meters" class="block text-sm font-medium text-slate-700">Geofence Radius</label>
-                    <div class="mt-2 flex max-w-sm items-center rounded-lg border border-slate-300 bg-white shadow-sm focus-within:border-slate-950 focus-within:ring-2 focus-within:ring-slate-950/10">
+                    <div class="mt-2 flex max-w-sm items-center rounded-lg border border-slate-300 bg-white shadow-sm focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-600/15">
                         <input
                             id="geofence_radius_meters"
                             name="geofence_radius_meters"
@@ -82,7 +82,7 @@
 
                 <div class="flex flex-wrap gap-2">
                     @foreach ([50, 100, 200, 500] as $radius)
-                        <button type="button" data-radius="{{ $radius }}" class="radius-btn rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-950/10">
+                        <button type="button" data-radius="{{ $radius }}" class="radius-btn rounded-full border border-emerald-200 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50 focus:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-600/15">
                             {{ $radius }}m
                         </button>
                     @endforeach
@@ -90,7 +90,7 @@
 
                 <div class="flex items-center justify-end gap-3 border-t border-slate-200 pt-6">
                     <a href="{{ route('employer.dashboard') }}" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">Cancel</a>
-                    <button type="submit" class="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800">
+                    <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700">
                         Save Geofence
                     </button>
                 </div>
@@ -141,8 +141,8 @@
 
             // 3. Add Radius Circle
             const circle = L.circle([currentLat, currentLng], {
-                color: '#0f172a', // slate-950 to match your theme
-                fillColor: '#0f172a',
+                color: '#059669',
+                fillColor: '#10b981',
                 fillOpacity: 0.15,
                 radius: currentRadius
             }).addTo(map);

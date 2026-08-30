@@ -13,7 +13,7 @@
             <button
                 type="button"
                 @click="$dispatch('open-add-employee-modal')"
-                class="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+                class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
             >
                 <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
@@ -22,7 +22,7 @@
             </button>
         </div>
 
-        <div class="grid gap-4 md:grid-cols-3">
+        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <div class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
                 <p class="text-sm font-medium text-slate-500">Total Staff</p>
                 <p class="mt-3 text-3xl font-bold text-slate-950">{{ number_format($totalEmployees) }}</p>
@@ -33,6 +33,18 @@
                 <p class="text-sm font-medium text-slate-500">Verified Punches</p>
                 <p class="mt-3 text-3xl font-bold text-emerald-600">{{ number_format($verifiedPunchesToday) }}</p>
                 <p class="mt-2 text-sm text-slate-500">Approved attendance events today</p>
+            </div>
+
+            <div class="rounded-lg border border-emerald-100 bg-emerald-50 p-6 shadow-sm">
+                <p class="text-sm font-medium text-emerald-700">Average Hourly Rate</p>
+                <p class="mt-3 text-3xl font-bold text-emerald-700">{{ $company->formatMoney($averageHourlyRate) }}</p>
+                <p class="mt-2 text-sm text-emerald-700/80">Across active employees</p>
+            </div>
+
+            <div class="rounded-lg border border-teal-100 bg-teal-50 p-6 shadow-sm">
+                <p class="text-sm font-medium text-teal-700">Pending Payroll</p>
+                <p class="mt-3 text-3xl font-bold text-teal-700">{{ $company->formatMoney($pendingPayroll) }}</p>
+                <p class="mt-2 text-sm text-teal-700/80">Current month verified work</p>
             </div>
 
             <div class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
