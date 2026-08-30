@@ -151,7 +151,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.centeredState}>
-          <ActivityIndicator color="#4f46e5" size="large" />
+          <ActivityIndicator color="#059669" size="large" />
           <Text style={styles.centeredText}>Checking camera access...</Text>
         </View>
       </SafeAreaView>
@@ -298,7 +298,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 18,
-    backgroundColor: "#4f46e5",
+    backgroundColor: "#059669",
     paddingHorizontal: 18,
     marginTop: 24,
   },

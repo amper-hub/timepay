@@ -46,7 +46,7 @@
             </div>
 
             <form method="GET" action="{{ route('super-admin.platform.index') }}" class="flex flex-col gap-2 sm:flex-row">
-                <input type="search" name="employee_search" value="{{ request('employee_search') }}" placeholder="Search employee, email, or company" class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:w-80">
+                <input type="search" name="employee_search" value="{{ request('employee_search') }}" placeholder="Search employee, email, or company" class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 sm:w-80">
                 <button type="submit" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Search</button>
             </form>
         </div>
@@ -128,7 +128,7 @@
                 <div>
                     <label for="default_geofence_radius" class="block text-sm font-semibold text-slate-700">Default Geofence Radius</label>
                     <div class="mt-1 flex rounded-lg shadow-sm">
-                        <input id="default_geofence_radius" type="number" min="10" max="5000" name="default_geofence_radius" value="{{ old('default_geofence_radius', $defaultGeofenceRadius) }}" class="block w-full rounded-l-lg border-slate-300 text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                        <input id="default_geofence_radius" type="number" min="10" max="5000" name="default_geofence_radius" value="{{ old('default_geofence_radius', $defaultGeofenceRadius) }}" class="block w-full rounded-l-lg border-slate-300 text-sm focus:border-emerald-500 focus:ring-emerald-500">
                         <span class="inline-flex items-center rounded-r-lg border border-l-0 border-slate-300 bg-slate-50 px-3 text-sm text-slate-500">meters</span>
                     </div>
                     @error('default_geofence_radius')
@@ -136,7 +136,7 @@
                     @enderror
                 </div>
 
-                <button type="submit" class="inline-flex w-full justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700">
+                <button type="submit" class="inline-flex w-full justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">
                     Save Settings
                 </button>
             </form>
@@ -187,7 +187,7 @@
 
             L.circle(point, {
                 radius: company.radius,
-                color: '#4f46e5',
+                color: '#059669',
                 weight: 2,
                 fillColor: '#6366f1',
                 fillOpacity: 0.12

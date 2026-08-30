@@ -14,9 +14,9 @@
 
         <div class="flex flex-col gap-3 sm:flex-row">
             <form method="GET" action="{{ route('super-admin.admins.index') }}" class="flex flex-col gap-2 sm:flex-row">
-                <input type="search" name="search" value="{{ request('search') }}" placeholder="Search admins" class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:w-64">
+                <input type="search" name="search" value="{{ request('search') }}" placeholder="Search admins" class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 sm:w-64">
                 @if ($hasStatusColumn)
-                    <select name="status" class="rounded-lg border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <select name="status" class="rounded-lg border-slate-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
                         <option value="">All statuses</option>
                         <option value="active" @selected(request('status') === 'active')>Active</option>
                         <option value="suspended" @selected(request('status') === 'suspended')>Suspended</option>
@@ -24,7 +24,7 @@
                 @endif
                 <button type="submit" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Search</button>
             </form>
-            <a href="{{ route('super-admin.admins.create') }}" class="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700">Create Admin</a>
+            <a href="{{ route('super-admin.admins.create') }}" class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">Create Admin</a>
         </div>
     </div>
 

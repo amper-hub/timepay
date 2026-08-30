@@ -324,7 +324,7 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
 
               {loadingPayslips ? (
                 <View style={styles.centerState}>
-                  <ActivityIndicator color="#4f46e5" />
+                  <ActivityIndicator color="#059669" />
                 </View>
               ) : payslips.length === 0 ? (
                 <Text style={styles.emptyText}>No payslips are available yet.</Text>
@@ -424,7 +424,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   eyebrow: {
-    color: "#4f46e5",
+    color: "#059669",
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 0.8,
@@ -459,7 +459,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   activeTabButton: {
-    backgroundColor: "#4f46e5",
+    backgroundColor: "#059669",
   },
   tabButtonText: {
     color: "#64748b",
@@ -528,7 +528,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 14,
-    backgroundColor: "#4f46e5",
+    backgroundColor: "#059669",
   },
   primaryButtonText: {
     color: "#ffffff",

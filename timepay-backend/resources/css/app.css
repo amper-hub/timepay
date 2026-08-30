@@ -1,3 +1,27 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+    body {
+        @apply bg-slate-50 text-slate-900;
+    }
+}
+
+@layer components {
+    .timepay-card {
+        @apply rounded-lg border border-emerald-100/70 bg-white shadow-sm;
+    }
+
+    .timepay-primary {
+        @apply inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2;
+    }
+
+    .timepay-badge {
+        @apply inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100;
+    }
+
+    .timepay-table-head {
+        @apply bg-emerald-50/60 text-xs font-semibold uppercase tracking-wide text-emerald-800;
+    }
+}

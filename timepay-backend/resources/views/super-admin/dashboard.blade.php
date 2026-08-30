@@ -36,12 +36,12 @@
                     <h2 class="text-lg font-semibold text-slate-950">Recent Employers</h2>
                     <p class="text-sm text-slate-500">Newest employer accounts and company records.</p>
                 </div>
-                <a href="{{ route('super-admin.employers.index') }}" class="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700">Manage Employers</a>
+                <a href="{{ route('super-admin.employers.index') }}" class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">Manage Employers</a>
             </div>
 
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-slate-200 text-left text-sm">
-                    <thead class="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <thead class="bg-emerald-50/60 text-xs font-semibold uppercase tracking-wide text-emerald-800">
                         <tr>
                             <th class="px-5 py-3">Company</th>
                             <th class="px-5 py-3">Representative</th>
@@ -51,7 +51,7 @@
                     </thead>
                     <tbody class="divide-y divide-slate-100">
                         @forelse ($employers as $employer)
-                            <tr class="hover:bg-slate-50/70">
+                            <tr class="transition hover:bg-emerald-50/50">
                                 <td class="px-5 py-4 font-medium text-slate-950">{{ $employer->company?->name ?? 'No company assigned' }}</td>
                                 <td class="px-5 py-4">
                                     <p class="font-medium text-slate-800">{{ $employer->name }}</p>
@@ -59,7 +59,7 @@
                                 </td>
                                 <td class="px-5 py-4 text-slate-600">{{ $employer->created_at?->format('M d, Y') ?? '-' }}</td>
                                 <td class="px-5 py-4 text-right">
-                                    <a href="{{ route('super-admin.employers.show', $employer) }}" class="text-sm font-semibold text-indigo-600 hover:text-indigo-800">View</a>
+                                    <a href="{{ route('super-admin.employers.show', $employer) }}" class="text-sm font-semibold text-emerald-600 hover:text-emerald-800">View</a>
                                 </td>
                             </tr>
                         @empty
@@ -75,11 +75,11 @@
         <section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <h2 class="text-lg font-semibold text-slate-950">Quick Actions</h2>
             <div class="mt-4 space-y-3">
-                <a href="{{ route('super-admin.admins.create') }}" class="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700">
+                <a href="{{ route('super-admin.admins.create') }}" class="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700">
                     Create admin account
                     <span aria-hidden="true">+</span>
                 </a>
-                <a href="{{ route('super-admin.reports.index') }}" class="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700">
+                <a href="{{ route('super-admin.reports.index') }}" class="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700">
                     View system reports
                     <span aria-hidden="true">-></span>
                 </a>

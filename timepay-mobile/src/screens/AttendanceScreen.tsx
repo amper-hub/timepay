@@ -29,6 +29,7 @@ import {
   getHighAccuracyAttendanceLocation,
   LOCATION_FALLBACK_WARNING,
 } from "../services/location";
+import TimePayLogo from "../components/TimePayLogo";
 
 interface AttendanceScreenProps {
   userSessionData: UserSession | null;
@@ -217,7 +218,7 @@ const AttendanceScreen: React.FC<AttendanceScreenProps> = ({
       >
         <View style={styles.header}>
           <View>
-            <Text style={styles.brand}>TimePay</Text>
+            <TimePayLogo style={styles.headerLogo} />
             <Text style={styles.company}>{userSessionData.company.name}</Text>
           </View>
           <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
@@ -269,7 +270,7 @@ const AttendanceScreen: React.FC<AttendanceScreenProps> = ({
             <Text style={styles.statusCaption}>Current State</Text>
             {statusLoading ? (
               <View style={styles.statusLoadingRow}>
-                <ActivityIndicator color="#4f46e5" />
+                <ActivityIndicator color="#059669" />
                 <Text style={styles.statusLoadingText}>Checking status...</Text>
               </View>
             ) : (
@@ -387,10 +388,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 28,
   },
-  brand: {
-    color: "#0f172a",
-    fontSize: 24,
-    fontWeight: "800",
+  headerLogo: {
+    width: 132,
+    height: 42,
   },
   company: {
     marginTop: 3,
@@ -415,7 +415,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   eyebrow: {
-    color: "#4f46e5",
+    color: "#059669",
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 0.7,
@@ -506,7 +506,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     borderRadius: 12,
-    backgroundColor: "#4f46e5",
+    backgroundColor: "#059669",
     paddingVertical: 12,
   },
   primarySmallButtonText: {

@@ -18,6 +18,7 @@ import {
   UserSession,
 } from "../types";
 import { EmployeeTabParamList } from "../navigation/AppNavigator";
+import TimePayLogo from "../components/TimePayLogo";
 
 type HomeScreenProps = BottomTabScreenProps<EmployeeTabParamList, "Home"> & {
   userSessionData: UserSession | null;
@@ -205,11 +206,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
         }
       >
         <View style={styles.header}>
-          <View style={styles.brandMark}>
-            <Text style={styles.brandMarkText}>TP</Text>
-          </View>
           <View style={styles.headerCopy}>
-            <Text style={styles.brand}>TimePay</Text>
+            <TimePayLogo style={styles.headerLogo} />
             <Text style={styles.company}>{userSessionData.company.name}</Text>
           </View>
         </View>
@@ -271,7 +269,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
           <View style={styles.metricCard}>
             <Text style={styles.cardLabel}>Geofence</Text>
             {loading && geofenceState === "checking" ? (
-              <ActivityIndicator color="#4f46e5" style={styles.metricSpinner} />
+              <ActivityIndicator color="#059669" style={styles.metricSpinner} />
             ) : (
               <>
                 <Text style={[styles.metricValue, geofenceTone]}>
@@ -338,26 +336,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 26,
   },
-  brandMark: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#4f46e5",
-  },
-  brandMarkText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "900",
-  },
   headerCopy: {
-    marginLeft: 12,
+    flex: 1,
   },
-  brand: {
-    color: "#0f172a",
-    fontSize: 22,
-    fontWeight: "900",
+  headerLogo: {
+    width: 132,
+    height: 42,
   },
   company: {
     marginTop: 2,
@@ -369,7 +353,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   eyebrow: {
-    color: "#4f46e5",
+    color: "#059669",
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 0.6,
@@ -468,7 +452,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 16,
-    backgroundColor: "#4f46e5",
+    backgroundColor: "#059669",
   },
   primaryButtonText: {
     color: "#ffffff",

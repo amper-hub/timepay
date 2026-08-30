@@ -11,7 +11,7 @@
             <h2 class="text-lg font-semibold text-slate-950">{{ $admin->name }}</h2>
             <p class="text-sm text-slate-500">{{ $admin->email }}</p>
         </div>
-        <a href="{{ route('super-admin.admins.edit', $admin) }}" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Edit</a>
+        <a href="{{ route('super-admin.admins.edit', $admin) }}" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Edit</a>
     </div>
 
     <dl class="grid gap-5 px-5 py-5 sm:grid-cols-2">

@@ -54,7 +54,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   eyebrow: {
-    color: "#4f46e5",
+    color: "#059669",
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 0.6,

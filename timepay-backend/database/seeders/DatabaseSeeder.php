@@ -12,7 +12,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $company = Company::firstOrCreate(
-            ['name' => 'TimePay Capstone Corp'],
+            ['name' => 'TimePay'],
             [
                 'latitude' => 14.59950000,
                 'longitude' => 120.98420000,

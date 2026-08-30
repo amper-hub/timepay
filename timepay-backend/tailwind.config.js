@@ -11,6 +11,20 @@ export default {
 
     theme: {
         extend: {
+            colors: {
+                timepay: {
+                    primary: '#059669',
+                    primaryDark: '#047857',
+                    mint: '#A7F3D0',
+                    teal: '#14B8A6',
+                    surface: '#F8FAFC',
+                    ink: '#0F172A',
+                },
+            },
+            boxShadow: {
+                'timepay-sm': '0 8px 24px rgba(15, 23, 42, 0.06)',
+                'timepay-glow': '0 12px 30px rgba(5, 150, 105, 0.18)',
+            },
             fontFamily: {
                 sans: ['Figtree', ...defaultTheme.fontFamily.sans],
             },

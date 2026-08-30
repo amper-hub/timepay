@@ -23,6 +23,7 @@ import {
   getHighAccuracyAttendanceLocation,
   LOCATION_FALLBACK_WARNING,
 } from "../services/location";
+import TimePayLogo from "../components/TimePayLogo";
 
 interface DashboardScreenProps {
   userSessionData: UserSession | null;
@@ -291,7 +292,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
     <SafeAreaView style={styles.container}>
       {/* Header with Logout */}
       <View style={styles.headerBar}>
-        <Text style={styles.headerTitle}>TimePay</Text>
+        <TimePayLogo style={styles.headerLogo} />
         <TouchableOpacity
           style={styles.logoutButton}
           onPress={handleLogout}
@@ -532,10 +533,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1a1a1a",
+  headerLogo: {
+    width: 120,
+    height: 38,
   },
   logoutButton: {
     paddingHorizontal: 12,

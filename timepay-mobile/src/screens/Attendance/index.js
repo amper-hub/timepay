@@ -262,7 +262,7 @@ const AttendanceHistoryScreen = ({ navigation, userSessionData, onLogout }) => {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.centeredState}>
-          <ActivityIndicator color="#4f46e5" size="large" />
+          <ActivityIndicator color="#059669" size="large" />
           <Text style={styles.centeredText}>Loading attendance history...</Text>
         </View>
       </SafeAreaView>
@@ -308,7 +308,7 @@ const styles = StyleSheet.create({
     paddingBottom: 18,
   },
   eyebrow: {
-    color: "#4f46e5",
+    color: "#059669",
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 0.8,

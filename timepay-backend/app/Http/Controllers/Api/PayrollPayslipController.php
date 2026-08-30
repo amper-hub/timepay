@@ -53,7 +53,7 @@ class PayrollPayslipController extends Controller
         abort_if($logs->isEmpty(), 404, 'No payroll records found for this pay period.');
 
         $payslip = $this->buildPayslipData($employee, $periodStart->format('Y-m'), $logs);
-        $logoPath = public_path('images/timepay-logo.png');
+        $logoPath = resource_path('img/timepay-logo.png');
 
         $pdf = Pdf::loadView('pdfs.payslip', [
             'company' => $employee->company,

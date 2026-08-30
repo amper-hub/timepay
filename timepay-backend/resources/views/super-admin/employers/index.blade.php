@@ -14,9 +14,9 @@
 
         <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
             <form method="GET" action="{{ route('super-admin.employers.index') }}" class="flex flex-col gap-2 sm:flex-row">
-                <input type="search" name="search" value="{{ request('search') }}" placeholder="Search employers" class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:w-72">
+                <input type="search" name="search" value="{{ request('search') }}" placeholder="Search employers" class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 sm:w-72">
                 @if ($hasStatusColumn)
-                    <select name="status" class="rounded-lg border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <select name="status" class="rounded-lg border-slate-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
                         <option value="">All statuses</option>
                         <option value="pending" @selected(request('status') === 'pending')>Pending</option>
                         <option value="active" @selected(request('status') === 'active')>Active</option>
@@ -26,7 +26,7 @@
                 @endif
                 <button type="submit" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Search</button>
             </form>
-            <a href="{{ route('super-admin.employers.create') }}" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+            <a href="{{ route('super-admin.employers.create') }}" class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2">
                 Create Employer
             </a>
         </div>
@@ -69,7 +69,7 @@
                                 <a href="{{ route('super-admin.employers.edit', $employer) }}" class="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</a>
                                 <form method="POST" action="{{ route('super-admin.impersonate', $employer) }}" onsubmit="return confirm('Log in as this employer?')">
                                     @csrf
-                                    <button type="submit" class="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100">Login as Employer</button>
+                                    <button type="submit" class="rounded-md border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100">Login as Employer</button>
                                 </form>
                                 @if ($hasStatusColumn)
                                     <form method="POST" action="{{ route('super-admin.employers.approve', $employer) }}">

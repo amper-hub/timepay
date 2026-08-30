@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-slate-100">
+<html lang="en" class="h-full bg-slate-50">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,20 +17,19 @@
     ];
 @endphp
 
-<div class="min-h-screen bg-slate-100">
-    <aside class="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-slate-800 bg-slate-950 px-5 py-6 text-slate-200 lg:block">
+<div class="min-h-screen bg-slate-50">
+    <aside class="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-emerald-100 bg-white px-5 py-6 text-slate-700 shadow-sm lg:block">
         <div class="flex items-center gap-3 px-2">
-            <div class="flex h-11 w-11 items-center justify-center rounded-lg bg-indigo-500 text-sm font-bold text-white shadow-lg shadow-indigo-950/30">TP</div>
+            <img src="{{ Vite::asset('resources/img/timepay-logo.png') }}" alt="TimePay" class="h-12 w-auto object-contain">
             <div>
-                <p class="text-lg font-semibold text-white">TimePay</p>
-                <p class="text-xs uppercase tracking-wide text-slate-400">Super Admin</p>
+                <p class="text-xs font-semibold uppercase tracking-wide text-emerald-600">Super Admin</p>
             </div>
         </div>
 
         <nav class="mt-8 space-y-1">
             @foreach ($navigation as $item)
                 @php $active = request()->routeIs($item['match']); @endphp
-                <a href="{{ route($item['route']) }}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition {{ $active ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-300 hover:bg-slate-900 hover:text-white' }}">
+                <a href="{{ route($item['route']) }}" class="flex items-center gap-3 rounded-lg border-l-4 px-3 py-2.5 text-sm font-semibold transition {{ $active ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">
                     <svg class="h-5 w-5 flex-none" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                         <path d="{{ $item['icon'] }}" />
                     </svg>
@@ -39,36 +38,36 @@
             @endforeach
         </nav>
 
-        <div class="absolute bottom-6 left-5 right-5 rounded-lg border border-slate-800 bg-slate-900/70 p-4">
-            <p class="text-sm font-medium text-white">{{ auth()->user()->name }}</p>
-            <p class="mt-1 truncate text-xs text-slate-400">{{ auth()->user()->email }}</p>
+        <div class="absolute bottom-6 left-5 right-5 rounded-lg border border-emerald-100 bg-emerald-50/60 p-4">
+            <p class="text-sm font-semibold text-slate-950">{{ auth()->user()->name }}</p>
+            <p class="mt-1 truncate text-xs text-slate-500">{{ auth()->user()->email }}</p>
         </div>
     </aside>
 
     <div class="lg:pl-72">
-        <header class="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <header class="sticky top-0 z-20 border-b border-emerald-100 bg-white/95 shadow-sm backdrop-blur">
             <div class="flex flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
                 <div>
-                    <p class="text-xs font-semibold uppercase tracking-wide text-indigo-600">@yield('eyebrow', 'Super Admin')</p>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-emerald-600">@yield('eyebrow', 'Super Admin')</p>
                     <h1 class="mt-1 text-2xl font-semibold text-slate-950">@yield('page-title', 'Dashboard')</h1>
                     <p class="mt-1 text-sm text-slate-500">@yield('page-description', 'Manage platform operations from one place.')</p>
                 </div>
 
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <nav class="grid grid-cols-3 gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 sm:grid-cols-6 lg:hidden">
+                    <nav class="grid grid-cols-3 gap-1 rounded-lg border border-emerald-100 bg-emerald-50/50 p-1 sm:grid-cols-6 lg:hidden">
                         @foreach ($navigation as $item)
                             @php $active = request()->routeIs($item['match']); @endphp
-                            <a href="{{ route($item['route']) }}" class="rounded-md px-2 py-2 text-center text-xs font-medium {{ $active ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500' }}">{{ $item['label'] }}</a>
+                            <a href="{{ route($item['route']) }}" class="rounded-md px-2 py-2 text-center text-xs font-semibold {{ $active ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-emerald-700' }}">{{ $item['label'] }}</a>
                         @endforeach
                     </nav>
 
                     <div class="flex items-center justify-between gap-3">
-                        <div class="hidden rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500 sm:block">
+                        <div class="hidden rounded-lg border border-emerald-100 bg-white px-3 py-2 text-sm font-medium text-emerald-700 sm:block">
                             {{ now()->format('M d, Y') }}
                         </div>
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf
-                            <button type="submit" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50">
+                            <button type="submit" class="rounded-lg border border-emerald-100 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700">
                                 Logout
                             </button>
                         </form>

@@ -72,7 +72,7 @@ const LeaveScreen = ({ userSessionData }) => {
 
   const balances = useMemo(
     () => [
-      { label: "Sick Leave", remaining: 8, total: 10, color: "#4f46e5" },
+      { label: "Sick Leave", remaining: 8, total: 10, color: "#059669" },
       { label: "Vacation Leave", remaining: 12, total: 15, color: "#0891b2" },
     ],
     []
@@ -277,7 +277,7 @@ const LeaveScreen = ({ userSessionData }) => {
     <SafeAreaView style={styles.safeArea}>
       {loading ? (
         <View style={styles.centeredState}>
-          <ActivityIndicator size="large" color="#4f46e5" />
+          <ActivityIndicator size="large" color="#059669" />
           <Text style={styles.centeredText}>Loading leave history...</Text>
         </View>
       ) : (
@@ -448,7 +448,7 @@ const styles = StyleSheet.create({
     paddingBottom: 18,
   },
   eyebrow: {
-    color: "#4f46e5",
+    color: "#059669",
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 0.8,
@@ -535,10 +535,10 @@ const styles = StyleSheet.create({
   },
   requestButton: {
     borderRadius: 20,
-    backgroundColor: "#4f46e5",
+    backgroundColor: "#059669",
     paddingHorizontal: 18,
     paddingVertical: 18,
-    shadowColor: "#4f46e5",
+    shadowColor: "#059669",
     shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.22,
     shadowRadius: 20,
@@ -774,7 +774,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     borderRadius: 14,
-    backgroundColor: "#4f46e5",
+    backgroundColor: "#059669",
     paddingVertical: 14,
   },
   submitButtonText: {
@@ -818,7 +818,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   pickerOptionTextActive: {
-    color: "#4f46e5",
+    color: "#059669",
   },
 });
 

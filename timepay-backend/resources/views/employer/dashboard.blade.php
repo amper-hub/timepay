@@ -62,17 +62,17 @@
 
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-slate-200">
-                    <thead class="bg-slate-50">
+                    <thead class="bg-emerald-50/60">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Employee</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Type</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Timestamp</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-800">Employee</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-800">Type</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-800">Timestamp</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-800">Status</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-200 bg-white">
                         @forelse ($recentPunches as $log)
-                            <tr>
+                            <tr class="transition hover:bg-emerald-50/50">
                                 <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-slate-950">{{ $log->user?->name ?? 'Unknown Employee' }}</td>
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600">{{ str($log->type)->replace('_', ' ')->title() }}</td>
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600">{{ $log->timestamp->format('M d, Y g:i A') }}</td>

@@ -1,4 +1,10 @@
 <x-guest-layout>
+    <div class="mb-8">
+        <p class="text-sm font-bold uppercase tracking-wide text-emerald-600">Admin registration</p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-slate-950">Create your TimePay account</h1>
+        <p class="mt-2 text-sm leading-6 text-slate-500">Join the workspace with a crisp setup built for secure time operations.</p>
+    </div>
+
     <form method="POST" action="{{ route('register') }}">
         @csrf
 
@@ -41,12 +47,12 @@
 
         @include('auth.shared-login-signup-note')
 
-        <div class="flex items-center justify-end mt-4">
-            <a class="underline text-sm text-gray-600 hover:text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" href="{{ route('login') }}">
+        <div class="mt-6 flex items-center justify-between gap-4">
+            <a class="rounded-md text-sm font-semibold text-emerald-600 transition hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2" href="{{ route('login') }}">
                 {{ __('Already registered?') }}
             </a>
 
-            <x-primary-button class="ms-4">
+            <x-primary-button>
                 {{ __('Register') }}
             </x-primary-button>
         </div>

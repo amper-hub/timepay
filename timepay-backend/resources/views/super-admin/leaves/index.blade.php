@@ -17,13 +17,13 @@
                 </div>
 
                 <form method="GET" action="{{ route('super-admin.leaves.index') }}" class="flex flex-col gap-2 sm:flex-row">
-                    <select name="status" class="rounded-lg border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <select name="status" class="rounded-lg border-slate-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
                         <option value="">All statuses</option>
                         <option value="pending" @selected($selectedStatus === 'pending')>Pending</option>
                         <option value="approved" @selected($selectedStatus === 'approved')>Approved</option>
                         <option value="rejected" @selected($selectedStatus === 'rejected')>Rejected</option>
                     </select>
-                    <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700">
+                    <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">
                         Filter
                     </button>
                 </form>

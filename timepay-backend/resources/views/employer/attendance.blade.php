@@ -40,7 +40,7 @@
                                     </div>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4">
-                                    <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold {{ $log->type === 'clock_in' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' }}">
+                                    <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold {{ $log->type === 'clock_in' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-teal-50 text-teal-700 ring-1 ring-teal-200' }}">
                                         {{ $log->type === 'clock_in' ? 'Clock In' : 'Clock Out' }}
                                     </span>
                                 </td>

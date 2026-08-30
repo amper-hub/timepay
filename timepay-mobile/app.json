@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "timepay-mobile",
-    "slug": "timepay-mobile",
+    "name": "TimePay",
+    "slug": "TimePay",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

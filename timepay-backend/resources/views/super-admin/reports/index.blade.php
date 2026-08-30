@@ -33,7 +33,7 @@
             </div>
             <form method="POST" action="{{ route('super-admin.reports.export') }}" class="flex gap-2">
                 @csrf
-                <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700">Export CSV</button>
+                <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">Export CSV</button>
                 <button type="submit" class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Export PDF</button>
             </form>
         </div>

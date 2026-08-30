@@ -23,6 +23,7 @@ import {
   isPasswordChangeRequiredResponse,
 } from "../types";
 import { apiService, getApiErrorMessage } from "../services/api";
+import TimePayLogo from "../components/TimePayLogo";
 
 interface LoginScreenProps {
   onLoginSuccess: (userSession: UserSession) => void;
@@ -203,6 +204,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <View pointerEvents="none" style={styles.topAccent}>
+        <View style={styles.accentArcLarge} />
+        <View style={styles.accentArcSmall} />
+      </View>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.keyboardView}
@@ -213,11 +218,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.shell}>
-            <View style={styles.brandMark}>
-              <Text style={styles.brandMarkText}>TP</Text>
+            <View style={styles.brandRow}>
+              <TimePayLogo style={styles.loginLogo} />
             </View>
-
-            <Text style={styles.logoText}>TimePay</Text>
 
             {isChangingPassword ? (
               <>
@@ -305,6 +308,12 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                       <Text style={styles.primaryButtonText}>Sign In</Text>
                     )}
                   </TouchableOpacity>
+
+                  <View style={styles.secondaryLinks}>
+                    <Text style={styles.secondaryLinkText}>Forgot Password?</Text>
+                    <Text style={styles.secondaryLinkDivider}>|</Text>
+                    <Text style={styles.secondaryLinkText}>Contact Admin</Text>
+                  </View>
                 </>
               ) : (
                 <>
@@ -425,7 +434,35 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#F8FAFC",
+    position: "relative",
+  },
+  topAccent: {
+    position: "absolute",
+    top: -120,
+    left: -80,
+    right: -80,
+    height: 260,
+    overflow: "hidden",
+  },
+  accentArcLarge: {
+    position: "absolute",
+    top: 0,
+    left: 20,
+    width: 320,
+    height: 220,
+    borderRadius: 160,
+    backgroundColor: "#D1FAE5",
+  },
+  accentArcSmall: {
+    position: "absolute",
+    top: 72,
+    right: 36,
+    width: 180,
+    height: 128,
+    borderRadius: 90,
+    backgroundColor: "#99F6E4",
+    opacity: 0.72,
   },
   keyboardView: {
     flex: 1,
@@ -441,36 +478,19 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     alignSelf: "center",
   },
-  brandMark: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
+  brandRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#4f46e5",
-    shadowColor: "#4f46e5",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.22,
-    shadowRadius: 18,
-    elevation: 5,
+    marginBottom: 24,
   },
-  brandMarkText: {
-    color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  logoText: {
-    marginTop: 18,
-    fontSize: 34,
-    fontWeight: "800",
-    color: "#0f172a",
+  loginLogo: {
+    width: 156,
+    height: 52,
   },
   heading: {
-    marginTop: 12,
     fontSize: 22,
     fontWeight: "700",
-    color: "#111827",
+    color: "#0F172A",
   },
   subheading: {
     marginTop: 8,
@@ -503,27 +523,27 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#bfdbfe",
-    backgroundColor: "#eff6ff",
+    borderColor: "#A7F3D0",
+    backgroundColor: "#ECFDF5",
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
   infoTitle: {
-    color: "#1e3a8a",
+    color: "#065F46",
     fontSize: 14,
     fontWeight: "700",
   },
   infoMessage: {
     marginTop: 4,
     marginBottom: 12,
-    color: "#1d4ed8",
+    color: "#047857",
     fontSize: 13,
     lineHeight: 20,
   },
   formCard: {
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 24,
+    borderColor: "#D1FAE5",
+    borderRadius: 20,
     backgroundColor: "#ffffff",
     padding: 20,
     shadowColor: "#0f172a",
@@ -544,15 +564,15 @@ const styles = StyleSheet.create({
   input: {
     minHeight: 52,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
+    borderColor: "#D9E2EC",
     borderRadius: 14,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#F8FAFC",
     paddingHorizontal: 15,
     color: "#0f172a",
     fontSize: 16,
   },
   inputReadOnly: {
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#F8FAFC",
     color: "#64748b",
   },
   inputInvalid: {
@@ -569,9 +589,9 @@ const styles = StyleSheet.create({
     minHeight: 54,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: "#4f46e5",
-    shadowColor: "#4f46e5",
+    borderRadius: 16,
+    backgroundColor: "#059669",
+    shadowColor: "#059669",
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.22,
     shadowRadius: 16,
@@ -598,6 +618,22 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: "#334155",
     fontSize: 15,
+    fontWeight: "700",
+  },
+  secondaryLinks: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 18,
+  },
+  secondaryLinkText: {
+    color: "#059669",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  secondaryLinkDivider: {
+    color: "#CBD5E1",
+    marginHorizontal: 10,
     fontWeight: "700",
   },
 });

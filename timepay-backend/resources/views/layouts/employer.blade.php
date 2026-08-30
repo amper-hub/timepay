@@ -9,7 +9,7 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>[x-cloak] { display: none !important; }</style>
 </head>
-<body class="bg-emerald-50/40 text-slate-950 antialiased">
+<body class="bg-slate-50 text-slate-950 antialiased">
     @if (session()->has('impersonated_by'))
         <div class="sticky top-0 z-50 border-b border-red-950 bg-red-800 px-4 py-3 text-white shadow-lg">
             <div class="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -27,41 +27,40 @@
     @endif
 
     <div class="min-h-screen lg:flex">
-        <aside class="hidden w-72 flex-shrink-0 border-r border-slate-800 bg-slate-950 text-white lg:flex lg:flex-col">
-            <div class="border-b border-slate-800 px-6 py-6">
+        <aside class="hidden w-72 flex-shrink-0 border-r border-emerald-100 bg-white text-slate-900 shadow-sm lg:flex lg:flex-col">
+            <div class="border-b border-emerald-100 px-6 py-6">
                 <a href="{{ route('employer.dashboard') }}" class="flex items-center gap-3">
-                    <span class="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-500 text-sm font-black text-slate-950 shadow-lg shadow-emerald-950/30">TP</span>
+                    <img src="{{ Vite::asset('resources/img/timepay-logo.png') }}" alt="TimePay" class="h-12 w-auto object-contain">
                     <span>
-                        <span class="block text-2xl font-bold tracking-tight">TimePay</span>
-                        <span class="mt-1 block text-sm text-emerald-200">Employer Portal</span>
+                        <span class="mt-1 block text-sm font-semibold text-emerald-600">Employer Portal</span>
                     </span>
                 </a>
             </div>
 
             <nav class="flex-1 space-y-1 px-4 py-6">
-                <a href="{{ route('employer.dashboard') }}" class="flex items-center rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.dashboard') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">
+                <a href="{{ route('employer.dashboard') }}" class="flex items-center border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.dashboard') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">
                     Dashboard
                 </a>
-                <a href="{{ route('employer.attendance') }}" class="flex items-center rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.attendance') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">
+                <a href="{{ route('employer.attendance') }}" class="flex items-center border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.attendance') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">
                     Attendance Log
                 </a>
-                <a href="{{ route('employer.leaves.index') }}" class="flex items-center rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.leaves.*') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">
+                <a href="{{ route('employer.leaves.index') }}" class="flex items-center border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.leaves.*') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">
                     Leave Management
                 </a>
-                <a href="{{ route('employer.geofence') }}" class="flex items-center rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.geofence') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">
+                <a href="{{ route('employer.geofence') }}" class="flex items-center border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.geofence') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">
                     Geofence Settings
                 </a>
-                <a href="{{ route('employer.settings.index') }}" class="flex items-center rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.settings.*') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">
+                <a href="{{ route('employer.settings.index') }}" class="flex items-center border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.settings.*') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">
                     Business Settings
                 </a>
-                <a href="{{ route('employer.payroll') }}" class="flex items-center rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.payroll') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">
+                <a href="{{ route('employer.payroll') }}" class="flex items-center border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.payroll') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">
                     Payroll Management
                 </a>
             </nav>
 
-            <div class="border-t border-slate-800 p-4">
-                <p class="truncate text-sm font-semibold">{{ auth()->user()->company?->name ?? 'Company' }}</p>
-                <p class="truncate text-xs text-emerald-200/80">{{ auth()->user()->email }}</p>
+            <div class="border-t border-emerald-100 bg-emerald-50/50 p-4">
+                <p class="truncate text-sm font-semibold text-slate-950">{{ auth()->user()->company?->name ?? 'Company' }}</p>
+                <p class="truncate text-xs text-slate-500">{{ auth()->user()->email }}</p>
             </div>
         </aside>
 
@@ -107,21 +106,20 @@
 
             <div x-cloak x-show="mobileNavOpen" class="fixed inset-0 z-40 lg:hidden">
                 <div class="absolute inset-0 bg-slate-950/50" @click="mobileNavOpen = false"></div>
-                <aside class="relative flex h-full w-72 flex-col bg-slate-950 text-white shadow-2xl">
-                    <div class="flex items-center justify-between border-b border-slate-800 px-6 py-5">
+                <aside class="relative flex h-full w-72 flex-col border-r border-emerald-100 bg-white text-slate-900 shadow-2xl">
+                    <div class="flex items-center justify-between border-b border-emerald-100 px-6 py-5">
                         <span class="flex items-center gap-3">
-                            <span class="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500 text-xs font-black text-slate-950">TP</span>
-                            <span class="text-xl font-bold">TimePay</span>
+                            <img src="{{ Vite::asset('resources/img/timepay-logo.png') }}" alt="TimePay" class="h-10 w-auto object-contain">
                         </span>
-                        <button type="button" @click="mobileNavOpen = false" class="rounded-md px-2 py-1 text-slate-300 hover:bg-slate-900 hover:text-emerald-100">Close</button>
+                        <button type="button" @click="mobileNavOpen = false" class="rounded-md px-2 py-1 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700">Close</button>
                     </div>
                     <nav class="space-y-1 px-4 py-6">
-                        <a href="{{ route('employer.dashboard') }}" class="block rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.dashboard') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">Dashboard</a>
-                        <a href="{{ route('employer.attendance') }}" class="block rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.attendance') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">Attendance Log</a>
-                        <a href="{{ route('employer.leaves.index') }}" class="block rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.leaves.*') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">Leave Management</a>
-                        <a href="{{ route('employer.geofence') }}" class="block rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.geofence') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">Geofence Settings</a>
-                        <a href="{{ route('employer.settings.index') }}" class="block rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.settings.*') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">Business Settings</a>
-                        <a href="{{ route('employer.payroll') }}" class="block rounded-lg px-4 py-3 text-sm font-medium transition {{ request()->routeIs('employer.payroll') ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/30' : 'text-slate-300 hover:bg-slate-900 hover:text-emerald-100' }}">Payroll Management</a>
+                        <a href="{{ route('employer.dashboard') }}" class="block border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.dashboard') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">Dashboard</a>
+                        <a href="{{ route('employer.attendance') }}" class="block border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.attendance') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">Attendance Log</a>
+                        <a href="{{ route('employer.leaves.index') }}" class="block border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.leaves.*') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">Leave Management</a>
+                        <a href="{{ route('employer.geofence') }}" class="block border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.geofence') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">Geofence Settings</a>
+                        <a href="{{ route('employer.settings.index') }}" class="block border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.settings.*') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">Business Settings</a>
+                        <a href="{{ route('employer.payroll') }}" class="block border-l-4 rounded-lg px-4 py-3 text-sm font-semibold transition {{ request()->routeIs('employer.payroll') ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm' : 'border-transparent text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700' }}">Payroll Management</a>
                     </nav>
                 </aside>
             </div>
