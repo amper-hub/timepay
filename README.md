@@ -41,6 +41,8 @@ cd timepay-mobile
 
 # Install dependencies
 npm install
+
+npm run build
 ```
 
 ### 3. Environment Configuration

@@ -12,7 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('companies', function (Blueprint $table) {
-            $table->string('currency', 3)->default('PHP')->after('pay_metric');
+            if (! Schema::hasColumn('companies', 'currency')) {
+                $table->string('currency', 3)->default('PHP')->after('pay_metric');
+            }
         });
     }
 

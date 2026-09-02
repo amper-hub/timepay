@@ -99,10 +99,23 @@
                                     <p class="text-sm font-semibold text-emerald-700">{{ $company->formatMoney($payroll['pending_pay']) }}</p>
                                     <p class="text-xs text-slate-500">Based on verified paired punches</p>
                                 </td>
-                                <td class="whitespace-nowrap px-6 py-4 text-right">
-                                    <button form="{{ $formId }}" type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700">
-                                        Save Configurations
-                                    </button>
+                                <td class="whitespace-nowrap px-6 py-4">
+                                    <div class="flex items-center justify-end gap-3">
+                                        <button form="{{ $formId }}" type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700">
+                                            Save Configurations
+                                        </button>
+                                        <form
+                                            method="POST"
+                                            action="{{ route('employer.employees.destroy', $payroll['employee']) }}"
+                                            onsubmit="return confirm('Are you sure you want to remove this employee? This action cannot be undone.');"
+                                        >
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="text-sm font-medium text-red-600 transition hover:text-red-800">
+                                                Delete
+                                            </button>
+                                        </form>
+                                    </div>
                                 </td>
                             </tr>
                         @empty

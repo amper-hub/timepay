@@ -83,6 +83,7 @@ Route::middleware(['auth'])->prefix('employer')->group(function () {
     Route::post('/payroll/update/{user}', [EmployerPayrollController::class, 'updateEmployeeRate'])->name('employer.payroll.update');
 
     Route::post('/employees', [EmployeeController::class, 'store'])->name('employer.employees.store');
+    Route::delete('/employees/{user}', [EmployeeController::class, 'destroy'])->name('employer.employees.destroy');
 });
 
 // 4. --- FIX BREEZE REDIRECT TRAP ---

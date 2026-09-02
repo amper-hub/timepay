@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Employer;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -57,5 +58,22 @@ class EmployeeController extends Controller
                 'requires_password_change' => $employee->requires_password_change,
             ],
         ], 201);
+    }
+
+    /**
+     * Remove an employee from the authenticated employer's company.
+     */
+    public function destroy(Request $request, User $user): RedirectResponse
+    {
+        if (
+            $user->company_id !== $request->user()->company_id
+            || strtolower((string) $user->role) !== 'employee'
+        ) {
+            abort(403, 'Unauthorized');
+        }
+
+        $user->delete();
+
+        return redirect()->back()->with('success', 'Employee removed successfully.');
     }
 }
