@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { useFocusEffect } from "@react-navigation/native";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as Location from "expo-location";
 import apiClient, { getApiErrorMessage } from "../../services/api";
@@ -35,11 +36,21 @@ const compressSelfie = async (photo) => {
 const FaceVerificationScreen = ({ navigation, route }) => {
   const cameraRef = useRef(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraActive, setCameraActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [screenError, setScreenError] = useState(null);
 
   const action = route?.params?.action === "clock_out" ? "clock_out" : "clock_in";
   const actionLabel = action === "clock_out" ? "Clock Out" : "Clock In";
+
+  useFocusEffect(
+    useCallback(() => {
+      setCameraActive(true);
+
+      return () => setCameraActive(false);
+    }, [])
+  );
 
   useEffect(() => {
     if (cameraPermission && !cameraPermission.granted) {
@@ -55,7 +66,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
       formData.append("type", action);
       formData.append("selfie", {
         uri: photoUri,
-        name: "selfie.jpg",
+        name: `${action}_${Date.now()}.jpg`,
         type: "image/jpeg",
       });
 
@@ -63,6 +74,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         action === "clock_in" ? "/attendance/clock-in" : "/attendance/store";
 
       const response = await apiClient.post(endpoint, formData, {
+        timeout: 10000,
         headers: {
           "Content-Type": "multipart/form-data",
         },
@@ -73,16 +85,17 @@ const FaceVerificationScreen = ({ navigation, route }) => {
     [action]
   );
 
-  const handleSnapAndVerify = useCallback(async () => {
-    if (!cameraRef.current || submitting) return;
+  const handleTakePhoto = useCallback(async () => {
+    if (!cameraRef.current || !cameraReady || submitting) {
+      return;
+    }
 
     setSubmitting(true);
     setScreenError(null);
 
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: SELFIE_JPEG_QUALITY,
-        base64: false,
+        quality: 0.7,
         skipProcessing: true,
       });
 
@@ -91,7 +104,6 @@ const FaceVerificationScreen = ({ navigation, route }) => {
       }
 
       const compressedPhoto = await compressSelfie(photo);
-
       const locationPermission =
         await Location.requestForegroundPermissionsAsync();
 
@@ -113,12 +125,8 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         location.coords.longitude
       );
 
-      Alert.alert(`${actionLabel} Successful`, response.message, [
-        {
-          text: "OK",
-          onPress: () => navigation.navigate("Attendance"),
-        },
-      ]);
+      navigation.navigate("Attendance");
+      Alert.alert(`${actionLabel} Successful`, response.message);
     } catch (error) {
       if (
         error?.response?.status === 422 &&
@@ -129,7 +137,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
           "Face not recognized. Please try again.";
 
         setScreenError(mismatchMessage);
-        Alert.alert("Verification Failed", "Face not recognized. Please try again.");
+        Alert.alert("Verification Failed", mismatchMessage);
         return;
       }
 
@@ -141,17 +149,20 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         );
 
       setScreenError(errorMessage);
-      Alert.alert(`${actionLabel} Failed`, errorMessage);
+      Alert.alert(
+        `${actionLabel} Failed`,
+        errorMessage || "Verification failed. Please try again."
+      );
     } finally {
       setSubmitting(false);
     }
-  }, [actionLabel, navigation, submitSelfie, submitting]);
+  }, [actionLabel, cameraReady, navigation, submitSelfie, submitting]);
 
   if (!cameraPermission) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.centeredState}>
-          <ActivityIndicator color="#059669" size="large" />
+          <ActivityIndicator color="#047857" size="large" />
           <Text style={styles.centeredText}>Checking camera access...</Text>
         </View>
       </SafeAreaView>
@@ -164,8 +175,8 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         <View style={styles.permissionContainer}>
           <Text style={styles.permissionTitle}>Camera Access Required</Text>
           <Text style={styles.permissionText}>
-            TimePay needs the front camera to capture a live selfie before
-            submitting your attendance.
+            TimePay needs the front camera to capture a selfie before submitting
+            your attendance.
           </Text>
 
           {screenError ? (
@@ -195,14 +206,18 @@ const FaceVerificationScreen = ({ navigation, route }) => {
 
   return (
     <View style={styles.cameraContainer}>
-      <CameraView ref={cameraRef} style={styles.camera} facing="front" />
+      <CameraView
+        ref={cameraRef}
+        style={styles.camera}
+        facing="front"
+        active={cameraActive}
+        onCameraReady={() => setCameraReady(true)}
+      />
 
       <View pointerEvents="none" style={styles.overlay}>
         <View style={styles.topScrim}>
           <Text style={styles.cameraTitle}>{actionLabel}</Text>
-          <Text style={styles.cameraSubtitle}>
-            Align your face inside the guide
-          </Text>
+          <Text style={styles.cameraSubtitle}>Position your face in the guide</Text>
         </View>
 
         <View style={styles.guideWrap}>
@@ -229,14 +244,17 @@ const FaceVerificationScreen = ({ navigation, route }) => {
       <View style={styles.bottomBar}>
         <TouchableOpacity
           activeOpacity={0.9}
-          disabled={submitting}
-          onPress={handleSnapAndVerify}
-          style={[styles.snapButton, submitting && styles.disabledButton]}
+          disabled={!cameraReady || submitting}
+          onPress={handleTakePhoto}
+          style={[
+            styles.captureButton,
+            (!cameraReady || submitting) && styles.captureButtonDisabled,
+          ]}
         >
           {submitting ? (
             <ActivityIndicator color="#ffffff" />
           ) : (
-            <Text style={styles.snapButtonText}>Snap & Verify</Text>
+            <Text style={styles.captureButtonText}>Take Photo</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -298,7 +316,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 18,
-    backgroundColor: "#059669",
+    backgroundColor: "#047857",
     paddingHorizontal: 18,
     marginTop: 24,
   },
@@ -337,7 +355,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 72,
     paddingBottom: 28,
-    backgroundColor: "rgba(2, 6, 23, 0.42)",
+    backgroundColor: "rgba(4, 120, 87, 0.72)",
   },
   cameraTitle: {
     color: "#ffffff",
@@ -346,14 +364,15 @@ const styles = StyleSheet.create({
   },
   cameraSubtitle: {
     marginTop: 6,
-    color: "#cbd5e1",
-    fontSize: 14,
-    fontWeight: "700",
+    color: "#d1fae5",
+    fontSize: 15,
+    fontWeight: "800",
   },
   guideWrap: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 18,
   },
   faceGuide: {
     width: 230,
@@ -401,26 +420,29 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    alignItems: "center",
     paddingHorizontal: 22,
     paddingTop: 18,
     paddingBottom: 38,
-    backgroundColor: "rgba(2, 6, 23, 0.56)",
+    backgroundColor: "rgba(4, 120, 87, 0.74)",
   },
-  snapButton: {
+  captureButton: {
     minHeight: 58,
+    width: "100%",
+    maxWidth: 360,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 18,
-    backgroundColor: "#059669",
+    backgroundColor: "#047857",
     paddingHorizontal: 18,
   },
-  snapButtonText: {
+  captureButtonDisabled: {
+    opacity: 0.72,
+  },
+  captureButtonText: {
     color: "#ffffff",
     fontSize: 17,
     fontWeight: "900",
-  },
-  disabledButton: {
-    opacity: 0.62,
   },
 });
 

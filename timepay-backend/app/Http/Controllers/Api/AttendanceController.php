@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\AnalyzeSelfieProof;
 use App\Models\AttendanceRecord;
 use App\Models\AttendanceLog;
 use App\Services\FacePlusPlusService;
@@ -279,6 +280,10 @@ class AttendanceController extends Controller
             'status' => 'verified',
         ]);
 
+        if ($attendanceLog->type === 'clock_in') {
+            AnalyzeSelfieProof::dispatch($attendanceLog->id);
+        }
+
         if ($isFirstTimeEnrollment) {
             return response()->json([
                 'success' => true,
@@ -365,7 +370,11 @@ class AttendanceController extends Controller
             ->latest('timestamp')
             ->first();
 
+        $shiftInvalidated = $latestPunchToday?->type === 'clock_in'
+            && $latestPunchToday?->status === 'rejected';
+
         $currentState = $latestPunchToday?->type === 'clock_in'
+            && $latestPunchToday?->status !== 'rejected'
             ? 'clocked_in'
             : 'clocked_out';
 
@@ -376,8 +385,14 @@ class AttendanceController extends Controller
                 'type' => $latestPunchToday->type,
                 'status' => $latestPunchToday->status,
                 'timestamp' => $latestPunchToday->timestamp,
+                'is_suspicious' => $latestPunchToday->is_suspicious,
+                'suspicion_reason' => $latestPunchToday->suspicion_reason,
             ] : null,
             'next_expected_punch' => $currentState === 'clocked_in' ? 'clock_out' : 'clock_in',
+            'shift_invalidated' => $shiftInvalidated,
+            'termination_reason' => $shiftInvalidated
+                ? ($latestPunchToday->suspicion_reason ?: 'Your shift was terminated. The employer rejected your clock-in photo.')
+                : null,
         ]);
     }
 

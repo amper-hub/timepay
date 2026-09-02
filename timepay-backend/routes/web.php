@@ -75,6 +75,7 @@ Route::middleware(['auth'])->prefix('employer')->group(function () {
     Route::patch('/settings', [SettingsController::class, 'update'])->name('employer.settings.update');
 
     Route::get('/attendance', [EmployerAttendanceController::class, 'index'])->name('employer.attendance');
+    Route::post('/attendance/{attendanceLog}/reject', [EmployerAttendanceController::class, 'reject'])->name('employer.attendance.reject');
 
     Route::get('/leaves', [EmployerLeaveController::class, 'index'])->name('employer.leaves.index');
     Route::patch('/leaves/{leaveRequest}', [EmployerLeaveController::class, 'update'])->name('employer.leaves.update');

@@ -145,6 +145,8 @@ export interface AttendanceLogResponse {
   status: 'verified' | 'rejected' | 'flagged';
   distance_meters: number;
   photo_path: string | null;
+  is_suspicious?: boolean;
+  suspicion_reason?: string | null;
 }
 
 export interface AttendancePunchResponse {
@@ -160,6 +162,8 @@ export interface AttendanceStatusResponse {
   current_state: AttendanceState;
   last_punch: AttendanceLogResponse | null;
   next_expected_punch: AttendancePunchType;
+  shift_invalidated?: boolean;
+  termination_reason?: string | null;
 }
 
 export interface PendingPayResponse {

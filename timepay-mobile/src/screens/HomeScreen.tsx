@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -87,6 +88,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   navigation,
   userSessionData,
 }) => {
+  const shiftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const shiftStatusPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const invalidationHandledRef = useRef<number | null>(null);
   const [attendanceStatus, setAttendanceStatus] =
     useState<AttendanceStatusResponse | null>(null);
   const [pendingPay, setPendingPay] = useState<PendingPayResponse | null>(null);
@@ -106,6 +110,47 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     return userSessionData?.user.name.split(" ")[0] ?? "there";
   }, [userSessionData?.user.name]);
 
+  const stopShiftTimer = useCallback(() => {
+    if (shiftTimerRef.current) {
+      clearInterval(shiftTimerRef.current);
+      shiftTimerRef.current = null;
+    }
+
+    setElapsedTime("00:00:00");
+  }, []);
+
+  const handleShiftTerminated = useCallback(
+    async (status: AttendanceStatusResponse) => {
+      const rejectedLogId = status.last_punch?.id ?? null;
+
+      if (rejectedLogId && invalidationHandledRef.current === rejectedLogId) {
+        return;
+      }
+
+      invalidationHandledRef.current = rejectedLogId;
+      stopShiftTimer();
+      setAttendanceStatus({
+        ...status,
+        current_state: "clocked_out",
+        next_expected_punch: "clock_in",
+      });
+
+      try {
+        const pendingPayData = await apiService.getPendingPay();
+        setPendingPay(pendingPayData);
+      } catch {
+        // The termination alert is more important than blocking on a pay refresh.
+      }
+
+      Alert.alert(
+        "Shift Terminated",
+        status.termination_reason ||
+          "Your shift was terminated. The employer rejected your clock-in photo."
+      );
+    },
+    [stopShiftTimer]
+  );
+
   const loadDashboard = useCallback(async () => {
     setErrorMessage(null);
     setLoading(true);
@@ -118,6 +163,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       ]);
 
       setAttendanceStatus(status);
+
+      if (status.shift_invalidated) {
+        await handleShiftTerminated(status);
+      }
+
       setPendingPay(pendingPayData);
 
       const companyLatitude = Number(userSessionData?.company.latitude);
@@ -166,6 +216,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       setLoading(false);
     }
   }, [
+    handleShiftTerminated,
     userSessionData?.company.geofence_radius_meters,
     userSessionData?.company.latitude,
     userSessionData?.company.longitude,
@@ -178,14 +229,54 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   );
 
   useEffect(() => {
+    stopShiftTimer();
     setElapsedTime(formatElapsedTime(shiftStartedAt));
 
-    const timer = setInterval(() => {
+    if (!shiftStartedAt) {
+      return undefined;
+    }
+
+    shiftTimerRef.current = setInterval(() => {
       setElapsedTime(formatElapsedTime(shiftStartedAt));
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [shiftStartedAt]);
+    return stopShiftTimer;
+  }, [shiftStartedAt, stopShiftTimer]);
+
+  useEffect(() => {
+    if (shiftStatusPollRef.current) {
+      clearInterval(shiftStatusPollRef.current);
+      shiftStatusPollRef.current = null;
+    }
+
+    if (attendanceStatus?.current_state !== "clocked_in") {
+      return undefined;
+    }
+
+    const pollAttendanceStatus = async () => {
+      try {
+        const status = await apiService.getAttendanceStatus();
+
+        if (status.shift_invalidated) {
+          await handleShiftTerminated(status);
+          return;
+        }
+
+        setAttendanceStatus(status);
+      } catch (error) {
+        console.warn("[Attendance] Silent shift status polling failed", error);
+      }
+    };
+
+    shiftStatusPollRef.current = setInterval(pollAttendanceStatus, 30000);
+
+    return () => {
+      if (shiftStatusPollRef.current) {
+        clearInterval(shiftStatusPollRef.current);
+        shiftStatusPollRef.current = null;
+      }
+    };
+  }, [attendanceStatus?.current_state, handleShiftTerminated]);
 
   if (!userSessionData) {
     return (
