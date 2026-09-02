@@ -28,7 +28,7 @@ class EmployeeController extends Controller
                 Rule::unique('users', 'email')->where(fn ($query) => $query->where('company_id', $companyId)),
             ],
             'hourly_rate' => 'required|numeric|min:0|max:999999.99',
-            'payment_method' => 'nullable|in:manual_cash,digital_payout',
+            'payment_method' => 'nullable|in:manual_cash,manual_bank_deposit,manual_cheque',
         ]);
 
         $temporaryPassword = Str::password(8);

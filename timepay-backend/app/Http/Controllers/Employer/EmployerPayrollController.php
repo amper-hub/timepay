@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AttendanceLog;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -32,6 +33,7 @@ class EmployerPayrollController extends Controller
 
         $logsByUser = AttendanceLog::where('company_id', $companyId)
             ->where('status', 'verified')
+            ->where('is_paid', false)
             ->whereBetween('timestamp', [$periodStart, $periodEnd])
             ->whereIn('user_id', $employees->pluck('id'))
             ->orderBy('timestamp')
@@ -72,13 +74,66 @@ class EmployerPayrollController extends Controller
 
         $validated = $request->validate([
             'hourly_rate' => 'required|numeric|min:0|max:999999.99',
-            'payment_method' => 'required|in:manual_cash,digital_payout',
+            'payment_method' => 'required|in:manual_cash,manual_bank_deposit,manual_cheque',
         ]);
 
         $user->update($validated);
 
         return redirect()->route('employer.payroll')
             ->with('success', "Employee {$user->name}'s payroll settings updated successfully.");
+    }
+
+    /**
+     * Mark an employee's pending payroll as manually settled for a period.
+     */
+    public function markAsPaid(Request $request, User $user): RedirectResponse
+    {
+        if (
+            $user->company_id !== $request->user()->company_id
+            || strtolower((string) $user->role) !== 'employee'
+        ) {
+            abort(403, 'Unauthorized');
+        }
+
+        $validated = $request->validate([
+            'period_start' => 'required|date',
+            'period_end' => 'required|date|after_or_equal:period_start',
+        ]);
+
+        $periodStart = Carbon::parse($validated['period_start'])->startOfDay();
+        $periodEnd = Carbon::parse($validated['period_end'])->endOfDay();
+
+        $settledAmount = DB::transaction(function () use ($user, $periodStart, $periodEnd): float {
+            $logs = AttendanceLog::where('company_id', $user->company_id)
+                ->where('user_id', $user->id)
+                ->where('status', 'verified')
+                ->where('is_paid', false)
+                ->whereBetween('timestamp', [$periodStart, $periodEnd])
+                ->orderBy('timestamp')
+                ->lockForUpdate()
+                ->get();
+
+            $hoursWorked = $this->calculateVerifiedHours($logs);
+            $pendingPay = round($hoursWorked * (float) $user->hourly_rate, 2);
+
+            if ($pendingPay <= 0 || $logs->isEmpty()) {
+                return 0.0;
+            }
+
+            AttendanceLog::whereIn('id', $logs->pluck('id'))->update([
+                'is_paid' => true,
+            ]);
+
+            return $pendingPay;
+        });
+
+        if ($settledAmount <= 0) {
+            return redirect()->route('employer.payroll')
+                ->with('success', 'No pending payroll found for this employee.');
+        }
+
+        return redirect()->route('employer.payroll')
+            ->with('success', 'Payroll settled manually.');
     }
 
     /**

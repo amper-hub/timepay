@@ -161,3 +161,9 @@ export interface AttendanceStatusResponse {
   last_punch: AttendanceLogResponse | null;
   next_expected_punch: AttendancePunchType;
 }
+
+export interface PendingPayResponse {
+  pending_amount: number;
+  currency_symbol: string;
+  unpaid_hours: number;
+}

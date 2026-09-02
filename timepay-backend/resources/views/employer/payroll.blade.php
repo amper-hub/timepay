@@ -20,6 +20,27 @@
             </div>
         </div>
 
+        <section class="rounded-lg border border-emerald-100 bg-emerald-50 px-5 py-4">
+            <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.75fr)] lg:items-center">
+                <div>
+                    <h2 class="text-sm font-bold text-slate-900">Quick Guide: Setting Hourly Base Pay</h2>
+                    <p class="mt-1 text-sm font-medium text-slate-700">
+                        Daily Minimum Wage &divide; 8 Hours = Hourly Base Pay
+                    </p>
+                </div>
+                <div class="space-y-2 text-sm">
+                    <ul class="list-disc space-y-1 pl-5 text-emerald-700">
+                        <li>
+                            If your region's minimum wage is <span class="font-semibold">{{ $company->formatMoney(350) }}/day</span>, the hourly base pay should be set to <span class="font-semibold">{{ $company->formatMoney(43.75) }}</span> ({{ $company->formatMoney(350) }} &divide; 8).
+                        </li>
+                    </ul>
+                    <p class="text-xs leading-5 text-slate-500">
+                        Note: Minimum wage rates vary by region and industry (e.g., Caraga vs. NCR). Check your local RTWPB for current rates.
+                    </p>
+                </div>
+            </div>
+        </section>
+
         <section class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div class="flex flex-col gap-4 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -90,9 +111,10 @@
                                     </div>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4">
-                                    <select form="{{ $formId }}" name="payment_method" class="w-44 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15" required>
-                                        <option value="manual_cash" @selected($payroll['payment_method'] === 'manual_cash')>Personal/Cash</option>
-                                        <option value="digital_payout" @selected($payroll['payment_method'] === 'digital_payout')>Digital Gateway</option>
+                                    <select form="{{ $formId }}" name="payment_method" class="w-48 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15" required>
+                                        <option value="manual_cash" @selected($payroll['payment_method'] === 'manual_cash')>Cash (Manual)</option>
+                                        <option value="manual_bank_deposit" @selected($payroll['payment_method'] === 'manual_bank_deposit')>Bank Deposit (Manual)</option>
+                                        <option value="manual_cheque" @selected($payroll['payment_method'] === 'manual_cheque')>Cheque (Manual)</option>
                                     </select>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4">
@@ -104,6 +126,20 @@
                                         <button form="{{ $formId }}" type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700">
                                             Save Configurations
                                         </button>
+                                        @if ($payroll['pending_pay'] > 0)
+                                            <form
+                                                method="POST"
+                                                action="{{ route('employer.payroll.mark-as-paid', $payroll['employee']) }}"
+                                                onsubmit="return confirm('Are you sure you want to mark {{ $company->formatMoney($payroll['pending_pay']) }} as paid? This confirms you have manually transferred the funds offline.');"
+                                            >
+                                                @csrf
+                                                <input type="hidden" name="period_start" value="{{ $periodStart->toDateString() }}">
+                                                <input type="hidden" name="period_end" value="{{ $periodEnd->toDateString() }}">
+                                                <button type="submit" class="rounded-lg border border-emerald-600 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50">
+                                                    Mark as Paid
+                                                </button>
+                                            </form>
+                                        @endif
                                         <form
                                             method="POST"
                                             action="{{ route('employer.employees.destroy', $payroll['employee']) }}"

@@ -11,10 +11,12 @@ import {
 } from "react-native";
 import * as Location from "expo-location";
 import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
+import { useFocusEffect } from "@react-navigation/native";
 import { apiService, getApiErrorMessage } from "../services/api";
 import {
   AttendanceState,
   AttendanceStatusResponse,
+  PendingPayResponse,
   UserSession,
 } from "../types";
 import { EmployeeTabParamList } from "../navigation/AppNavigator";
@@ -47,6 +49,19 @@ const formatElapsedTime = (startedAt: string | null): string => {
   return `${hours}:${minutes}:${seconds}`;
 };
 
+const formatPendingAmount = (
+  currencySymbol: string | undefined,
+  amount: number | undefined
+): string => {
+  const safeAmount = Number(amount ?? 0);
+  const formattedAmount = new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(safeAmount) ? safeAmount : 0);
+
+  return `${currencySymbol ?? ""} ${formattedAmount}`.trim();
+};
+
 const getDistanceMeters = (
   first: { latitude: number; longitude: number },
   second: { latitude: number; longitude: number }
@@ -74,6 +89,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 }) => {
   const [attendanceStatus, setAttendanceStatus] =
     useState<AttendanceStatusResponse | null>(null);
+  const [pendingPay, setPendingPay] = useState<PendingPayResponse | null>(null);
   const [geofenceState, setGeofenceState] =
     useState<GeofenceState>("checking");
   const [distanceMeters, setDistanceMeters] = useState<number | null>(null);
@@ -95,12 +111,14 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     setLoading(true);
 
     try {
-      const [status, permission] = await Promise.all([
+      const [status, pendingPayData, permission] = await Promise.all([
         apiService.getAttendanceStatus(),
+        apiService.getPendingPay(),
         Location.requestForegroundPermissionsAsync(),
       ]);
 
       setAttendanceStatus(status);
+      setPendingPay(pendingPayData);
 
       const companyLatitude = Number(userSessionData?.company.latitude);
       const companyLongitude = Number(userSessionData?.company.longitude);
@@ -153,9 +171,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     userSessionData?.company.longitude,
   ]);
 
-  useEffect(() => {
-    loadDashboard();
-  }, [loadDashboard]);
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboard();
+    }, [loadDashboard])
+  );
 
   useEffect(() => {
     setElapsedTime(formatElapsedTime(shiftStartedAt));
@@ -263,6 +283,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
               {isClockedIn ? "Go to Clock Out" : "Go to Clock In"}
             </Text>
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.pendingEarningsCard}>
+          <Text style={styles.pendingEarningsLabel}>Pending Earnings</Text>
+          <Text style={styles.pendingEarningsAmount}>
+            {formatPendingAmount(
+              pendingPay?.currency_symbol,
+              pendingPay?.pending_amount
+            )}
+          </Text>
+          <Text style={styles.pendingEarningsSubtext}>
+            Based on {Number(pendingPay?.unpaid_hours ?? 0).toFixed(2)} unpaid hours
+          </Text>
         </View>
 
         <View style={styles.metricsRow}>
@@ -458,6 +491,33 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "900",
+  },
+  pendingEarningsCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#a7f3d0",
+    backgroundColor: "#ECFDF5",
+    padding: 18,
+    marginBottom: 14,
+  },
+  pendingEarningsLabel: {
+    color: "#047857",
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  pendingEarningsAmount: {
+    marginTop: 10,
+    color: "#047857",
+    fontSize: 32,
+    fontWeight: "900",
+  },
+  pendingEarningsSubtext: {
+    marginTop: 6,
+    color: "#64748b",
+    fontSize: 13,
+    lineHeight: 18,
   },
   metricsRow: {
     flexDirection: "row",

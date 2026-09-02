@@ -21,6 +21,7 @@ import {
   AttendancePunchResponse,
   AttendancePunchType,
   AttendanceStatusResponse,
+  PendingPayResponse,
 } from "../types";
 
 /**
@@ -515,6 +516,28 @@ export const apiService = {
     try {
       const response = await apiClient.get<AttendanceStatusResponse>(
         "/attendance/status"
+      );
+
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError<ApiErrorResponse>;
+
+      if (!axiosError.response && axiosError.request) {
+        showNetworkAlert(axiosError);
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * GET /employee/pending-pay
+   * Read the employee's unpaid verified payroll total.
+   */
+  getPendingPay: async (): Promise<PendingPayResponse> => {
+    try {
+      const response = await apiClient.get<PendingPayResponse>(
+        "/employee/pending-pay"
       );
 
       return response.data;

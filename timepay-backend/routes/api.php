@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\PayrollPayslipController;
 use App\Http\Controllers\Api\Employee\LeaveController;
+use App\Http\Controllers\Api\Employee\PayrollController as EmployeePayrollController;
 use App\Http\Controllers\Api\ProfileController as ApiProfileController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -38,6 +39,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('payroll/payslip/{id}/download', [PayrollPayslipController::class, 'download']);
 
     Route::prefix('employee')->group(function () {
+        Route::get('pending-pay', [EmployeePayrollController::class, 'pendingPay']);
         Route::get('leave-balance', [LeaveController::class, 'balance']);
         Route::get('leaves', [LeaveController::class, 'index']);
         Route::post('leaves', [LeaveController::class, 'store']);

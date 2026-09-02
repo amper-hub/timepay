@@ -81,6 +81,7 @@ Route::middleware(['auth'])->prefix('employer')->group(function () {
 
     Route::get('/payroll', [EmployerPayrollController::class, 'index'])->name('employer.payroll');
     Route::post('/payroll/update/{user}', [EmployerPayrollController::class, 'updateEmployeeRate'])->name('employer.payroll.update');
+    Route::post('/payroll/{user}/mark-as-paid', [EmployerPayrollController::class, 'markAsPaid'])->name('employer.payroll.mark-as-paid');
 
     Route::post('/employees', [EmployeeController::class, 'store'])->name('employer.employees.store');
     Route::delete('/employees/{user}', [EmployeeController::class, 'destroy'])->name('employer.employees.destroy');

@@ -26,6 +26,7 @@ class AttendanceLog extends Model
         'distance_meters',
         'photo_path',
         'status',
+        'is_paid',
     ];
 
     /**
@@ -42,6 +43,7 @@ class AttendanceLog extends Model
             'distance_meters' => 'decimal:2',
             'type' => 'string',
             'status' => 'string',
+            'is_paid' => 'boolean',
         ];
     }
 
