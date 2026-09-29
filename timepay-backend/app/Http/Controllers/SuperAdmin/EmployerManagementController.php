@@ -93,7 +93,10 @@ class EmployerManagementController extends Controller
     {
         abort_unless($employer->isEmployer(), 404);
 
-        return view('super-admin.employers.show', compact('employer'));
+        $employer->load(['company', 'employees']);
+        $hasCompanyAddressColumn = Schema::hasColumn('companies', 'address');
+
+        return view('super-admin.employers.show', compact('employer', 'hasCompanyAddressColumn'));
     }
 
     public function edit(User $employer): View

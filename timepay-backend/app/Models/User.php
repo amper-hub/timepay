@@ -102,6 +102,15 @@ class User extends Authenticatable
         return $this->hasMany(AttendanceLog::class);
     }
 
+    /**
+     * Get the employees assigned to the same company as this employer.
+     */
+    public function employees(): HasMany
+    {
+        return $this->hasMany(self::class, 'company_id', 'company_id')
+            ->where('role', self::ROLE_EMPLOYEE);
+    }
+
     public function isSuperAdmin(): bool
     {
         return $this->role === self::ROLE_SUPER_ADMIN;

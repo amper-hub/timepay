@@ -5,17 +5,15 @@
 @section('page-description', 'Monitor Cloud Face ID health, baseline enrollment, and company geofence locations.')
 
 @section('content')
-@php
-    $companyMapPoints = $companies->map(fn ($company) => [
-        'id' => $company->id,
-        'name' => $company->name,
-        'latitude' => $company->latitude !== null ? (float) $company->latitude : null,
-        'longitude' => $company->longitude !== null ? (float) $company->longitude : null,
-        'radius' => (int) ($company->geofence_radius_meters ?? $defaultGeofenceRadius),
-    ])->values();
-@endphp
-
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQPDLa8f2QpPaLHrh9tUfNf3HfQakLk=" crossorigin="">
+@push('styles')
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+    #platform-geofence-map {
+        height: 600px;
+        min-height: 600px;
+    }
+</style>
+@endpush
 
 <div class="space-y-6">
     <section class="grid gap-4 md:grid-cols-3">
@@ -114,7 +112,7 @@
         </div>
     </section>
 
-    <div class="grid gap-6 xl:grid-cols-[380px_1fr]">
+    <div class="grid gap-6">
         <section class="rounded-lg border border-slate-200 bg-white shadow-sm">
             <div class="border-b border-slate-200 px-5 py-4">
                 <h2 class="text-lg font-semibold text-slate-950">Global Geofence Settings</h2>
@@ -149,52 +147,79 @@
             </div>
 
             <div class="p-5">
-                <div id="company-map" class="h-[520px] w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100"></div>
-                <p class="mt-3 text-xs text-slate-500">{{ $companies->count() }} registered companies loaded. Companies without coordinates are skipped until their geofence is configured.</p>
+                <div id="platform-geofence-map" class="h-[600px] w-full shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100" style="height: 600px; min-height: 600px; width: 100%;"></div>
+                <p class="mt-3 text-xs text-slate-500">{{ $geofences->count() }} active company geofences loaded.</p>
             </div>
         </section>
     </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+@push('scripts')
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        const companies = @json($companyMapPoints);
-        const mappedCompanies = companies.filter(function (company) {
-            return company.latitude !== null && company.longitude !== null;
-        });
-        const map = L.map('company-map');
+    function initializePlatformGeofenceMap() {
+        const mapData = {{ Illuminate\Support\Js::from($geofences) }};
+        const mapContainer = document.getElementById('platform-geofence-map');
+
+        console.log('Platform geofence map data:', mapData);
+
+        if (! mapContainer) {
+            console.error('Platform geofence map container was not found.');
+            return;
+        }
+
+        if (typeof L === 'undefined') {
+            console.error('Leaflet failed to load. Check the Leaflet CDN request in the browser network panel.');
+            return;
+        }
+
+        const map = L.map(mapContainer);
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
 
-        if (mappedCompanies.length === 0) {
+        if (mapData.length === 0) {
             map.setView([14.5995, 120.9842], 11);
+            requestAnimationFrame(function () {
+                map.invalidateSize();
+            });
             return;
         }
 
-        const bounds = [];
+        const bounds = L.latLngBounds();
 
-        mappedCompanies.forEach(function (company) {
-            const point = [company.latitude, company.longitude];
-            bounds.push(point);
+        mapData.forEach(function (geofence) {
+            const point = [geofence.latitude, geofence.longitude];
+            const marker = L.marker(point).addTo(map);
+            const popupContent = document.createElement('strong');
+            popupContent.textContent = geofence.name;
 
-            L.marker(point)
-                .addTo(map)
-                .bindPopup(`<strong>${company.name}</strong><br>${company.latitude}, ${company.longitude}<br>Radius: ${company.radius}m`);
+            marker.bindPopup(popupContent);
 
-            L.circle(point, {
-                radius: company.radius,
+            const circle = L.circle(point, {
+                radius: geofence.radius,
                 color: '#059669',
                 weight: 2,
                 fillColor: '#6366f1',
                 fillOpacity: 0.12
             }).addTo(map);
+
+            bounds.extend(circle.getBounds());
         });
 
         map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-    });
+        requestAnimationFrame(function () {
+            map.invalidateSize();
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializePlatformGeofenceMap);
+    } else {
+        initializePlatformGeofenceMap();
+    }
 </script>
+@endpush
 @endsection

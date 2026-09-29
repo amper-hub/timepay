@@ -29,13 +29,12 @@
         <div class="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
             <div>
                 <h2 class="text-lg font-semibold text-slate-950">Recent Employer Report</h2>
-                <p class="text-sm text-slate-500">A lightweight reporting table you can later swap for CSV or PDF export.</p>
+                <p class="text-sm text-slate-500">Download the complete employer report as an Excel workbook or print-ready PDF.</p>
             </div>
-            <form method="POST" action="{{ route('super-admin.reports.export') }}" class="flex gap-2">
-                @csrf
-                <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">Export CSV</button>
-                <button type="submit" class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Export PDF</button>
-            </form>
+            <div class="flex gap-2">
+                <a href="{{ route('super-admin.reports.export.xlsx') }}" class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">Export XLSX</a>
+                <a href="{{ route('super-admin.reports.export.pdf') }}" class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Export PDF</a>
+            </div>
         </div>
 
         <div class="overflow-x-auto">

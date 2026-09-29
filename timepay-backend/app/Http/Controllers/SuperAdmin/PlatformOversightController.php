@@ -10,16 +10,16 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class PlatformOversightController extends Controller
 {
-    public function index(Request $request): View
+    public function mapView(Request $request): View
     {
         $usesFaceVerifiedColumn = Schema::hasColumn('attendance_logs', 'face_verified');
         $hasBaselinePhotoColumn = Schema::hasColumn('users', 'baseline_photo_path');
         $hasPasswordChangeColumn = Schema::hasColumn('users', 'requires_password_change');
+        $hasUserStatusColumn = Schema::hasColumn('users', 'status');
 
         $logsThisMonth = AttendanceLog::query()
             ->where('timestamp', '>=', now()->startOfMonth());
@@ -54,18 +54,32 @@ class PlatformOversightController extends Controller
             ->paginate(8)
             ->withQueryString();
 
-        $companies = Company::query()
-            ->orderBy('name')
-            ->get(['id', 'name', 'latitude', 'longitude', 'geofence_radius_meters']);
-
         $defaultGeofenceRadius = (int) Cache::get('platform.default_geofence_radius', config('timepay.default_geofence_radius', 100));
 
+        $geofences = Company::query()
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->whereHas('users', function ($query) use ($hasUserStatusColumn) {
+                $query->where('role', User::ROLE_EMPLOYER)
+                    ->when($hasUserStatusColumn, fn ($query) => $query->where('status', 'active'));
+            })
+            ->orderBy('name')
+            ->get(['id', 'name', 'latitude', 'longitude', 'geofence_radius_meters'])
+            ->map(fn (Company $company) => [
+                'id' => $company->id,
+                'name' => $company->name,
+                'latitude' => (float) $company->latitude,
+                'longitude' => (float) $company->longitude,
+                'radius' => (int) ($company->geofence_radius_meters ?? $defaultGeofenceRadius),
+            ])
+            ->values();
+
         return view('super-admin.platform.index', compact(
-            'companies',
             'defaultGeofenceRadius',
             'employees',
             'failedVerificationRate',
             'failedVerificationsThisMonth',
+            'geofences',
             'hasBaselinePhotoColumn',
             'hasPasswordChangeColumn',
             'totalApiCallsThisMonth',

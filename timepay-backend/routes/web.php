@@ -11,7 +11,6 @@ use App\Http\Controllers\Employer\LeaveController as EmployerLeaveController;
 use App\Http\Controllers\Employer\SettingsController;
 use App\Http\Controllers\SuperAdmin\AdminUserController;
 use App\Http\Controllers\SuperAdmin\EmployerManagementController;
-use App\Http\Controllers\SuperAdmin\ImpersonationController;
 use App\Http\Controllers\SuperAdmin\LeaveAuditController;
 use App\Http\Controllers\SuperAdmin\PlatformOversightController;
 use App\Http\Controllers\SuperAdmin\ReportController;
@@ -40,9 +39,7 @@ Route::post('/register-employer', [EmployerRegistrationController::class, 'store
 // 2. --- SUPER ADMIN PORTAL ROUTES ---
 Route::prefix('super-admin')->name('super-admin.')->middleware(['auth', IsSuperAdmin::class])->group(function () {
     Route::get('/dashboard', [SuperAdminDashboardController::class, 'index'])->name('dashboard');
-    Route::post('/impersonate/{user}', [ImpersonationController::class, 'impersonate'])->name('impersonate');
-
-    Route::get('/platform', [PlatformOversightController::class, 'index'])->name('platform.index');
+    Route::get('/platform', [PlatformOversightController::class, 'mapView'])->name('platform.index');
     Route::patch('/platform/geofence-settings', [PlatformOversightController::class, 'updateGeofenceSettings'])->name('platform.geofence-settings.update');
     Route::patch('/platform/employees/{employee}/reset-photo', [PlatformOversightController::class, 'resetPhoto'])->name('platform.employees.reset-photo');
 
@@ -51,18 +48,14 @@ Route::prefix('super-admin')->name('super-admin.')->middleware(['auth', IsSuperA
     Route::resource('employers', EmployerManagementController::class);
     Route::post('/employers/{employer}/approve', [EmployerManagementController::class, 'approve'])->name('employers.approve');
     Route::post('/employers/{employer}/suspend', [EmployerManagementController::class, 'suspend'])->name('employers.suspend');
-    Route::post('/employers/{user}/impersonate', [ImpersonationController::class, 'impersonate'])->name('employers.impersonate');
 
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
-    Route::post('/reports/export', [ReportController::class, 'export'])->name('reports.export');
+    Route::get('/reports/export/xlsx', [ReportController::class, 'exportXlsx'])->name('reports.export.xlsx');
+    Route::get('/reports/export/pdf', [ReportController::class, 'exportPdf'])->name('reports.export.pdf');
 
     Route::get('/leaves', [LeaveAuditController::class, 'index'])->name('leaves.index');
 
 });
-
-Route::post('/impersonation/leave', [ImpersonationController::class, 'leave'])
-    ->middleware('auth')
-    ->name('impersonation.leave');
 
 // 3. --- PHASE 3: EMPLOYER PORTAL ROUTES ---
 Route::middleware(['auth'])->prefix('employer')->group(function () {

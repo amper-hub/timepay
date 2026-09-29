@@ -31,7 +31,7 @@ import {
  * IMPORTANT: Update this to match your development machine's IP
  * Find your IP: Windows (ipconfig) | Mac/Linux (ifconfig)
  */
-const BASE_URL = "http://192.168.254.107:8000/api";
+const BASE_URL = "http://172.20.10.2:8000/api";
 
 /**
  * Detect if running in local development (non-HTTPS)

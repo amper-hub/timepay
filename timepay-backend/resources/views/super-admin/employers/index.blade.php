@@ -67,10 +67,6 @@
                             <div class="flex flex-wrap justify-end gap-2">
                                 <a href="{{ route('super-admin.employers.show', $employer) }}" class="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">View</a>
                                 <a href="{{ route('super-admin.employers.edit', $employer) }}" class="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</a>
-                                <form method="POST" action="{{ route('super-admin.impersonate', $employer) }}" onsubmit="return confirm('Log in as this employer?')">
-                                    @csrf
-                                    <button type="submit" class="rounded-md border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100">Login as Employer</button>
-                                </form>
                                 @if ($hasStatusColumn)
                                     <form method="POST" action="{{ route('super-admin.employers.approve', $employer) }}">
                                         @csrf
