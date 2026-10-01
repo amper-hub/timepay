@@ -11,38 +11,32 @@ use RuntimeException;
 class FacePlusPlusService
 {
     private const DEFAULT_DETECT_URL = 'https://api-us.faceplusplus.com/facepp/v3/detect';
+    private const DEFAULT_COMPARE_URL = 'https://api-us.faceplusplus.com/facepp/v3/compare';
+    private const MINIMUM_CONFIDENCE = 80.0;
 
     /**
      * Compare a user's baseline photo with a newly captured selfie.
+     *
+     * @return array{confidence: float, threshold: float, matched: bool}
      */
-    public function compare(string $baselinePhoto, string $selfiePhoto): bool
+    public function compare(string $baselinePhoto, string $selfiePhoto): array
     {
         if (! is_file($baselinePhoto) || ! is_readable($baselinePhoto)) {
-            Log::warning('Face++ baseline photo is missing or unreadable.', [
-                'baseline_photo' => $baselinePhoto,
-            ]);
-
-            return false;
+            throw new RuntimeException('Face++ reference photo is missing or unreadable.');
         }
 
         if (! is_file($selfiePhoto) || ! is_readable($selfiePhoto)) {
-            Log::warning('Face++ selfie photo is missing or unreadable.', [
-                'selfie_photo' => $selfiePhoto,
-            ]);
-
-            return false;
+            throw new RuntimeException('Face++ selfie photo is missing or unreadable.');
         }
-
-        // 💡 Read directly from your .env file keys
-        $apiKey = env('FACEPP_API_KEY');
-        $apiSecret = env('FACEPP_API_SECRET');
-        $compareUrl = 'https://api-us.faceplusplus.com/facepp/v3/compare'; 
-        $threshold = (float) env('FACEPP_CONFIDENCE_THRESHOLD', 80);
+        $apiKey = config('services.faceplusplus.key');
+        $apiSecret = config('services.faceplusplus.secret');
+        $compareUrl = config('services.faceplusplus.compare_url', self::DEFAULT_COMPARE_URL);
+        $threshold = self::MINIMUM_CONFIDENCE;
 
         if (! $apiKey || ! $apiSecret) {
             Log::error('Face++ credentials are not configured.');
 
-            return false;
+            throw new RuntimeException('Face++ comparison service is not configured.');
         }
 
         try {
@@ -50,18 +44,12 @@ class FacePlusPlusService
             $selfieContents = file_get_contents($selfiePhoto);
 
             if ($baselineContents === false || $selfieContents === false) {
-                Log::warning('Face++ could not read one or both image files.', [
-                    'baseline_photo' => $baselinePhoto,
-                    'selfie_photo' => $selfiePhoto,
-                ]);
-
-                return false;
+                throw new RuntimeException('Face++ could not read the reference or selfie image.');
             }
-
-            // The HTTP request sequence with the Windows SSL fix applied
-            $response = Http::timeout(20)
+            $response = Http::withOptions([
+                'verify' => $this->sslVerifyOption(),
+            ])->timeout(20)
                 ->retry(2, 250)
-                ->withoutVerifying() // 👈 Added to resolve cURL error 60 on local environment
                 ->attach('image_file1', $baselineContents, basename($baselinePhoto))
                 ->attach('image_file2', $selfieContents, basename($selfiePhoto))
                 ->post($compareUrl, [
@@ -70,9 +58,19 @@ class FacePlusPlusService
                 ])
                 ->throw();
 
-            $confidence = (float) data_get($response->json(), 'confidence', 0);
+            $confidenceValue = data_get($response->json(), 'confidence');
 
-            return $confidence >= $threshold;
+            if (! is_numeric($confidenceValue)) {
+                throw new RuntimeException('Face++ returned no comparison confidence score.');
+            }
+
+            $confidence = (float) $confidenceValue;
+
+            return [
+                'confidence' => $confidence,
+                'threshold' => $threshold,
+                'matched' => $confidence >= $threshold,
+            ];
         } catch (ConnectionException|RequestException|RuntimeException $exception) {
             Log::error('Face++ comparison request failed.', [
                 'message' => $exception->getMessage(),
@@ -80,7 +78,7 @@ class FacePlusPlusService
                 'selfie_photo' => $selfiePhoto,
             ]);
 
-            return false;
+            throw new RuntimeException('Face++ comparison is temporarily unavailable.', previous: $exception);
         }
     }
 
@@ -120,9 +118,10 @@ class FacePlusPlusService
         }
 
         try {
-            $response = Http::timeout(20)
+            $response = Http::withOptions([
+                'verify' => $this->sslVerifyOption(),
+            ])->timeout(20)
                 ->retry(2, 250)
-                ->withoutVerifying()
                 ->attach('image_file', $selfieContents, basename($selfiePhoto))
                 ->post($detectUrl, [
                     'api_key' => $apiKey,
@@ -234,5 +233,20 @@ class FacePlusPlusService
     private function nullableFloat(mixed $value): ?float
     {
         return is_numeric($value) ? (float) $value : null;
+    }
+
+    /**
+     * Use the bundled CA certificates when available. Only local development
+     * may disable verification, and only when no readable bundle is installed.
+     */
+    private function sslVerifyOption(): string|bool
+    {
+        $caBundle = storage_path('app/cacert.pem');
+
+        if (is_file($caBundle) && is_readable($caBundle)) {
+            return $caBundle;
+        }
+
+        return app()->environment('local') ? false : true;
     }
 }

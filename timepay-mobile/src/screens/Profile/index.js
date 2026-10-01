@@ -174,7 +174,9 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.hero}>
-            <Text style={styles.eyebrow}>Profile</Text>
+            <View style={styles.eyebrowBadge}>
+              <Text style={styles.eyebrow}>PROFILE</Text>
+            </View>
             <Text style={styles.title}>{name || "Employee"}</Text>
             <Text style={styles.subtitle}>
               Keep your account details current and manage your facial recognition baseline.
@@ -185,6 +187,8 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
             <TouchableOpacity
               activeOpacity={0.86}
               onPress={() => setActiveTab("account")}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeTab === "account" }}
               style={[
                 styles.tabButton,
                 activeTab === "account" && styles.activeTabButton,
@@ -202,6 +206,8 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
             <TouchableOpacity
               activeOpacity={0.86}
               onPress={() => setActiveTab("payslips")}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeTab === "payslips" }}
               style={[
                 styles.tabButton,
                 activeTab === "payslips" && styles.activeTabButton,
@@ -221,25 +227,35 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
           {activeTab === "account" ? (
             <>
               <View style={styles.infoCard}>
-                <Text style={styles.cardTitle}>Account</Text>
+                <Text style={styles.cardTitle}>Account Details</Text>
                 <Text style={styles.label}>Email</Text>
-                <Text style={styles.value}>{userSessionData?.user?.email ?? "N/A"}</Text>
+                <Text style={styles.value}>
+                  {userSessionData?.user?.email ?? "N/A"}
+                </Text>
+                <View style={styles.detailDivider} />
                 <Text style={styles.label}>Company</Text>
-                <Text style={styles.value}>{userSessionData?.company?.name ?? "N/A"}</Text>
+                <Text style={[styles.value, styles.lastValue]}>
+                  {userSessionData?.company?.name ?? "N/A"}
+                </Text>
               </View>
 
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Edit Name</Text>
+                <Text style={styles.label}>Full Name</Text>
                 <TextInput
                   value={name}
                   onChangeText={setName}
                   placeholder="Full name"
                   placeholderTextColor="#94a3b8"
+                  autoCapitalize="words"
+                  returnKeyType="done"
+                  accessibilityLabel="Full name"
                   style={styles.input}
                 />
                 <TouchableOpacity
                   disabled={savingName}
                   onPress={handleSaveName}
+                  activeOpacity={0.88}
                   style={[styles.primaryButton, savingName && styles.disabledButton]}
                 >
                   {savingName ? (
@@ -252,22 +268,33 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
 
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Update Password</Text>
+                <Text style={styles.label}>Current Password</Text>
                 <TextInput
                   value={passwordForm.current_password}
                   onChangeText={(value) => updatePasswordField("current_password", value)}
                   placeholder="Current Password"
                   placeholderTextColor="#94a3b8"
                   secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="password"
+                  accessibilityLabel="Current password"
                   style={styles.input}
                 />
+                <Text style={styles.label}>New Password</Text>
                 <TextInput
                   value={passwordForm.password}
                   onChangeText={(value) => updatePasswordField("password", value)}
                   placeholder="New Password"
                   placeholderTextColor="#94a3b8"
                   secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="newPassword"
+                  accessibilityLabel="New password"
                   style={styles.input}
                 />
+                <Text style={styles.label}>Confirm Password</Text>
                 <TextInput
                   value={passwordForm.password_confirmation}
                   onChangeText={(value) =>
@@ -276,11 +303,16 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
                   placeholder="Confirm Password"
                   placeholderTextColor="#94a3b8"
                   secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="newPassword"
+                  accessibilityLabel="Confirm password"
                   style={styles.input}
                 />
                 <TouchableOpacity
                   disabled={updatingPassword}
                   onPress={handleUpdatePassword}
+                  activeOpacity={0.88}
                   style={[
                     styles.primaryButton,
                     updatingPassword && styles.disabledButton,
@@ -302,6 +334,7 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
                 <TouchableOpacity
                   activeOpacity={0.9}
                   onPress={() => setConfirmFaceResetVisible(true)}
+                  accessibilityRole="button"
                   style={styles.faceButton}
                 >
                   <Text style={styles.faceButtonText}>Update Facial Recognition</Text>
@@ -316,6 +349,7 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
                 <TouchableOpacity
                   disabled={loadingPayslips}
                   onPress={loadPayslips}
+                  activeOpacity={0.86}
                   style={styles.refreshButton}
                 >
                   <Text style={styles.refreshButtonText}>Refresh</Text>
@@ -361,6 +395,7 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
           <TouchableOpacity
             activeOpacity={0.88}
             onPress={onLogout}
+            accessibilityRole="button"
             style={styles.logoutButton}
           >
             <Text style={styles.logoutText}>Log Out</Text>
@@ -417,11 +452,20 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 32,
+    paddingTop: 20,
+    paddingBottom: 36,
   },
   hero: {
-    marginBottom: 18,
+    marginBottom: 20,
+  },
+  eyebrowBadge: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#a7f3d0",
+    backgroundColor: "#ecfdf5",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   eyebrow: {
     color: "#059669",
@@ -431,9 +475,9 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   title: {
-    marginTop: 10,
+    marginTop: 12,
     color: "#0f172a",
-    fontSize: 31,
+    fontSize: 30,
     fontWeight: "900",
   },
   subtitle: {
@@ -444,19 +488,19 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     flexDirection: "row",
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "#e2e8f0",
     backgroundColor: "#ffffff",
     padding: 4,
-    marginBottom: 14,
+    marginBottom: 16,
   },
   tabButton: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 42,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 12,
+    borderRadius: 10,
   },
   activeTabButton: {
     backgroundColor: "#059669",
@@ -470,7 +514,7 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   infoCard: {
-    borderRadius: 22,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#e2e8f0",
     backgroundColor: "#ffffff",
@@ -478,7 +522,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   card: {
-    borderRadius: 22,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#e2e8f0",
     backgroundColor: "#ffffff",
@@ -503,31 +547,39 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0.5,
     textTransform: "uppercase",
+    marginBottom: 6,
   },
   value: {
-    marginTop: 5,
-    marginBottom: 14,
+    marginBottom: 12,
     color: "#0f172a",
     fontSize: 15,
     fontWeight: "800",
   },
+  detailDivider: {
+    height: 1,
+    backgroundColor: "#e2e8f0",
+    marginBottom: 14,
+  },
+  lastValue: {
+    marginBottom: 0,
+  },
   input: {
-    minHeight: 52,
-    borderRadius: 14,
+    minHeight: 50,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
+    borderColor: "#e2e8f0",
     backgroundColor: "#f8fafc",
     paddingHorizontal: 14,
     color: "#0f172a",
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
     marginBottom: 12,
   },
   primaryButton: {
-    minHeight: 52,
+    minHeight: 50,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 14,
+    borderRadius: 12,
     backgroundColor: "#059669",
   },
   primaryButtonText: {
@@ -596,9 +648,9 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   faceCard: {
-    borderRadius: 24,
+    borderRadius: 16,
     backgroundColor: "#0f172a",
-    padding: 20,
+    padding: 18,
     marginBottom: 14,
   },
   faceTitle: {
@@ -614,27 +666,31 @@ const styles = StyleSheet.create({
   },
   faceButton: {
     marginTop: 16,
-    borderRadius: 16,
-    backgroundColor: "#ffffff",
-    padding: 16,
+    minHeight: 52,
+    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: "#059669",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   faceButtonText: {
-    color: "#0f172a",
-    fontSize: 16,
+    color: "#ffffff",
+    fontSize: 15,
     fontWeight: "900",
   },
   faceButtonSubtext: {
     marginTop: 4,
-    color: "#64748b",
+    color: "#d1fae5",
     fontSize: 12,
     fontWeight: "800",
   },
   logoutButton: {
-    minHeight: 52,
+    minHeight: 54,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: "#ef4444",
+    borderRadius: 12,
+    backgroundColor: "#dc2626",
+    marginTop: 2,
   },
   logoutText: {
     color: "#ffffff",
@@ -653,7 +709,7 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: "100%",
-    borderRadius: 24,
+    borderRadius: 16,
     backgroundColor: "#ffffff",
     padding: 20,
   },

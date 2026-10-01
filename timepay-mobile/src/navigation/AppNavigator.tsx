@@ -66,7 +66,12 @@ const AppNavigator: React.FC<AppNavigatorProps> = ({
             fontSize: 12,
             fontWeight: "700",
           },
+          tabBarItemStyle: {
+            flex: 1,
+          },
           tabBarStyle: {
+            flexDirection: "row",
+            justifyContent: "space-around",
             height: 64,
             paddingTop: 10,
             paddingBottom: 10,
@@ -106,6 +111,7 @@ const AppNavigator: React.FC<AppNavigatorProps> = ({
           name="FaceVerification"
           options={{
             tabBarButton: () => null,
+            tabBarItemStyle: { display: "none" },
           }}
         >
           {(props) => <FaceVerificationScreen {...props} />}

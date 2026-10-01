@@ -11,15 +11,18 @@ import {
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImageManipulator from "expo-image-manipulator";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
+import FaceDetection from "@react-native-ml-kit/face-detection";
 import apiClient, { getApiErrorMessage } from "../../services/api";
 import {
   getHighAccuracyAttendanceLocation,
   LOCATION_FALLBACK_WARNING,
 } from "../../services/location";
 
-const MAX_SELFIE_WIDTH = 800;
-const SELFIE_JPEG_QUALITY = 0.3;
+const MAX_SELFIE_WIDTH = 1600;
+const SELFIE_JPEG_QUALITY = 0.85;
+const INITIAL_LIVENESS_INSTRUCTION = "Please blink your eyes to verify.";
 
 const compressSelfie = async (photo) => {
   const shouldResize = photo?.width && photo.width > MAX_SELFIE_WIDTH;
@@ -39,13 +42,26 @@ const FaceVerificationScreen = ({ navigation, route }) => {
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraActive, setCameraActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [blinkDetected, setBlinkDetected] = useState(false);
+  const [livenessMessage, setLivenessMessage] = useState(
+    INITIAL_LIVENESS_INSTRUCTION
+  );
   const [screenError, setScreenError] = useState(null);
+  const submittingRef = useRef(false);
+  const frameInFlightRef = useRef(false);
+  const blinkPhaseRef = useRef("waiting_for_open");
 
   const action = route?.params?.action === "clock_out" ? "clock_out" : "clock_in";
   const actionLabel = action === "clock_out" ? "Clock Out" : "Clock In";
 
   useFocusEffect(
     useCallback(() => {
+      blinkPhaseRef.current = "waiting_for_open";
+      frameInFlightRef.current = false;
+      submittingRef.current = false;
+      setBlinkDetected(false);
+      setLivenessMessage(INITIAL_LIVENESS_INSTRUCTION);
+      setScreenError(null);
       setCameraActive(true);
 
       return () => setCameraActive(false);
@@ -74,7 +90,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         action === "clock_in" ? "/attendance/clock-in" : "/attendance/store";
 
       const response = await apiClient.post(endpoint, formData, {
-        timeout: 10000,
+        timeout: 45000,
         headers: {
           "Content-Type": "multipart/form-data",
         },
@@ -86,17 +102,19 @@ const FaceVerificationScreen = ({ navigation, route }) => {
   );
 
   const handleTakePhoto = useCallback(async () => {
-    if (!cameraRef.current || !cameraReady || submitting) {
+    if (!cameraRef.current || !cameraReady || submittingRef.current) {
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     setScreenError(null);
 
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7,
-        skipProcessing: true,
+        quality: 0.95,
+        skipProcessing: false,
+        shutterSound: false,
       });
 
       if (!photo?.uri) {
@@ -125,8 +143,20 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         location.coords.longitude
       );
 
+      if (response?.face_verification?.enrolled) {
+        setBlinkDetected(false);
+        setLivenessMessage(
+          "Face profile saved. Please blink again to verify your attendance."
+        );
+        return response;
+      }
+
       navigation.navigate("Attendance");
-      Alert.alert(`${actionLabel} Successful`, response.message);
+      const flagged = response?.attendance_log?.status === "flagged";
+      Alert.alert(
+        flagged ? `${actionLabel} Flagged` : `${actionLabel} Successful`,
+        response.message
+      );
     } catch (error) {
       if (
         error?.response?.status === 422 &&
@@ -154,9 +184,139 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         errorMessage || "Verification failed. Please try again."
       );
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
-  }, [actionLabel, cameraReady, navigation, submitSelfie, submitting]);
+  }, [actionLabel, cameraReady, navigation, submitSelfie]);
+
+  useEffect(() => {
+    if (!cameraActive || !cameraReady) {
+      return;
+    }
+
+    let cancelled = false;
+    let scanTimer;
+
+    const scanPreview = async () => {
+      if (cancelled || !cameraRef.current || submittingRef.current) {
+        return;
+      }
+
+      if (frameInFlightRef.current) {
+        scanTimer = setTimeout(scanPreview, 200);
+        return;
+      }
+
+      frameInFlightRef.current = true;
+      let previewUri;
+      let blinkSequenceComplete = false;
+
+      try {
+        const preview = await cameraRef.current.takePictureAsync({
+          quality: 0.15,
+          skipProcessing: false,
+          shutterSound: false,
+        });
+        previewUri = preview?.uri;
+
+        if (previewUri) {
+          const faces = await FaceDetection.detect(previewUri, {
+            performanceMode: "fast",
+            classificationMode: "all",
+          });
+
+          if (faces.length !== 1) {
+            setLivenessMessage(
+              faces.length === 0
+                ? "Center your face in the guide."
+                : "Please make sure only your face is visible."
+            );
+          } else {
+            const { leftEyeOpenProbability, rightEyeOpenProbability } = faces[0];
+
+            if (
+              typeof leftEyeOpenProbability === "number" &&
+              typeof rightEyeOpenProbability === "number"
+            ) {
+              const eyesOpen =
+                leftEyeOpenProbability > 0.8 && rightEyeOpenProbability > 0.8;
+              const eyesClosed =
+                leftEyeOpenProbability < 0.25 && rightEyeOpenProbability < 0.25;
+
+              if (blinkPhaseRef.current === "waiting_for_open" && eyesOpen) {
+                blinkPhaseRef.current = "waiting_for_close";
+                setLivenessMessage("Eyes open detected. Now blink once.");
+              } else if (
+                blinkPhaseRef.current === "waiting_for_close" &&
+                eyesClosed
+              ) {
+                blinkPhaseRef.current = "waiting_for_reopen";
+                setLivenessMessage("Blink detected. Open your eyes.");
+              } else if (
+                blinkPhaseRef.current === "waiting_for_reopen" &&
+                eyesOpen
+              ) {
+                blinkPhaseRef.current = "complete";
+                blinkSequenceComplete = true;
+              }
+            } else {
+              setLivenessMessage("Look directly at the camera.");
+            }
+          }
+        }
+      } catch (error) {
+        console.error("[Liveness] ML Kit frame analysis failed:", error);
+        if (!cancelled) {
+          setScreenError(
+            "On-device face detection is unavailable. Rebuild the Expo development client with the ML Kit module installed."
+          );
+        }
+        return;
+      } finally {
+        if (previewUri) {
+          await FileSystem.deleteAsync(previewUri, { idempotent: true }).catch(
+            () => undefined
+          );
+        }
+        frameInFlightRef.current = false;
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      if (blinkSequenceComplete) {
+        setBlinkDetected(true);
+        setLivenessMessage("Blink verified. Capturing your selfie...");
+        await new Promise((resolve) => setTimeout(resolve, 450));
+        if (!cancelled) {
+          const response = await handleTakePhoto();
+
+          if (!response?.attendance_log && !cancelled) {
+            blinkPhaseRef.current = "waiting_for_open";
+            frameInFlightRef.current = false;
+            setBlinkDetected(false);
+            setLivenessMessage(response?.face_verification?.enrolled
+              ? "Face profile saved. Please blink again to verify your attendance."
+              : "Please blink again to retry the attendance check.");
+            scanTimer = setTimeout(scanPreview, 250);
+          }
+        }
+        return;
+      }
+
+      scanTimer = setTimeout(scanPreview, 200);
+    };
+
+    void scanPreview();
+
+    return () => {
+      cancelled = true;
+      if (scanTimer) {
+        clearTimeout(scanTimer);
+      }
+    };
+  }, [cameraActive, cameraReady, handleTakePhoto]);
 
   if (!cameraPermission) {
     return (
@@ -217,7 +377,12 @@ const FaceVerificationScreen = ({ navigation, route }) => {
       <View pointerEvents="none" style={styles.overlay}>
         <View style={styles.topScrim}>
           <Text style={styles.cameraTitle}>{actionLabel}</Text>
-          <Text style={styles.cameraSubtitle}>Position your face in the guide</Text>
+          <Text style={styles.cameraSubtitle}>{livenessMessage}</Text>
+          {blinkDetected && !submitting ? (
+            <View style={styles.livenessSuccessBadge}>
+              <Text style={styles.livenessSuccessText}>Blink verified</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.guideWrap}>
@@ -242,21 +407,18 @@ const FaceVerificationScreen = ({ navigation, route }) => {
       ) : null}
 
       <View style={styles.bottomBar}>
-        <TouchableOpacity
-          activeOpacity={0.9}
-          disabled={!cameraReady || submitting}
-          onPress={handleTakePhoto}
-          style={[
-            styles.captureButton,
-            (!cameraReady || submitting) && styles.captureButtonDisabled,
-          ]}
-        >
-          {submitting ? (
+        {submitting ? (
+          <View style={styles.scanningStatus}>
             <ActivityIndicator color="#ffffff" />
-          ) : (
-            <Text style={styles.captureButtonText}>Take Photo</Text>
-          )}
-        </TouchableOpacity>
+            <Text style={styles.captureButtonText}>
+              Sending your verified selfie and location...
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.captureButtonText}>
+            {cameraReady ? "Keep your face in the guide" : "Starting camera..."}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -367,6 +529,20 @@ const styles = StyleSheet.create({
     color: "#d1fae5",
     fontSize: 15,
     fontWeight: "800",
+    textAlign: "center",
+    paddingHorizontal: 20,
+  },
+  livenessSuccessBadge: {
+    marginTop: 12,
+    borderRadius: 999,
+    backgroundColor: "#065f46",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  livenessSuccessText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "900",
   },
   guideWrap: {
     flex: 1,
@@ -426,23 +602,17 @@ const styles = StyleSheet.create({
     paddingBottom: 38,
     backgroundColor: "rgba(4, 120, 87, 0.74)",
   },
-  captureButton: {
-    minHeight: 58,
-    width: "100%",
-    maxWidth: 360,
+  scanningStatus: {
+    minHeight: 42,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 18,
-    backgroundColor: "#047857",
-    paddingHorizontal: 18,
-  },
-  captureButtonDisabled: {
-    opacity: 0.72,
+    gap: 10,
   },
   captureButtonText: {
     color: "#ffffff",
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "900",
+    textAlign: "center",
   },
 });
 

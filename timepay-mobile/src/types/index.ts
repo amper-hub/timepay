@@ -152,7 +152,14 @@ export interface AttendanceLogResponse {
 export interface AttendancePunchResponse {
   success: boolean;
   message: string;
-  attendance_log: AttendanceLogResponse;
+  attendance_log: AttendanceLogResponse | null;
+  face_verification?: {
+    enrolled: boolean;
+    baseline_photo_configured: boolean;
+    matched: boolean | null;
+    confidence: number | null;
+    threshold: number;
+  };
   geofence_info: GeofenceInfo;
   current_state?: AttendanceState;
   next_expected_punch?: AttendancePunchType;

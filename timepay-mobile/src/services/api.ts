@@ -31,7 +31,7 @@ import {
  * IMPORTANT: Update this to match your development machine's IP
  * Find your IP: Windows (ipconfig) | Mac/Linux (ifconfig)
  */
-const BASE_URL = "http://172.20.10.2:8000/api";
+const BASE_URL = "http://10.88.35.55:8000/api";
 
 /**
  * Detect if running in local development (non-HTTPS)
@@ -596,8 +596,12 @@ export const apiService = {
       };
 
       // Make the request with FormData
+      const endpoint = type === 'clock_in'
+        ? '/attendance/clock-in'
+        : '/attendance/store';
+
       const response = await apiClient.post<AttendancePunchResponse>(
-        '/attendance/store',
+        endpoint,
         formData,
         config
       );

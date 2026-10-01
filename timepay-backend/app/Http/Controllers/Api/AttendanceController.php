@@ -197,20 +197,25 @@ class AttendanceController extends Controller
         $officeLongitude = $this->companyGeofenceLongitude($company);
         $geofenceRadius = $this->companyGeofenceRadius($company);
 
-        if ($officeLatitude !== null && $officeLongitude !== null) {
-            $distanceInMeters = (int) round($this->calculateDistance(
-                (float) $validated['latitude'],
-                (float) $validated['longitude'],
-                $officeLatitude,
-                $officeLongitude
-            ));
+        if ($officeLatitude === null || $officeLongitude === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Punch rejected. Company geofence coordinates are not configured.',
+            ], 422);
+        }
 
-            if ($distanceInMeters > $geofenceRadius) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "Punch rejected. You are outside the designated job site boundary (Distance: {$distanceInMeters} meters away).",
-                ], 422);
-            }
+        $distanceInMeters = round($this->calculateDistance(
+            (float) $validated['latitude'],
+            (float) $validated['longitude'],
+            $officeLatitude,
+            $officeLongitude
+        ), 2);
+
+        if ($distanceInMeters > $geofenceRadius) {
+            return response()->json([
+                'success' => false,
+                'message' => "Punch rejected. You are outside the designated job site boundary (Distance: {$distanceInMeters} meters away).",
+            ], 422);
         }
 
         $latestPunchToday = AttendanceLog::where('company_id', $user->company_id)
@@ -231,76 +236,44 @@ class AttendanceController extends Controller
             ]);
         }
 
-        $distanceInMeters = $officeLatitude !== null && $officeLongitude !== null
-            ? (float) round($this->calculateDistance(
-                (float) $validated['latitude'],
-                (float) $validated['longitude'],
-                $officeLatitude,
-                $officeLongitude
-            ), 2)
-            : null;
-        $isWithinGeofence = $distanceInMeters === null || $distanceInMeters <= $geofenceRadius;
+        $distanceInMeters = (float) $distanceInMeters;
+        $isWithinGeofence = $distanceInMeters <= $geofenceRadius;
 
         $file = $request->file('selfie') ?? $request->file('photo');
         $filename = 'selfie_' . $user->id . '_' . now()->format('YmdHis') . '_' . str()->random(8) . '.' . $file->extension();
         $photoPath = $file->storeAs('selfies', $filename, 'public');
+
+        if (! $photoPath) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Punch could not be saved. Please try again.',
+            ], 500);
+        }
+
         $selfieAbsolutePath = Storage::disk('public')->path($photoPath);
 
         $isFirstTimeEnrollment = $user->baseline_photo_path === null;
+        $faceResult = null;
+        $faceMatched = null;
+        $isSuspicious = false;
+        $suspicionReason = null;
 
         if ($isFirstTimeEnrollment) {
             $user->baseline_photo_path = $photoPath;
             $user->save();
 
-            $faceMatched = null;
-        } else {
-            $baselineAbsolutePath = $this->resolveBaselinePhotoPath($user->baseline_photo_path);
-            $faceMatched = $this->facePlusPlusService->compare($baselineAbsolutePath, $selfieAbsolutePath);
+            $currentState = $latestPunchToday?->type === 'clock_in' ? 'clocked_in' : 'clocked_out';
 
-            if (! $faceMatched) {
-                Storage::disk('public')->delete($photoPath);
-
-                return response()->json([
-                    'success' => false,
-                    'error' => 'face_mismatch',
-                    'message' => 'Face not recognized. Please align your face in good lighting and try again.',
-                ], 422);
-            }
-        }
-
-        $attendanceLog = AttendanceLog::create([
-            'user_id' => $user->id,
-            'company_id' => $company->id,
-            'timestamp' => now(),
-            'type' => $validated['type'],
-            'latitude' => (float) $validated['latitude'],
-            'longitude' => (float) $validated['longitude'],
-            'distance_meters' => $distanceInMeters,
-            'photo_path' => $photoPath,
-            'status' => 'verified',
-        ]);
-
-        if ($attendanceLog->type === 'clock_in') {
-            AnalyzeSelfieProof::dispatch($attendanceLog->id);
-        }
-
-        if ($isFirstTimeEnrollment) {
             return response()->json([
                 'success' => true,
-                'message' => 'First-time facial enrollment successful! Clock-in recorded.',
-                'attendance_log' => [
-                    'id' => $attendanceLog->id,
-                    'user_id' => $attendanceLog->user_id,
-                    'timestamp' => $attendanceLog->timestamp,
-                    'type' => $attendanceLog->type,
-                    'status' => $attendanceLog->status,
-                    'distance_meters' => $attendanceLog->distance_meters,
-                    'photo_path' => asset('storage/' . $attendanceLog->photo_path),
-                ],
+                'message' => 'Face profile enrolled. Blink again to verify this attendance punch.',
+                'attendance_log' => null,
                 'face_verification' => [
                     'enrolled' => true,
                     'baseline_photo_configured' => true,
                     'matched' => null,
+                    'confidence' => null,
+                    'threshold' => 80.0,
                 ],
                 'geofence_info' => [
                     'within_geofence' => $isWithinGeofence,
@@ -315,12 +288,60 @@ class AttendanceController extends Controller
                     'geofence_radius_meters' => $geofenceRadius,
                     'distance_from_office_meters' => $distanceInMeters,
                 ],
-                'current_state' => $attendanceLog->type === 'clock_in' ? 'clocked_in' : 'clocked_out',
-                'next_expected_punch' => $attendanceLog->type === 'clock_in' ? 'clock_out' : 'clock_in',
+                'current_state' => $currentState,
+                'next_expected_punch' => $validated['type'],
             ], 200);
         }
 
-        $responseMessage = ucfirst(str_replace('_', ' ', $validated['type'])) . ' successful. Face match and geofence checks passed.';
+        $baselineAbsolutePath = $this->resolveBaselinePhotoPath($user->baseline_photo_path);
+
+        if (! $baselineAbsolutePath) {
+            Storage::disk('public')->delete($photoPath);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'face_reference_unavailable',
+                'message' => 'Your saved face reference is unavailable. Please reset and enroll it again.',
+            ], 422);
+        }
+
+        try {
+            $faceResult = $this->facePlusPlusService->compare($baselineAbsolutePath, $selfieAbsolutePath);
+        } catch (\RuntimeException $exception) {
+            Storage::disk('public')->delete($photoPath);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'face_verification_unavailable',
+                'message' => 'Face verification is temporarily unavailable. Please try again.',
+            ], 503);
+        }
+
+        $faceMatched = $faceResult['matched'];
+        $isSuspicious = ! $faceMatched;
+        $suspicionReason = $isSuspicious ? 'Face++ Identity Mismatch' : null;
+
+        $attendanceLog = AttendanceLog::create([
+            'user_id' => $user->id,
+            'company_id' => $company->id,
+            'timestamp' => now(),
+            'type' => $validated['type'],
+            'latitude' => (float) $validated['latitude'],
+            'longitude' => (float) $validated['longitude'],
+            'distance_meters' => $distanceInMeters,
+            'photo_path' => $photoPath,
+            'status' => $isSuspicious ? 'flagged' : 'verified',
+            'is_suspicious' => $isSuspicious,
+            'suspicion_reason' => $suspicionReason,
+        ]);
+
+        if ($attendanceLog->type === 'clock_in' && ! $isSuspicious) {
+            AnalyzeSelfieProof::dispatch($attendanceLog->id);
+        }
+
+        $responseMessage = $isSuspicious
+            ? 'Punch recorded and flagged for review because the Face++ identity check did not meet the confidence threshold.'
+            : ucfirst(str_replace('_', ' ', $validated['type'])) . ' successful. Face match and geofence checks passed.';
 
         return response()->json([
             'success' => true,
@@ -331,6 +352,8 @@ class AttendanceController extends Controller
                 'timestamp' => $attendanceLog->timestamp,
                 'type' => $attendanceLog->type,
                 'status' => $attendanceLog->status,
+                'is_suspicious' => $attendanceLog->is_suspicious,
+                'suspicion_reason' => $attendanceLog->suspicion_reason,
                 'distance_meters' => $attendanceLog->distance_meters,
                 'photo_path' => $attendanceLog->photo_path ? asset('storage/' . $attendanceLog->photo_path) : null,
             ],
@@ -338,6 +361,8 @@ class AttendanceController extends Controller
                 'enrolled' => false,
                 'baseline_photo_configured' => true,
                 'matched' => $faceMatched,
+                'confidence' => $faceResult['confidence'],
+                'threshold' => $faceResult['threshold'],
             ],
             'geofence_info' => [
                 'within_geofence' => $isWithinGeofence,

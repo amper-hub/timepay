@@ -128,6 +128,11 @@ const AttendanceScreen: React.FC<AttendanceScreenProps> = ({
 
   const showPunchResult = useCallback(
     (response: AttendancePunchResponse) => {
+      if (!response.attendance_log) {
+        Alert.alert("Face profile set up", response.message, [{ text: "OK" }]);
+        return;
+      }
+
       const typeLabel = response.attendance_log.type === "clock_in"
         ? "Clock In"
         : "Clock Out";
@@ -175,7 +180,7 @@ const AttendanceScreen: React.FC<AttendanceScreenProps> = ({
 
       const nextState =
         response.current_state ??
-        (response.attendance_log.type === "clock_in"
+        (response.attendance_log?.type === "clock_in"
           ? "clocked_in"
           : "clocked_out");
 

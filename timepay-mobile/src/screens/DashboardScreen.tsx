@@ -144,7 +144,11 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
       });
 
       // Show success/rejection alert
-      const statusLabel = response.attendance_log.status === "verified" ? "Verified" : "Flagged for Review";
+      const statusLabel = !response.attendance_log
+        ? "Face Profile Set Up"
+        : response.attendance_log.status === "verified"
+          ? "Verified"
+          : "Flagged for Review";
       const distanceText = `Distance: ${response.geofence_info.distance_from_office_meters.toFixed(2)}m (Radius: ${response.geofence_info.geofence_radius_meters}m)`;
 
       Alert.alert(
