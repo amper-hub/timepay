@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import {
   resetFaceBaseline,
   updateName,
@@ -25,7 +26,7 @@ import {
 } from "../../services/payrollService";
 
 const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
-  const [activeTab, setActiveTab] = useState("account");
+  const [activeSection, setActiveSection] = useState(null);
   const [name, setName] = useState(userSessionData?.user?.name ?? "");
   const [savingName, setSavingName] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
@@ -61,10 +62,10 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
   }, []);
 
   useEffect(() => {
-    if (activeTab === "payslips") {
+    if (activeSection === "payslips") {
       loadPayslips();
     }
-  }, [activeTab, loadPayslips]);
+  }, [activeSection, loadPayslips]);
 
   const updatePasswordField = useCallback((field, value) => {
     setPasswordForm((current) => ({ ...current, [field]: value }));
@@ -163,243 +164,296 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
     }
   }, []);
 
+  const sectionTitle = {
+    editName: "Edit Name",
+    accountDetails: "Account Details",
+    password: "Update Password",
+    facialRecognition: "Facial Recognition",
+    payslips: "My Payslips",
+  }[activeSection] ?? "Settings";
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}
       >
+        <View style={styles.topBar}>
+          {activeSection ? (
+            <TouchableOpacity
+              onPress={() => setActiveSection(null)}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Back to Profile"
+              style={styles.backButton}
+            >
+              <Text style={styles.backButtonText}>← Back</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerSpacer} />
+          )}
+          <Text style={styles.topBarTitle}>{sectionTitle}</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.hero}>
-            <View style={styles.eyebrowBadge}>
-              <Text style={styles.eyebrow}>PROFILE</Text>
-            </View>
-            <Text style={styles.title}>{name || "Employee"}</Text>
-            <Text style={styles.subtitle}>
-              Keep your account details current and manage your facial recognition baseline.
-            </Text>
-          </View>
-
-          <View style={styles.tabBar}>
-            <TouchableOpacity
-              activeOpacity={0.86}
-              onPress={() => setActiveTab("account")}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: activeTab === "account" }}
-              style={[
-                styles.tabButton,
-                activeTab === "account" && styles.activeTabButton,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.tabButtonText,
-                  activeTab === "account" && styles.activeTabButtonText,
-                ]}
-              >
-                Account
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              activeOpacity={0.86}
-              onPress={() => setActiveTab("payslips")}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: activeTab === "payslips" }}
-              style={[
-                styles.tabButton,
-                activeTab === "payslips" && styles.activeTabButton,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.tabButtonText,
-                  activeTab === "payslips" && styles.activeTabButtonText,
-                ]}
-              >
-                My Payslips
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {activeTab === "account" ? (
+          {!activeSection ? (
             <>
-              <View style={styles.infoCard}>
-                <Text style={styles.cardTitle}>Account Details</Text>
-                <Text style={styles.label}>Email</Text>
-                <Text style={styles.value}>
-                  {userSessionData?.user?.email ?? "N/A"}
-                </Text>
-                <View style={styles.detailDivider} />
-                <Text style={styles.label}>Company</Text>
-                <Text style={[styles.value, styles.lastValue]}>
-                  {userSessionData?.company?.name ?? "N/A"}
-                </Text>
+              <SectionHeading title="General" />
+              <View style={styles.group}>
+                <SettingsRow
+                  icon="person-outline"
+                  label="Edit Name"
+                  value={name || "Add your name"}
+                  onPress={() => setActiveSection("editName")}
+                />
+                <SettingsRow
+                  icon="mail-outline"
+                  label="Account Details"
+                  value={userSessionData?.user?.email ?? "View your account"}
+                  onPress={() => setActiveSection("accountDetails")}
+                />
+                <SettingsRow
+                  icon="receipt-outline"
+                  label="My Payslips"
+                  value="View payroll history"
+                  isLast
+                  onPress={() => setActiveSection("payslips")}
+                />
               </View>
 
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Edit Name</Text>
-                <Text style={styles.label}>Full Name</Text>
-                <TextInput
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Full name"
-                  placeholderTextColor="#94a3b8"
-                  autoCapitalize="words"
-                  returnKeyType="done"
-                  accessibilityLabel="Full name"
-                  style={styles.input}
+              <SectionHeading title="Secure" />
+              <View style={styles.group}>
+                <SettingsRow
+                  icon="key-outline"
+                  label="Update Password"
+                  onPress={() => setActiveSection("password")}
                 />
-                <TouchableOpacity
-                  disabled={savingName}
-                  onPress={handleSaveName}
-                  activeOpacity={0.88}
-                  style={[styles.primaryButton, savingName && styles.disabledButton]}
-                >
-                  {savingName ? (
-                    <ActivityIndicator color="#ffffff" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>Save Name</Text>
-                  )}
-                </TouchableOpacity>
+                <SettingsRow
+                  icon="scan-outline"
+                  label="Facial Recognition"
+                  value="Manage your Face ID baseline"
+                  isLast
+                  onPress={() => setActiveSection("facialRecognition")}
+                />
               </View>
 
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Update Password</Text>
-                <Text style={styles.label}>Current Password</Text>
-                <TextInput
-                  value={passwordForm.current_password}
-                  onChangeText={(value) => updatePasswordField("current_password", value)}
-                  placeholder="Current Password"
-                  placeholderTextColor="#94a3b8"
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  textContentType="password"
-                  accessibilityLabel="Current password"
-                  style={styles.input}
+              <SectionHeading title="Account" />
+              <View style={styles.group}>
+                <SettingsRow
+                  icon="log-out-outline"
+                  label="Log Out"
+                  danger
+                  isLast
+                  onPress={onLogout}
                 />
-                <Text style={styles.label}>New Password</Text>
-                <TextInput
-                  value={passwordForm.password}
-                  onChangeText={(value) => updatePasswordField("password", value)}
-                  placeholder="New Password"
-                  placeholderTextColor="#94a3b8"
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  textContentType="newPassword"
-                  accessibilityLabel="New password"
-                  style={styles.input}
-                />
-                <Text style={styles.label}>Confirm Password</Text>
-                <TextInput
-                  value={passwordForm.password_confirmation}
-                  onChangeText={(value) =>
-                    updatePasswordField("password_confirmation", value)
-                  }
-                  placeholder="Confirm Password"
-                  placeholderTextColor="#94a3b8"
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  textContentType="newPassword"
-                  accessibilityLabel="Confirm password"
-                  style={styles.input}
-                />
-                <TouchableOpacity
-                  disabled={updatingPassword}
-                  onPress={handleUpdatePassword}
-                  activeOpacity={0.88}
-                  style={[
-                    styles.primaryButton,
-                    updatingPassword && styles.disabledButton,
-                  ]}
-                >
-                  {updatingPassword ? (
-                    <ActivityIndicator color="#ffffff" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>Update Password</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.faceCard}>
-                <Text style={styles.faceTitle}>Facial Recognition</Text>
-                <Text style={styles.faceText}>
-                  Reset your baseline photo if your verification keeps failing or your appearance has changed.
-                </Text>
-                <TouchableOpacity
-                  activeOpacity={0.9}
-                  onPress={() => setConfirmFaceResetVisible(true)}
-                  accessibilityRole="button"
-                  style={styles.faceButton}
-                >
-                  <Text style={styles.faceButtonText}>Update Facial Recognition</Text>
-                  <Text style={styles.faceButtonSubtext}>Re-enroll Face ID</Text>
-                </TouchableOpacity>
               </View>
             </>
-          ) : (
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>My Payslips</Text>
+          ) : null}
+
+          {activeSection === "editName" ? (
+            <>
+              <SectionHeading title="Personal information" />
+              <View style={styles.group}>
+                <View style={[styles.inputRow, styles.lastInputRow]}>
+                  <Text style={styles.fieldLabel}>Full Name</Text>
+                  <TextInput
+                    value={name}
+                    onChangeText={setName}
+                    placeholder="Full name"
+                    placeholderTextColor="#9ca3af"
+                    autoCapitalize="words"
+                    returnKeyType="done"
+                    accessibilityLabel="Full name"
+                    style={styles.textInput}
+                  />
+                </View>
+              </View>
+              <TouchableOpacity
+                disabled={savingName}
+                onPress={handleSaveName}
+                activeOpacity={0.86}
+                style={[styles.primaryButton, savingName && styles.disabledButton]}
+              >
+                {savingName ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Save Name</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          ) : null}
+
+          {activeSection === "accountDetails" ? (
+            <>
+              <SectionHeading title="Your account" />
+              <View style={styles.group}>
+                <SettingsRow
+                  icon="mail-outline"
+                  label="Email"
+                  value={userSessionData?.user?.email ?? "N/A"}
+                />
+                <SettingsRow
+                  icon="business-outline"
+                  label="Company"
+                  value={userSessionData?.company?.name ?? "N/A"}
+                  isLast
+                />
+              </View>
+            </>
+          ) : null}
+
+          {activeSection === "password" ? (
+            <>
+              <SectionHeading title="Change your password" />
+              <View style={styles.group}>
+                {[
+                  {
+                    label: "Current Password",
+                    field: "current_password",
+                    contentType: "password",
+                  },
+                  {
+                    label: "New Password",
+                    field: "password",
+                    contentType: "newPassword",
+                  },
+                  {
+                    label: "Confirm Password",
+                    field: "password_confirmation",
+                    contentType: "newPassword",
+                  },
+                ].map((item, index, fields) => (
+                  <View
+                    key={item.field}
+                    style={[
+                      styles.inputRow,
+                      index === fields.length - 1 && styles.lastInputRow,
+                    ]}
+                  >
+                    <Text style={styles.fieldLabel}>{item.label}</Text>
+                    <TextInput
+                      value={passwordForm[item.field]}
+                      onChangeText={(value) =>
+                        updatePasswordField(item.field, value)
+                      }
+                      placeholder={item.label}
+                      placeholderTextColor="#9ca3af"
+                      secureTextEntry
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      textContentType={item.contentType}
+                      accessibilityLabel={item.label}
+                      style={styles.textInput}
+                    />
+                  </View>
+                ))}
+              </View>
+              <TouchableOpacity
+                disabled={updatingPassword}
+                onPress={handleUpdatePassword}
+                activeOpacity={0.86}
+                style={[
+                  styles.primaryButton,
+                  updatingPassword && styles.disabledButton,
+                ]}
+              >
+                {updatingPassword ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Update Password</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          ) : null}
+
+          {activeSection === "facialRecognition" ? (
+            <>
+              <SectionHeading title="Security" />
+              <Text style={styles.description}>
+                Reset your baseline photo if verification keeps failing or your
+                appearance has changed. Your next attendance punch will enroll
+                a new baseline.
+              </Text>
+              <View style={styles.group}>
+                <SettingsRow
+                  icon="refresh-outline"
+                  label="Reset Face ID Baseline"
+                  value="Re-enroll on your next attendance punch"
+                  isLast
+                  onPress={() => setConfirmFaceResetVisible(true)}
+                />
+              </View>
+            </>
+          ) : null}
+
+          {activeSection === "payslips" ? (
+            <>
+              <View style={styles.sectionActionHeader}>
+                <SectionHeading title="Payroll history" />
                 <TouchableOpacity
                   disabled={loadingPayslips}
                   onPress={loadPayslips}
-                  activeOpacity={0.86}
+                  activeOpacity={0.8}
                   style={styles.refreshButton}
                 >
+                  <Ionicons name="refresh-outline" size={16} color="#374151" />
                   <Text style={styles.refreshButtonText}>Refresh</Text>
                 </TouchableOpacity>
               </View>
-
-              {loadingPayslips ? (
-                <View style={styles.centerState}>
-                  <ActivityIndicator color="#059669" />
-                </View>
-              ) : payslips.length === 0 ? (
-                <Text style={styles.emptyText}>No payslips are available yet.</Text>
-              ) : (
-                payslips.map((payslip) => (
-                  <View key={payslip.id} style={styles.payslipRow}>
-                    <View style={styles.payslipDetails}>
-                      <Text style={styles.payslipPeriod}>{payslip.pay_period}</Text>
-                      <Text style={styles.payslipMeta}>
-                        {payslip.regular_hours} hrs - Net {payslip.formatted_net_pay}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      activeOpacity={0.86}
-                      disabled={downloadingPayslipId === payslip.id}
-                      onPress={() => handleViewPayslip(payslip.id)}
+              <View style={styles.group}>
+                {loadingPayslips ? (
+                  <View style={styles.centerState}>
+                    <ActivityIndicator color="#059669" />
+                  </View>
+                ) : payslips.length === 0 ? (
+                  <Text style={styles.emptyText}>
+                    No payslips are available yet.
+                  </Text>
+                ) : (
+                  payslips.map((payslip, index) => (
+                    <View
+                      key={payslip.id}
                       style={[
-                        styles.viewPayslipButton,
-                        downloadingPayslipId === payslip.id && styles.disabledButton,
+                        styles.payslipRow,
+                        index === payslips.length - 1 && styles.lastPayslipRow,
                       ]}
                     >
-                      {downloadingPayslipId === payslip.id ? (
-                        <ActivityIndicator color="#ffffff" />
-                      ) : (
-                        <Text style={styles.viewPayslipButtonText}>View Payslip</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
-            </View>
-          )}
-
-          <TouchableOpacity
-            activeOpacity={0.88}
-            onPress={onLogout}
-            accessibilityRole="button"
-            style={styles.logoutButton}
-          >
-            <Text style={styles.logoutText}>Log Out</Text>
-          </TouchableOpacity>
+                      <View style={styles.payslipDetails}>
+                        <Text style={styles.payslipPeriod}>
+                          {payslip.pay_period}
+                        </Text>
+                        <Text style={styles.payslipMeta}>
+                          {payslip.regular_hours} hrs - Net{" "}
+                          {payslip.formatted_net_pay}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        activeOpacity={0.86}
+                        disabled={downloadingPayslipId === payslip.id}
+                        onPress={() => handleViewPayslip(payslip.id)}
+                        style={[
+                          styles.viewPayslipButton,
+                          downloadingPayslipId === payslip.id &&
+                            styles.disabledButton,
+                        ]}
+                      >
+                        {downloadingPayslipId === payslip.id ? (
+                          <ActivityIndicator color="#ffffff" />
+                        ) : (
+                          <Text style={styles.viewPayslipButtonText}>View</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                )}
+              </View>
+            </>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -413,7 +467,8 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Reset facial baseline?</Text>
             <Text style={styles.modalText}>
-              This clears your current Face ID baseline. Your next attendance punch will become the new baseline photo.
+              This clears your current Face ID baseline. Your next attendance
+              punch will become the new baseline photo.
             </Text>
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -426,7 +481,10 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
               <TouchableOpacity
                 disabled={resettingFace}
                 onPress={handleResetFace}
-                style={[styles.dangerButton, resettingFace && styles.disabledButton]}
+                style={[
+                  styles.dangerButton,
+                  resettingFace && styles.disabledButton,
+                ]}
               >
                 {resettingFace ? (
                   <ActivityIndicator color="#ffffff" />
@@ -442,260 +500,264 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
   );
 };
 
+function SectionHeading({ title }) {
+  return <Text style={styles.sectionHeading}>{title}</Text>;
+}
+
+function SettingsRow({
+  icon,
+  label,
+  value,
+  onPress,
+  isLast = false,
+  danger = false,
+}) {
+  const content = (
+    <>
+      <View style={styles.rowLeading}>
+        <Ionicons
+          name={icon}
+          size={21}
+          color={danger ? "#dc2626" : "#111827"}
+        />
+        <View style={styles.rowText}>
+          <Text style={[styles.rowLabel, danger && styles.dangerText]}>
+            {label}
+          </Text>
+          {value ? <Text style={styles.rowValue}>{value}</Text> : null}
+        </View>
+      </View>
+      {onPress ? (
+        <Ionicons name="chevron-forward" size={19} color="#9ca3af" />
+      ) : null}
+    </>
+  );
+
+  return onPress ? (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.72}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={[styles.settingRow, isLast && styles.lastSettingRow]}
+    >
+      {content}
+    </TouchableOpacity>
+  ) : (
+    <View style={[styles.settingRow, isLast && styles.lastSettingRow]}>
+      {content}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#f7f7f7",
   },
   flex: {
     flex: 1,
   },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 36,
-  },
-  hero: {
-    marginBottom: 20,
-  },
-  eyebrowBadge: {
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#a7f3d0",
-    backgroundColor: "#ecfdf5",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  eyebrow: {
-    color: "#059669",
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-  },
-  title: {
-    marginTop: 12,
-    color: "#0f172a",
-    fontSize: 30,
-    fontWeight: "900",
-  },
-  subtitle: {
-    marginTop: 10,
-    color: "#64748b",
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  tabBar: {
+  topBar: {
+    height: 52,
     flexDirection: "row",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    backgroundColor: "#ffffff",
-    padding: 4,
-    marginBottom: 16,
-  },
-  tabButton: {
-    flex: 1,
-    minHeight: 42,
     alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-  },
-  activeTabButton: {
-    backgroundColor: "#059669",
-  },
-  tabButtonText: {
-    color: "#64748b",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  activeTabButtonText: {
-    color: "#ffffff",
-  },
-  infoCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    backgroundColor: "#ffffff",
-    padding: 18,
-    marginBottom: 14,
-  },
-  card: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    backgroundColor: "#ffffff",
-    padding: 18,
-    marginBottom: 14,
-  },
-  cardTitle: {
-    color: "#0f172a",
-    fontSize: 18,
-    fontWeight: "900",
-    marginBottom: 14,
-  },
-  cardHeader: {
-    alignItems: "center",
-    flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 4,
+    paddingHorizontal: 18,
+    backgroundColor: "#f7f7f7",
   },
-  label: {
-    color: "#64748b",
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-    marginBottom: 6,
+  backButton: {
+    width: 64,
+    height: 40,
+    alignItems: "flex-start",
+    justifyContent: "center",
   },
-  value: {
-    marginBottom: 12,
-    color: "#0f172a",
-    fontSize: 15,
-    fontWeight: "800",
+  backButtonText: {
+    color: "#111827",
+    fontSize: 14,
+    fontWeight: "600",
   },
-  detailDivider: {
-    height: 1,
-    backgroundColor: "#e2e8f0",
-    marginBottom: 14,
+  headerSpacer: {
+    width: 64,
+    height: 40,
   },
-  lastValue: {
-    marginBottom: 0,
+  topBarTitle: {
+    color: "#111111",
+    fontSize: 20,
+    fontWeight: "700",
+    textAlign: "center",
   },
-  input: {
-    minHeight: 50,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    backgroundColor: "#f8fafc",
-    paddingHorizontal: 14,
-    color: "#0f172a",
+  scrollContent: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 32,
+  },
+  sectionHeading: {
+    marginTop: 15,
+    marginBottom: 10,
+    color: "#252525",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  group: {
+    overflow: "hidden",
+    borderRadius: 18,
+    backgroundColor: "#ffffff",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.035,
+    shadowRadius: 9,
+    elevation: 1,
+  },
+  settingRow: {
+    minHeight: 64,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 17,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#ededed",
+  },
+  lastSettingRow: {
+    borderBottomWidth: 0,
+  },
+  rowLeading: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 15,
+    paddingRight: 12,
+  },
+  rowText: {
+    flex: 1,
+  },
+  rowLabel: {
+    color: "#181818",
     fontSize: 15,
     fontWeight: "600",
-    marginBottom: 12,
+  },
+  rowValue: {
+    marginTop: 3,
+    color: "#777777",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  dangerText: {
+    color: "#dc2626",
+  },
+  description: {
+    marginTop: 0,
+    marginBottom: 13,
+    color: "#666666",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  inputRow: {
+    paddingHorizontal: 17,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#ededed",
+  },
+  lastInputRow: {
+    borderBottomWidth: 0,
+  },
+  fieldLabel: {
+    color: "#777777",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  textInput: {
+    minHeight: 32,
+    paddingHorizontal: 0,
+    paddingVertical: 5,
+    color: "#171717",
+    fontSize: 15,
+    fontWeight: "500",
   },
   primaryButton: {
     minHeight: 50,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 12,
+    marginTop: 16,
+    borderRadius: 14,
     backgroundColor: "#059669",
   },
   primaryButtonText: {
     color: "#ffffff",
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "800",
+  },
+  sectionActionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   refreshButton: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 15,
+    marginBottom: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   refreshButtonText: {
-    color: "#334155",
-    fontSize: 12,
-    fontWeight: "900",
+    color: "#374151",
+    fontSize: 13,
+    fontWeight: "600",
   },
   centerState: {
+    minHeight: 90,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 90,
   },
   emptyText: {
-    color: "#64748b",
+    paddingHorizontal: 17,
+    paddingVertical: 20,
+    color: "#666666",
     fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
-    paddingVertical: 16,
   },
   payslipRow: {
-    alignItems: "center",
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
+    minHeight: 72,
     flexDirection: "row",
+    alignItems: "center",
     gap: 12,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#ededed",
+  },
+  lastPayslipRow: {
+    borderBottomWidth: 0,
   },
   payslipDetails: {
     flex: 1,
   },
   payslipPeriod: {
-    color: "#0f172a",
+    color: "#171717",
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   payslipMeta: {
-    color: "#64748b",
-    fontSize: 12,
-    fontWeight: "700",
     marginTop: 4,
+    color: "#777777",
+    fontSize: 12,
+    fontWeight: "500",
   },
   viewPayslipButton: {
+    minHeight: 38,
+    minWidth: 64,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 42,
-    minWidth: 112,
-    borderRadius: 12,
-    backgroundColor: "#0f172a",
+    borderRadius: 11,
+    backgroundColor: "#111827",
     paddingHorizontal: 12,
   },
   viewPayslipButtonText: {
     color: "#ffffff",
     fontSize: 12,
-    fontWeight: "900",
-  },
-  faceCard: {
-    borderRadius: 16,
-    backgroundColor: "#0f172a",
-    padding: 18,
-    marginBottom: 14,
-  },
-  faceTitle: {
-    color: "#ffffff",
-    fontSize: 19,
-    fontWeight: "900",
-  },
-  faceText: {
-    marginTop: 8,
-    color: "#cbd5e1",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  faceButton: {
-    marginTop: 16,
-    minHeight: 52,
-    justifyContent: "center",
-    borderRadius: 12,
-    backgroundColor: "#059669",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  faceButtonText: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "900",
-  },
-  faceButtonSubtext: {
-    marginTop: 4,
-    color: "#d1fae5",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  logoutButton: {
-    minHeight: 54,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 12,
-    backgroundColor: "#dc2626",
-    marginTop: 2,
-  },
-  logoutText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   disabledButton: {
     opacity: 0.65,
@@ -714,9 +776,9 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalTitle: {
-    color: "#0f172a",
-    fontSize: 21,
-    fontWeight: "900",
+    color: "#111827",
+    fontSize: 20,
+    fontWeight: "800",
   },
   modalText: {
     marginTop: 8,
@@ -740,7 +802,7 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: "#334155",
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "800",
   },
   dangerButton: {
     flex: 1,
@@ -752,7 +814,7 @@ const styles = StyleSheet.create({
   dangerButtonText: {
     color: "#ffffff",
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "800",
   },
 });
 
