@@ -65,9 +65,10 @@ class EmployerManagementController extends Controller
         DB::transaction(function () use ($validated, $hasStatusColumn): void {
             $company = Company::create([
                 'name' => $validated['company_name'],
-                'latitude' => 0,
-                'longitude' => 0,
+                'latitude' => null,
+                'longitude' => null,
                 'geofence_radius_meters' => 100,
+                'geofence_radius' => 100,
                 'pay_metric' => 'hourly',
             ]);
 

@@ -14,9 +14,10 @@ class DatabaseSeeder extends Seeder
         $company = Company::firstOrCreate(
             ['name' => 'TimePay'],
             [
-                'latitude' => 14.59950000,
-                'longitude' => 120.98420000,
+                'latitude' => null,
+                'longitude' => null,
                 'geofence_radius_meters' => 100,
+                'geofence_radius' => 100,
             ]
         );
 

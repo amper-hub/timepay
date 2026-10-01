@@ -40,6 +40,7 @@ Route::post('/register-employer', [EmployerRegistrationController::class, 'store
 Route::prefix('super-admin')->name('super-admin.')->middleware(['auth', IsSuperAdmin::class])->group(function () {
     Route::get('/dashboard', [SuperAdminDashboardController::class, 'index'])->name('dashboard');
     Route::get('/platform', [PlatformOversightController::class, 'mapView'])->name('platform.index');
+    Route::get('/platform/companies', [PlatformOversightController::class, 'companyLocations'])->name('platform.companies.index');
     Route::patch('/platform/geofence-settings', [PlatformOversightController::class, 'updateGeofenceSettings'])->name('platform.geofence-settings.update');
     Route::patch('/platform/employees/{employee}/reset-photo', [PlatformOversightController::class, 'resetPhoto'])->name('platform.employees.reset-photo');
 

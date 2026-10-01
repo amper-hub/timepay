@@ -27,13 +27,15 @@ class EmployerGeofenceController extends Controller
     public function update(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'latitude' => 'nullable|numeric|between:-90,90',
-            'longitude' => 'nullable|numeric|between:-180,180',
+            'latitude' => ['nullable', 'required_with:longitude', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'required_with:latitude', 'numeric', 'between:-180,180'],
             'geofence_radius_meters' => 'required|integer|min:10|max:10000',
         ]);
 
         $company = auth()->user()->company;
-        $company->update($validated);
+        $company->update($validated + [
+            'geofence_radius' => (int) $validated['geofence_radius_meters'],
+        ]);
 
         return redirect()->route('employer.geofence')
             ->with('success', 'Geofence settings updated successfully.');

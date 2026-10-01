@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AttendanceLog;
 use App\Models\Company;
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -19,8 +20,6 @@ class PlatformOversightController extends Controller
         $usesFaceVerifiedColumn = Schema::hasColumn('attendance_logs', 'face_verified');
         $hasBaselinePhotoColumn = Schema::hasColumn('users', 'baseline_photo_path');
         $hasPasswordChangeColumn = Schema::hasColumn('users', 'requires_password_change');
-        $hasUserStatusColumn = Schema::hasColumn('users', 'status');
-
         $logsThisMonth = AttendanceLog::query()
             ->where('timestamp', '>=', now()->startOfMonth());
 
@@ -56,35 +55,38 @@ class PlatformOversightController extends Controller
 
         $defaultGeofenceRadius = (int) Cache::get('platform.default_geofence_radius', config('timepay.default_geofence_radius', 100));
 
-        $geofences = Company::query()
-            ->whereNotNull('latitude')
-            ->whereNotNull('longitude')
-            ->whereHas('users', function ($query) use ($hasUserStatusColumn) {
-                $query->where('role', User::ROLE_EMPLOYER)
-                    ->when($hasUserStatusColumn, fn ($query) => $query->where('status', 'active'));
-            })
-            ->orderBy('name')
-            ->get(['id', 'name', 'latitude', 'longitude', 'geofence_radius_meters'])
-            ->map(fn (Company $company) => [
-                'id' => $company->id,
-                'name' => $company->name,
-                'latitude' => (float) $company->latitude,
-                'longitude' => (float) $company->longitude,
-                'radius' => (int) ($company->geofence_radius_meters ?? $defaultGeofenceRadius),
-            ])
-            ->values();
-
         return view('super-admin.platform.index', compact(
             'defaultGeofenceRadius',
             'employees',
             'failedVerificationRate',
             'failedVerificationsThisMonth',
-            'geofences',
             'hasBaselinePhotoColumn',
             'hasPasswordChangeColumn',
             'totalApiCallsThisMonth',
             'usesFaceVerifiedColumn'
         ));
+    }
+
+    /**
+     * Return saved company locations for the super-admin map.
+     */
+    public function companyLocations(): JsonResponse
+    {
+        $companies = Company::query()
+            ->orderBy('name')
+            ->get(['id', 'name', 'latitude', 'longitude', 'geofence_radius_meters', 'geofence_radius'])
+            ->map(fn (Company $company) => [
+                'id' => $company->id,
+                'name' => $company->name,
+                'latitude' => $company->latitude,
+                'longitude' => $company->longitude,
+                'geofence_radius' => $company->geofence_radius_meters !== null
+                    ? (int) $company->geofence_radius_meters
+                    : ($company->geofence_radius !== null ? (int) $company->geofence_radius : null),
+            ])
+            ->values();
+
+        return response()->json(['data' => $companies]);
     }
 
     public function resetPhoto(User $employee): RedirectResponse

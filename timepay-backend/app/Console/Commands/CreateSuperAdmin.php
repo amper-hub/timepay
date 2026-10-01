@@ -28,9 +28,10 @@ class CreateSuperAdmin extends Command
         if (! $company) {
             $company = Company::create([
                 'name' => 'Default Company',
-                'latitude' => 0,
-                'longitude' => 0,
+                'latitude' => null,
+                'longitude' => null,
                 'geofence_radius_meters' => 100,
+                'geofence_radius' => 100,
                 'pay_metric' => 'hourly',
             ]);
         }

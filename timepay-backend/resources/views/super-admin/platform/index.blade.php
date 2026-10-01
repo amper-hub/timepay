@@ -147,8 +147,8 @@
             </div>
 
             <div class="p-5">
-                <div id="platform-geofence-map" class="h-[600px] w-full shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100" style="height: 600px; min-height: 600px; width: 100%;"></div>
-                <p class="mt-3 text-xs text-slate-500">{{ $geofences->count() }} active company geofences loaded.</p>
+                <div id="platform-geofence-map" data-companies-url="{{ route('super-admin.platform.companies.index') }}" class="h-[600px] w-full shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100" style="height: 600px; min-height: 600px; width: 100%;"></div>
+                <p id="platform-geofence-status" class="mt-3 text-xs text-slate-500" role="status" aria-live="polite">Loading registered company locations...</p>
             </div>
         </section>
     </div>
@@ -158,61 +158,106 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
     function initializePlatformGeofenceMap() {
-        const mapData = {{ Illuminate\Support\Js::from($geofences) }};
         const mapContainer = document.getElementById('platform-geofence-map');
+        const status = document.getElementById('platform-geofence-status');
 
-        console.log('Platform geofence map data:', mapData);
-
-        if (! mapContainer) {
-            console.error('Platform geofence map container was not found.');
+        if (!mapContainer || !status) {
             return;
         }
 
         if (typeof L === 'undefined') {
-            console.error('Leaflet failed to load. Check the Leaflet CDN request in the browser network panel.');
+            status.textContent = 'The map library could not be loaded. Please refresh the page.';
             return;
         }
 
         const map = L.map(mapContainer);
-
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
 
-        if (mapData.length === 0) {
-            map.setView([14.5995, 120.9842], 11);
-            requestAnimationFrame(function () {
-                map.invalidateSize();
-            });
-            return;
-        }
-
-        const bounds = L.latLngBounds();
-
-        mapData.forEach(function (geofence) {
-            const point = [geofence.latitude, geofence.longitude];
-            const marker = L.marker(point).addTo(map);
-            const popupContent = document.createElement('strong');
-            popupContent.textContent = geofence.name;
-
-            marker.bindPopup(popupContent);
-
-            const circle = L.circle(point, {
-                radius: geofence.radius,
-                color: '#059669',
-                weight: 2,
-                fillColor: '#6366f1',
-                fillOpacity: 0.12
-            }).addTo(map);
-
-            bounds.extend(circle.getBounds());
-        });
-
-        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
         requestAnimationFrame(function () {
             map.invalidateSize();
         });
+
+        // Begin with the whole world while the saved company locations load.
+        map.fitWorld();
+
+        fetch(mapContainer.dataset.companiesUrl, {
+            headers: { Accept: 'application/json' },
+            credentials: 'same-origin'
+        })
+            .then(function (response) {
+                if (!response.ok) {
+                    throw new Error('Company locations could not be loaded.');
+                }
+
+                return response.json();
+            })
+            .then(function (payload) {
+                const companies = Array.isArray(payload.data) ? payload.data : [];
+                const bounds = L.latLngBounds();
+                let plottedCompanies = 0;
+
+                companies.forEach(function (company) {
+                    const latitude = Number(company.latitude);
+                    const longitude = Number(company.longitude);
+                    const hasCoordinates = company.latitude !== null
+                        && company.latitude !== ''
+                        && company.longitude !== null
+                        && company.longitude !== ''
+                        && Number.isFinite(latitude)
+                        && Number.isFinite(longitude)
+                        && latitude >= -90 && latitude <= 90
+                        && longitude >= -180 && longitude <= 180;
+
+                    if (!hasCoordinates) {
+                        return;
+                    }
+
+                    const point = [latitude, longitude];
+                    const marker = L.marker(point).addTo(map);
+                    const popup = document.createElement('div');
+                    const companyName = document.createElement('strong');
+                    const coordinates = document.createElement('div');
+                    const radius = document.createElement('div');
+                    const savedRadius = company.geofence_radius;
+
+                    companyName.textContent = company.name;
+                    coordinates.textContent = 'Coordinates: ' + company.latitude + ', ' + company.longitude;
+                    radius.textContent = 'Geofence Radius: ' + (savedRadius === null ? 'Not configured' : savedRadius + ' m');
+                    popup.append(companyName, coordinates, radius);
+                    marker.bindPopup(popup);
+                    bounds.extend(marker.getLatLng());
+                    plottedCompanies += 1;
+
+                    if (Number.isFinite(Number(savedRadius)) && Number(savedRadius) > 0) {
+                        L.circle(point, {
+                            radius: Number(savedRadius),
+                            color: '#059669',
+                            weight: 2,
+                            fillColor: '#6366f1',
+                            fillOpacity: 0.12
+                        }).addTo(map);
+                    }
+                });
+
+                if (plottedCompanies > 0) {
+                    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+                    status.textContent = 'Showing ' + plottedCompanies + ' of ' + companies.length + ' registered companies with saved coordinates.';
+                } else if (companies.length > 0) {
+                    status.textContent = 'No registered companies have saved coordinates yet.';
+                } else {
+                    status.textContent = 'No registered companies are available.';
+                }
+
+                requestAnimationFrame(function () {
+                    map.invalidateSize();
+                });
+            })
+            .catch(function () {
+                status.textContent = 'Company locations could not be loaded. Please refresh the page.';
+            });
     }
 
     if (document.readyState === 'loading') {

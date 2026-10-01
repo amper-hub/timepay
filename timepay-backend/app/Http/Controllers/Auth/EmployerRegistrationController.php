@@ -33,6 +33,7 @@ class EmployerRegistrationController extends Controller
                 'latitude' => null,
                 'longitude' => null,
                 'geofence_radius_meters' => config('timepay.default_geofence_radius', 100),
+                'geofence_radius' => config('timepay.default_geofence_radius', 100),
                 'pay_metric' => 'hourly',
             ]);
 
