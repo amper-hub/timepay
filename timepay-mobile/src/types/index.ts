@@ -93,6 +93,21 @@ export interface UpdateTemporaryPasswordRequest {
   new_password_confirmation: string;
 }
 
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordWithOtpRequest {
+  email: string;
+  otp: string;
+  password: string;
+  password_confirmation: string;
+}
+
+export interface PasswordResetMessageResponse {
+  message: string;
+}
+
 export const isPasswordChangeRequiredResponse = (
   data: unknown
 ): data is PasswordChangeRequiredResponse => {

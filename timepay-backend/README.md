@@ -57,3 +57,30 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+## Password reset email setup
+
+Laravel's built-in web password reset routes use the configured mailer and the `password_reset_tokens` table. To send reset links and mobile one-time codes through Gmail, set these values in your deployment's `.env` file:
+
+```dotenv
+MAIL_MAILER=smtp
+MAIL_SCHEME=smtp
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=your-account@gmail.com
+MAIL_PASSWORD=your-16-character-app-password
+MAIL_FROM_ADDRESS=your-account@gmail.com
+MAIL_FROM_NAME="${APP_NAME}"
+```
+
+Port `587` uses SMTP with STARTTLS. Set the sender address to the same Gmail account used for `MAIL_USERNAME`.
+
+Generate a Gmail App Password:
+
+1. Enable 2-Step Verification on the Google Account that will send TimePay emails.
+2. Open Google Account **Security** → **2-Step Verification** → **App passwords** and create an app password for TimePay (or choose Mail). Paste the 16-character value into `MAIL_PASSWORD`; remove any spaces Google displays.
+3. Keep the real `.env` out of source control, run `php artisan migrate` to create the OTP table, then refresh Laravel's cached configuration with `php artisan config:clear` (and restart any long-running workers).
+
+Google only offers App Passwords to eligible accounts. If **App passwords** is unavailable, use an approved SMTP provider or ask the Google Workspace administrator about account policy. See [Google's App Password guidance](https://support.google.com/accounts/answer/185833?hl=en) and [Laravel's mail documentation](https://laravel.com/docs/12.x/mail).
+
+The employee mobile reset API is `POST /api/forgot-password` with `{ "email": "..." }`, followed by `POST /api/reset-password` with `{ "email": "...", "otp": "123456", "new_password": "...", "confirm_password": "..." }`. Codes expire after 10 minutes, allow up to five verification attempts, and are stored hashed in `mobile_password_reset_otps`. The web reset remains the standard Laravel signed-token flow; see [Laravel password resets](https://laravel.com/docs/12.x/passwords).

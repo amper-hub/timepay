@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\MobilePasswordResetController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\PayrollPayslipController;
 use App\Http\Controllers\Api\Employee\LeaveController;
@@ -15,6 +16,15 @@ Route::prefix('auth')->group(function () {
     Route::post('/update-temporary-password', [AuthController::class, 'updateTemporaryPassword'])
         ->name('api.auth.update-temporary-password');
 });
+
+// Public OTP password reset flow shared by web and mobile accounts.
+Route::post('/forgot-password', [MobilePasswordResetController::class, 'sendOtp'])
+    ->middleware('throttle:5,1');
+Route::post('/verify-reset-otp', [MobilePasswordResetController::class, 'resetPassword'])
+    ->middleware('throttle:10,1');
+// Preserve the endpoint used by older installed mobile app versions.
+Route::post('/reset-password', [MobilePasswordResetController::class, 'resetPassword'])
+    ->middleware('throttle:10,1');
 
 // Protected routes requiring Sanctum authentication
 Route::middleware('auth:sanctum')->group(function () {

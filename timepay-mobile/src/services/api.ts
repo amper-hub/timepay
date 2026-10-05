@@ -16,6 +16,9 @@ import {
   LoginCredentials,
   UserSession,
   UpdateTemporaryPasswordRequest,
+  ForgotPasswordRequest,
+  ResetPasswordWithOtpRequest,
+  PasswordResetMessageResponse,
   isLaravelAuthResponse,
   AttendancePunchRequest,
   AttendancePunchResponse,
@@ -148,6 +151,33 @@ const apiClient: AxiosInstance = axios.create({
   validateStatus: (status) => status >= 200 && status < 300,
 });
 
+const redactSensitivePayload = (payload: unknown): unknown => {
+  if (typeof payload === "string") {
+    try {
+      return redactSensitivePayload(JSON.parse(payload));
+    } catch {
+      return "[request payload omitted]";
+    }
+  }
+
+  if (Array.isArray(payload)) {
+    return payload.map(redactSensitivePayload);
+  }
+
+  if (payload && typeof payload === "object") {
+    return Object.fromEntries(
+      Object.entries(payload as Record<string, unknown>).map(([key, value]) => [
+        key,
+        /password|otp|token|secret/i.test(key)
+          ? "[REDACTED]"
+          : redactSensitivePayload(value),
+      ])
+    );
+  }
+
+  return payload;
+};
+
 /**
  * Extract the best user-facing message from Laravel's standard error payload.
  * Handles 422 responses shaped like: { message: string, errors: { field: [] } }.
@@ -212,7 +242,7 @@ apiClient.interceptors.request.use(
     if (isDevelopment) {
       console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`);
       if (config.data) {
-        console.log(`[API Payload]`, config.data);
+        console.log(`[API Payload]`, redactSensitivePayload(config.data));
       }
     }
 
@@ -290,6 +320,36 @@ apiClient.interceptors.response.use(
  * API Service methods
  */
 export const apiService = {
+  /**
+   * POST /forgot-password
+   * Request a one-time password reset code for the mobile app.
+   */
+  requestPasswordResetOtp: async (
+    payload: ForgotPasswordRequest
+  ): Promise<PasswordResetMessageResponse> => {
+    const response = await apiClient.post<PasswordResetMessageResponse>(
+      "/forgot-password",
+      payload
+    );
+
+    return response.data;
+  },
+
+  /**
+   * POST /verify-reset-otp
+   * Verify the emailed code and set a new password.
+   */
+  resetPasswordWithOtp: async (
+    payload: ResetPasswordWithOtpRequest
+  ): Promise<PasswordResetMessageResponse> => {
+    const response = await apiClient.post<PasswordResetMessageResponse>(
+      "/verify-reset-otp",
+      payload
+    );
+
+    return response.data;
+  },
+
   /**
    * POST /auth/login
    * Authenticate user with email and password

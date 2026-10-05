@@ -24,6 +24,8 @@ import {
 } from "../types";
 import { apiService, getApiErrorMessage } from "../services/api";
 import TimePayLogo from "../components/TimePayLogo";
+import ForgotPasswordScreen from "./ForgotPasswordScreen";
+import ResetPasswordScreen from "./ResetPasswordScreen";
 
 interface LoginScreenProps {
   onLoginSuccess: (userSession: UserSession) => void;
@@ -42,6 +44,10 @@ interface FieldErrors {
 }
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
+  const [passwordResetStage, setPasswordResetStage] = useState<
+    "login" | "forgot" | "reset"
+  >("login");
+  const [resetEmail, setResetEmail] = useState("");
   const [form, setForm] = useState<FormState>({
     email: "",
     password: "",
@@ -202,6 +208,33 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     userId,
   ]);
 
+  if (passwordResetStage === "forgot") {
+    return (
+      <ForgotPasswordScreen
+        email={resetEmail}
+        onEmailChange={setResetEmail}
+        onBack={() => setPasswordResetStage("login")}
+        onCodeSent={(email) => {
+          setResetEmail(email);
+          setPasswordResetStage("reset");
+        }}
+      />
+    );
+  }
+
+  if (passwordResetStage === "reset") {
+    return (
+      <ResetPasswordScreen
+        email={resetEmail}
+        onBack={() => setPasswordResetStage("forgot")}
+        onComplete={() => {
+          setPasswordResetStage("login");
+          setForm({ email: resetEmail, password: "" });
+        }}
+      />
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View pointerEvents="none" style={styles.topAccent}>
@@ -310,7 +343,17 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   </TouchableOpacity>
 
                   <View style={styles.secondaryLinks}>
-                    <Text style={styles.secondaryLinkText}>Forgot Password?</Text>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      disabled={loading}
+                      onPress={() => {
+                        setResetEmail(form.email.trim());
+                        setApiError(null);
+                        setPasswordResetStage("forgot");
+                      }}
+                    >
+                      <Text style={styles.secondaryLinkText}>Forgot Password?</Text>
+                    </TouchableOpacity>
                     <Text style={styles.secondaryLinkDivider}>|</Text>
                     <Text style={styles.secondaryLinkText}>Contact Admin</Text>
                   </View>

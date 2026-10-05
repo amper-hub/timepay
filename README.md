@@ -37,6 +37,12 @@ Clone the repository and install the JavaScript dependencies:
 git clone https://github.com/your-organization/timepay-mobile.git
 
 # Navigate to the directory
+cd timepay-backend
+
+# Install 
+composer install
+
+# Navigate to the directory
 cd timepay-mobile
 
 # Install dependencies
