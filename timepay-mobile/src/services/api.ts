@@ -10,6 +10,7 @@ import axios, {
   InternalAxiosRequestConfig,
 } from "axios";
 import { Alert } from "react-native";
+import { ErrorContext, getUserFriendlyError } from "./errorMessages";
 import {
   AuthResponse,
   ApiErrorResponse,
@@ -67,68 +68,13 @@ export const getApiBaseUrl = (): string => BASE_URL;
  * Display comprehensive network troubleshooting alert
  */
 export const showNetworkAlert = (error: AxiosError<ApiErrorResponse>) => {
-  const title = "Network Connection Error";
-  
-  // Detailed troubleshooting message based on error type
-  let message = "";
-  
-  if (error.code === "ECONNREFUSED") {
-    message =
-      "❌ Connection Refused\n\n" +
-      "Laravel server is not responding. Make sure to:\n" +
-      "1. Start Laravel: php artisan serve --host=0.0.0.0 --port=8000\n" +
-      "2. Keep the server terminal open\n" +
-      "3. Verify BASE_URL in src/services/api.ts is correct";
-  } else if (error.code === "ECONNTIMEDOUT" || error.code === "ETIMEDOUT") {
-    message =
-      "⏱️ Connection Timeout\n\n" +
-      "Server not responding in time. Check:\n" +
-      "1. Laravel server is running\n" +
-      "2. Network is stable\n" +
-      "3. Firewall isn't blocking port 8000\n" +
-      "4. BASE_URL is correct: " + BASE_URL;
-  } else if (error.code === "ENOTFOUND") {
-    message =
-      "🌐 DNS Resolution Failed\n\n" +
-      "Cannot resolve IP address. Verify:\n" +
-      "1. BASE_URL IP is correct: " + BASE_URL + "\n" +
-      "2. Device is on same WiFi network\n" +
-      "3. IP hasn't changed (run: ipconfig)";
-  } else if (error.code === "ERR_NETWORK" || !error.response) {
-    message =
-      "📡 Network Error (Status: 0)\n\n" +
-      "Common causes:\n" +
-      "1. Windows Firewall blocking port 8000\n" +
-      "   → Allow port 8000 in Windows Firewall\n" +
-      "2. Incorrect IP address\n" +
-      "   → Run 'ipconfig' and update BASE_URL\n" +
-      "3. Laravel not running\n" +
-      "   → Start: php artisan serve --host=0.0.0.0 --port=8000\n" +
-      "4. Different WiFi networks\n" +
-      "   → Mobile and PC must use same WiFi\n\n" +
-      "Run: node diagnose-network.js for detailed diagnostics";
-  } else if (error.response?.status === 0) {
-    message =
-      "🔌 Connection Failed (Status Code 0)\n\n" +
-      "Network handshake incomplete. Try:\n" +
-      "1. Restart both mobile app and Laravel server\n" +
-      "2. Check device WiFi connection\n" +
-      "3. Run network diagnostics\n" +
-      "4. Verify firewall settings";
-  } else {
-    message =
-      `Error: ${error.message}\n\n` +
-      `URL: ${BASE_URL}\n` +
-      `Code: ${error.code}`;
-  }
-
-  // Show alert to user
-  if (typeof Alert !== "undefined") {
-    Alert.alert(title, message, [{ text: "OK" }]);
-  } else {
-    console.error(`${title}\n${message}`);
-  }
+  Alert.alert(
+    "Connection problem",
+    getUserFriendlyError(error, undefined, "general"),
+    [{ text: "OK" }]
+  );
 };
+
 
 /**
  * Create Axios instance with enhanced local development configuration
@@ -184,47 +130,9 @@ const redactSensitivePayload = (payload: unknown): unknown => {
  */
 export const getApiErrorMessage = (
   error: unknown,
-  fallback = "Something went wrong. Please try again."
-): string => {
-  if (axios.isAxiosError<ApiErrorResponse>(error)) {
-    const status = error.response?.status;
-    const data = error.response?.data;
-
-    if (status === 422 && data?.errors) {
-      const firstFieldErrors = Object.values(data.errors)[0];
-
-      if (Array.isArray(firstFieldErrors) && firstFieldErrors.length > 0) {
-        return firstFieldErrors[0];
-      }
-
-      if (typeof firstFieldErrors === "string") {
-        return firstFieldErrors;
-      }
-    }
-
-    if (data?.message) {
-      return data.message;
-    }
-
-    if (!error.response && error.request) {
-      return "Unable to reach the server. Please check your connection and try again.";
-    }
-
-    if (status === 401) {
-      return "Invalid email or password. Please try again.";
-    }
-
-    if (status === 429) {
-      return "Too many login attempts. Please try again later.";
-    }
-  }
-
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  return fallback;
-};
+  fallback?: string,
+  context?: ErrorContext
+): string => getUserFriendlyError(error, fallback, context);
 
 /**
  * Request Interceptor
@@ -263,10 +171,7 @@ apiClient.interceptors.response.use(
   (response) => {
     // Log successful responses (dev only)
     if (isDevelopment) {
-      console.log(
-        `[API Response] ${response.status} ${response.config.url}`,
-        response.data
-      );
+      console.log(`[API Response] ${response.status} ${response.config.url}`);
     }
     return response;
   },
@@ -384,7 +289,6 @@ export const apiService = {
         // Server responded but response format is unexpected
         const errorMsg = "Login failed: Unexpected response format from server";
         console.error("[API] Login failed:", errorMsg);
-        console.error("[API] Received response:", response.data);
         throw new Error(errorMsg);
       }
     } catch (error) {
@@ -399,9 +303,6 @@ export const apiService = {
       });
 
       // Network-level error (status: 0 or no response)
-      if (!axiosError.response && axiosError.request) {
-        showNetworkAlert(axiosError);
-      }
 
       throw error;
     }
@@ -448,10 +349,6 @@ export const apiService = {
         message: axiosError.message,
         responseData: axiosError.response?.data,
       });
-
-      if (!axiosError.response && axiosError.request) {
-        showNetworkAlert(axiosError);
-      }
 
       throw error;
     }
@@ -506,10 +403,6 @@ export const apiService = {
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>;
       
-      if (!axiosError.response && axiosError.request) {
-        showNetworkAlert(axiosError);
-      }
-      
       throw error;
     }
   },
@@ -523,10 +416,6 @@ export const apiService = {
       return response.data;
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>;
-      
-      if (!axiosError.response && axiosError.request) {
-        showNetworkAlert(axiosError);
-      }
       
       throw error;
     }
@@ -542,10 +431,6 @@ export const apiService = {
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>;
       
-      if (!axiosError.response && axiosError.request) {
-        showNetworkAlert(axiosError);
-      }
-      
       throw error;
     }
   },
@@ -559,10 +444,6 @@ export const apiService = {
       return response.data;
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>;
-      
-      if (!axiosError.response && axiosError.request) {
-        showNetworkAlert(axiosError);
-      }
       
       throw error;
     }
@@ -582,10 +463,6 @@ export const apiService = {
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>;
 
-      if (!axiosError.response && axiosError.request) {
-        showNetworkAlert(axiosError);
-      }
-
       throw error;
     }
   },
@@ -603,10 +480,6 @@ export const apiService = {
       return response.data;
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>;
-
-      if (!axiosError.response && axiosError.request) {
-        showNetworkAlert(axiosError);
-      }
 
       throw error;
     }
@@ -666,7 +539,6 @@ export const apiService = {
         config
       );
 
-      console.log("[API] Attendance punch submitted successfully:", response.data);
       return response.data;
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>;
@@ -676,10 +548,6 @@ export const apiService = {
         message: axiosError.message,
         responseData: axiosError.response?.data,
       });
-
-      if (!axiosError.response && axiosError.request) {
-        showNetworkAlert(axiosError);
-      }
 
       throw error;
     }

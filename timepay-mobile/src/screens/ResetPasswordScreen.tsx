@@ -66,7 +66,8 @@ const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
       setError(
         getApiErrorMessage(
           requestError,
-          "We could not reset your password. Please try again."
+          "We could not reset your password. Please try again.",
+          "passwordReset"
         )
       );
     } finally {

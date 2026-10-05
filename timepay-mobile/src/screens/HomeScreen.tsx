@@ -208,7 +208,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       setErrorMessage(
         getApiErrorMessage(
           error,
-          "Unable to load your dashboard. Pull down to try again."
+          "Unable to load your dashboard. Pull down to try again.",
+          "attendance"
         )
       );
       setGeofenceState("unavailable");

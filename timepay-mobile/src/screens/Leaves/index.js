@@ -127,7 +127,8 @@ const LeaveScreen = ({ userSessionData }) => {
       setScreenError(
         getApiErrorMessage(
           error,
-          "Unable to load leave requests. Please try again."
+          "Unable to load leave requests. Please try again.",
+          "leave"
         )
       );
     } finally {
@@ -213,7 +214,8 @@ const LeaveScreen = ({ userSessionData }) => {
         "Unable to submit",
         getApiErrorMessage(
           error,
-          "Unable to submit your leave request. Please try again."
+          "Unable to submit your leave request. Please try again.",
+          "leave"
         )
       );
     } finally {

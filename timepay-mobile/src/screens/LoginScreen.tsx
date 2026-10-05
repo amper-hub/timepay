@@ -140,7 +140,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       setApiError(
         getApiErrorMessage(
           error,
-          "We could not sign you in. Please check your credentials and try again."
+          "We could not sign you in. Please check your credentials and try again.",
+          "login"
         )
       );
     } finally {
@@ -193,7 +194,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       setApiError(
         getApiErrorMessage(
           error,
-          "We could not update your password. Please try again."
+          "We could not update your password. Please try again.",
+          "profile"
         )
       );
     } finally {

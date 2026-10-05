@@ -91,7 +91,8 @@ const AttendanceScreen: React.FC<AttendanceScreenProps> = ({
       setScreenError(
         getApiErrorMessage(
           error,
-          "Unable to load your attendance status. Please try again."
+          "Unable to load your attendance status. Please try again.",
+          "attendance"
         )
       );
     } finally {
@@ -192,7 +193,8 @@ const AttendanceScreen: React.FC<AttendanceScreenProps> = ({
       setScreenError(
         getApiErrorMessage(
           error,
-          "Unable to submit your punch. Please try again."
+          "Unable to submit your punch. Please try again.",
+          "attendance"
         )
       );
     } finally {

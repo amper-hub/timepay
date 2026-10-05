@@ -158,24 +158,11 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         response.message
       );
     } catch (error) {
-      if (
-        error?.response?.status === 422 &&
-        error?.response?.data?.error === "face_mismatch"
-      ) {
-        const mismatchMessage =
-          error.response.data.message ||
-          "Face not recognized. Please try again.";
-
-        setScreenError(mismatchMessage);
-        Alert.alert("Verification Failed", mismatchMessage);
-        return;
-      }
-
       const errorMessage =
-        error?.response?.data?.message ||
         getApiErrorMessage(
           error,
-          `Unable to complete ${actionLabel.toLowerCase()}. Please try again.`
+          "We couldn't verify your face. Please make sure your face is clearly visible and try again.",
+          "face"
         );
 
       setScreenError(errorMessage);
@@ -268,7 +255,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         console.error("[Liveness] ML Kit frame analysis failed:", error);
         if (!cancelled) {
           setScreenError(
-            "On-device face detection is unavailable. Rebuild the Expo development client with the ML Kit module installed."
+            "Face detection is unavailable right now. Please try again later."
           );
         }
         return;

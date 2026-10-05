@@ -188,13 +188,26 @@
             credentials: 'same-origin'
         })
             .then(function (response) {
-                if (!response.ok) {
-                    throw new Error('Company locations could not be loaded.');
+                return response.json().catch(function () { return {}; }).then(function (payload) {
+                    return { response: response, payload: payload };
+                });
+            })
+            .then(function (result) {
+                if (!result.response.ok) {
+                    status.textContent = window.TimePayErrors.fromResponse(
+                        result.response,
+                        result.payload,
+                        'general',
+                        'Company locations could not be loaded. Please refresh the page.'
+                    );
+                    return null;
                 }
 
-                return response.json();
+                return result.payload;
             })
             .then(function (payload) {
+                if (!payload) return;
+
                 const companies = Array.isArray(payload.data) ? payload.data : [];
                 const bounds = L.latLngBounds();
                 let plottedCompanies = 0;
@@ -255,8 +268,9 @@
                     map.invalidateSize();
                 });
             })
-            .catch(function () {
-                status.textContent = 'Company locations could not be loaded. Please refresh the page.';
+            .catch(function (error) {
+                console.error('[Platform map] Company locations request failed', error);
+                status.textContent = window.TimePayErrors.fromNetwork();
             });
     }
 

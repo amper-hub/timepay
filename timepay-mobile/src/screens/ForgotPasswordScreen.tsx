@@ -49,7 +49,8 @@ const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
       setError(
         getApiErrorMessage(
           requestError,
-          "We could not request a reset code. Please try again."
+          "We could not request a reset code. Please try again.",
+          "passwordReset"
         )
       );
     } finally {

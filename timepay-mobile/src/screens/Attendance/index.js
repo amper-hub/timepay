@@ -76,7 +76,8 @@ const AttendanceHistoryScreen = ({ navigation, userSessionData, onLogout }) => {
       setScreenError(
         getApiErrorMessage(
           error,
-          "Unable to load attendance history. Please try again."
+          "Unable to load attendance history. Please try again.",
+          "attendance"
         )
       );
     } finally {

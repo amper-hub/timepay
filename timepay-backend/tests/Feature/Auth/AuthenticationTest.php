@@ -27,7 +27,7 @@ class AuthenticationTest extends TestCase
         ]);
 
         $this->assertAuthenticated();
-        $response->assertRedirect(route('dashboard', absolute: false));
+        $response->assertRedirect('/employer/dashboard');
     }
 
     public function test_users_can_not_authenticate_with_invalid_password(): void
@@ -37,6 +37,8 @@ class AuthenticationTest extends TestCase
         $this->post('/login', [
             'email' => $user->email,
             'password' => 'wrong-password',
+        ])->assertSessionHasErrors([
+            'email' => 'The email or password you entered is incorrect.',
         ]);
 
         $this->assertGuest();

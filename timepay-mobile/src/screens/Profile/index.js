@@ -54,7 +54,7 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
     } catch (error) {
       Alert.alert(
         "Unable to load payslips",
-        getApiErrorMessage(error, "Unable to load your payroll history.")
+        getApiErrorMessage(error, "Unable to load your payroll history.", "payroll")
       );
     } finally {
       setLoadingPayslips(false);
@@ -85,7 +85,7 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
     } catch (error) {
       Alert.alert(
         "Unable to update",
-        getApiErrorMessage(error, "Unable to update your name. Please try again.")
+        getApiErrorMessage(error, "Unable to update your name. Please try again.", "profile")
       );
     } finally {
       setSavingName(false);
@@ -118,7 +118,8 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
         "Unable to update password",
         getApiErrorMessage(
           error,
-          "Unable to update your password. Please check your current password."
+          "Unable to update your password. Please check your current password.",
+          "profile"
         )
       );
     } finally {
@@ -141,7 +142,8 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
         "Unable to reset Face ID",
         getApiErrorMessage(
           error,
-          "Unable to reset facial recognition right now. Please try again."
+          "Unable to reset facial recognition right now. Please try again.",
+          "face"
         )
       );
     } finally {
@@ -157,7 +159,7 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
     } catch (error) {
       Alert.alert(
         "Unable to open payslip",
-        getApiErrorMessage(error, "Unable to download your payslip right now.")
+        getApiErrorMessage(error, "Unable to download your payslip right now.", "payroll")
       );
     } finally {
       setDownloadingPayslipId(null);

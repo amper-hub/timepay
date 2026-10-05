@@ -18,7 +18,7 @@ import {
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
 import { UserSession, AttendancePunchResponse } from "../types";
-import { apiService } from "../services/api";
+import { apiService, getApiErrorMessage } from "../services/api";
 import {
   getHighAccuracyAttendanceLocation,
   LOCATION_FALLBACK_WARNING,
@@ -160,8 +160,11 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
       console.error("[Dashboard] Error during capture/submission:", error);
       setCameraState((prev) => ({ ...prev, isLoading: false }));
 
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error occurred";
+      const errorMessage = getApiErrorMessage(
+        error,
+        "We couldn't record your attendance. Please try again.",
+        "attendance"
+      );
       Alert.alert(
         "Attendance Submission Failed",
         `${errorMessage}\n\nPlease try again.`,

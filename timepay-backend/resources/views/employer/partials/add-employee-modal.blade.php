@@ -29,13 +29,16 @@
                     body: JSON.stringify(this.form),
                 });
 
-                const data = await response.json();
+                const data = await response.json().catch(() => ({}));
 
                 if (! response.ok) {
                     if (response.status === 422) {
-                        this.errors = data.errors ?? {};
+                        const fieldErrors = window.TimePayErrors.validationErrors(data.errors);
+                        this.errors = Object.keys(fieldErrors).length
+                            ? fieldErrors
+                            : { general: [window.TimePayErrors.fromResponse(response, data, 'employee')] };
                     } else {
-                        this.errors = { general: [data.message ?? 'Unable to create employee. Please try again.'] };
+                        this.errors = { general: [window.TimePayErrors.fromResponse(response, data, 'employee')] };
                     }
                     return;
                 }
@@ -44,7 +47,8 @@
                 this.createdEmployee = data.user;
                 this.step = 'success';
             } catch (error) {
-                this.errors = { general: ['A network error occurred. Please check your connection and try again.'] };
+                console.error('[Employee modal] Request failed', error);
+                this.errors = { general: [window.TimePayErrors.fromNetwork()] };
             } finally {
                 this.loading = false;
             }
@@ -59,6 +63,7 @@
                 this.copied = true;
                 setTimeout(() => { this.copied = false; }, 2000);
             } catch (error) {
+                console.error('[Employee modal] Clipboard copy failed', error);
                 this.errors = { general: ['Unable to copy to clipboard. Please copy the password manually.'] };
             }
         },
