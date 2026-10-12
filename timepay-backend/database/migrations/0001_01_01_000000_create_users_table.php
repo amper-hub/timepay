@@ -1,4 +1,4 @@
-```php
+
 <?php
 
 use Illuminate\Database\Migrations\Migration;
@@ -67,4 +67,4 @@ return new class extends Migration
         // Do not drop tables that may contain existing production data.
     }
 };
-```
+
