@@ -24,7 +24,8 @@ return Application::configure(basePath: dirname(__DIR__))
         ['middleware' => ['auth:sanctum']]
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Trust Railway's proxy headers so Laravel recognizes HTTPS requests.
+    $middleware->trustProxies(at: '*');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
