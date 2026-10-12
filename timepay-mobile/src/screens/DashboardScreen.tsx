@@ -66,7 +66,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
       setLocationPermission(isGranted);
       return isGranted;
     } catch (error) {
-      console.error("Location permission error:", error);
+      if (__DEV__) console.warn("Location permission request failed.");
       return false;
     }
   }, []);
@@ -100,18 +100,13 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
     try {
       setCameraState((prev) => ({ ...prev, isLoading: true }));
 
-      console.log("[Dashboard] Capturing photo and GPS coordinates...");
-
       // Capture photo from camera
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.8,
         base64: false,
       });
 
-      console.log("[Dashboard] Photo captured:", photo.uri);
-
       // Get high-accuracy GPS coordinates
-      console.log("[Dashboard] Getting GPS coordinates...");
       const { location, usedLastKnownLocation } =
         await getHighAccuracyAttendanceLocation();
 
@@ -120,21 +115,13 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
       }
 
       const { latitude, longitude } = location.coords;
-      console.log("[Dashboard] GPS coordinates obtained:", {
-        latitude,
-        longitude,
-      });
-
       // Submit attendance punch to API
-      console.log("[Dashboard] Submitting attendance punch...");
       const response = await apiService.submitAttendancePunch(
         cameraState.punchType,
         latitude,
         longitude,
         photo.uri
       );
-
-      console.log("[Dashboard] Attendance punch response:", response);
 
       // Close camera and show result alert
       setCameraState({
@@ -157,7 +144,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
         [{ text: "OK", onPress: () => {} }]
       );
     } catch (error) {
-      console.error("[Dashboard] Error during capture/submission:", error);
+      if (__DEV__) console.warn("[Dashboard] Attendance submission failed.");
       setCameraState((prev) => ({ ...prev, isLoading: false }));
 
       const errorMessage = getApiErrorMessage(

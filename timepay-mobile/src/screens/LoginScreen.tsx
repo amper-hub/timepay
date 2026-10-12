@@ -28,7 +28,7 @@ import ForgotPasswordScreen from "./ForgotPasswordScreen";
 import ResetPasswordScreen from "./ResetPasswordScreen";
 
 interface LoginScreenProps {
-  onLoginSuccess: (userSession: UserSession) => void;
+  onLoginSuccess: (userSession: UserSession) => void | Promise<void>;
 }
 
 interface FormState {
@@ -123,7 +123,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       const userSession = await apiService.login(credentials);
       setForm({ email: "", password: "" });
       resetPasswordChangeState();
-      onLoginSuccess(userSession);
+      await onLoginSuccess(userSession);
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 403) {
         const responseData = error.response.data;
@@ -189,7 +189,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
       setForm({ email: "", password: "" });
       resetPasswordChangeState();
-      onLoginSuccess(userSession);
+      await onLoginSuccess(userSession);
     } catch (error) {
       setApiError(
         getApiErrorMessage(

@@ -225,7 +225,7 @@ if (userSession && userSession.token && userSession.user) {
 ```
 [API] Attempting login for: john@example.com
 [API Request] POST /auth/login
-[API Response] 200 http://192.168.254.139:8000/api/auth/login
+[API Response] 200 http://<reachable-dev-host>:8000/api/auth/login
 [API] Login successful
 ```
 

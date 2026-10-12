@@ -4,12 +4,11 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Foundation\Testing\WithoutMiddleware;
 use Tests\TestCase;
 
 class SuperAdminRoleTest extends TestCase
 {
-    use RefreshDatabase, WithoutMiddleware;
+    use RefreshDatabase;
 
     public function test_web_registration_assigns_the_employer_role_by_default(): void
     {
@@ -61,4 +60,3 @@ class SuperAdminRoleTest extends TestCase
             ->assertRedirect('/super-admin/dashboard');
     }
 }
-

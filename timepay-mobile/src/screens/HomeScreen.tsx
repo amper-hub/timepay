@@ -264,8 +264,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
         }
 
         setAttendanceStatus(status);
-      } catch (error) {
-        console.warn("[Attendance] Silent shift status polling failed", error);
+      } catch {
+        if (__DEV__) {
+          console.warn("[Attendance] Silent shift status polling failed.");
+        }
       }
     };
 

@@ -47,7 +47,7 @@ Expected: App loads fresh without build errors
    ```
    [API] Attempting login for: john@example.com
    [API Request] POST /auth/login
-   [API Response] 200 http://192.168.254.139:8000/api/auth/login
+   [API Response] 200 http://<reachable-dev-host>:8000/api/auth/login
    [API] Login successful
    ```
 
@@ -75,7 +75,7 @@ Expected: App loads fresh without build errors
 **Meaning**: Server returned wrong structure
 
 **Check**:
-1. Test API directly: `curl -X POST http://192.168.254.139:8000/api/auth/login -H "Content-Type: application/json" -d '{"email":"john@example.com","password":"password123"}'`
+1. Test API directly: `curl -X POST http://<reachable-dev-host>:8000/api/auth/login -H "Content-Type: application/json" -d '{"email":"john@example.com","password":"password123"}'`
 2. Check response includes: `token`, `user`, `company`
 3. Verify Laravel API hasn't changed
 
@@ -147,7 +147,7 @@ Response Validation:
 [API] Attempting login for: john@example.com
 [API Request] POST /auth/login
 [API Payload] { email: 'john@example.com', password: 'password123' }
-[API Response] 200 http://192.168.254.139:8000/api/auth/login
+[API Response] 200 http://<reachable-dev-host>:8000/api/auth/login
 [API] Login successful
 ```
 

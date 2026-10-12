@@ -2,7 +2,7 @@
 
 /**
  * TimePay Network Diagnostics Script
- * Checks connectivity to local Laravel backend
+ * Checks connectivity to the configured Laravel API URL
  * 
  * Usage:
  *   node diagnose-network.js
@@ -14,10 +14,28 @@ const http = require("http");
 const https = require("https");
 const os = require("os");
 
-// Configuration
-const TARGET_IP = "192.168.254.139";
-const TARGET_PORT = 8000;
-const TARGET_URL = `http://${TARGET_IP}:${TARGET_PORT}/api`;
+const configuredUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
+if (!configuredUrl) {
+  console.error("Set EXPO_PUBLIC_API_BASE_URL before running this diagnostic.");
+  process.exit(1);
+}
+
+let apiUrl;
+try {
+  apiUrl = new URL(configuredUrl);
+  if (!['http:', 'https:'].includes(apiUrl.protocol) || apiUrl.username || apiUrl.password) {
+    throw new Error("invalid URL");
+  }
+} catch {
+  console.error("EXPO_PUBLIC_API_BASE_URL must be an absolute HTTP or HTTPS URL.");
+  process.exit(1);
+}
+
+apiUrl.pathname = apiUrl.pathname.replace(/(?:\/api)+\/?$/i, "").replace(/\/+$/, "") + "/api";
+const TARGET_URL = apiUrl.toString().replace(/\/$/, "");
+const TARGET_HOST = apiUrl.hostname;
+const TARGET_PORT = Number(apiUrl.port || (apiUrl.protocol === "https:" ? 443 : 80));
+const requestModule = apiUrl.protocol === "https:" ? https : http;
 const TIMEOUT_MS = 5000;
 
 // Color codes for terminal output
@@ -58,7 +76,7 @@ async function getLocalIPs() {
 
 function testBasicConnectivity() {
   return new Promise((resolve) => {
-    const request = http.get(
+    const request = requestModule.get(
       TARGET_URL,
       { timeout: TIMEOUT_MS },
       (response) => {
@@ -95,18 +113,18 @@ function testDNSResolution() {
     const dns = require("dns");
     
     // Test both IP and hostname resolution
-    dns.lookup(TARGET_IP, (err, address) => {
+    dns.lookup(TARGET_HOST, (err, address) => {
       if (err) {
         resolve({
           success: false,
           error: err.code,
-          message: `Failed to resolve ${TARGET_IP}: ${err.message}`,
+          message: `Failed to resolve ${TARGET_HOST}: ${err.message}`,
         });
       } else {
         resolve({
           success: true,
           resolved: address,
-          message: `Successfully resolved ${TARGET_IP} to ${address}`,
+          message: `Successfully resolved ${TARGET_HOST} to ${address}`,
         });
       }
     });
@@ -145,14 +163,14 @@ function testPortConnectivity() {
       });
     });
 
-    socket.connect(TARGET_PORT, TARGET_IP);
+    socket.connect(TARGET_PORT, TARGET_HOST);
   });
 }
 
 function testAPIEndpoint() {
   return new Promise((resolve) => {
-    const request = http.get(
-      `${TARGET_URL}/auth/me`,
+    const request = requestModule.get(
+      `${TARGET_URL}/user`,
       {
         timeout: TIMEOUT_MS,
         headers: {
@@ -239,12 +257,12 @@ async function runDiagnostics() {
     );
   });
 
-  const targetIPFound = localIPs.some((item) => item.ip === TARGET_IP);
+  const targetIPFound = localIPs.some((item) => item.ip === TARGET_HOST);
   if (targetIPFound) {
     log("green", "✓ Target IP matches local machine!");
   } else {
     log("yellow", "⚠ Target IP does NOT match any local interface");
-    log("yellow", `  Make sure ${TARGET_IP} is correct for your setup`);
+    log("yellow", `  Make sure ${TARGET_HOST} is reachable from this device`);
   }
 
   // Section 2: DNS Resolution
@@ -256,14 +274,14 @@ async function runDiagnostics() {
   // Section 3: Port Connectivity
   logSection("3. Port Connectivity Test");
 
-  log("bright", `Testing port ${TARGET_PORT} on ${TARGET_IP}...`);
+  log("bright", `Testing port ${TARGET_PORT} on ${TARGET_HOST}...`);
   const portResult = await testPortConnectivity();
   displayResult("TCP Port Connection", portResult, 2);
 
   // Section 4: Basic HTTP Connectivity
   logSection("4. Basic HTTP Connectivity");
 
-  log("bright", `Testing HTTP connection to ${TARGET_URL}...`);
+  log("bright", `Testing connection to ${TARGET_URL}...`);
   const httpResult = await testBasicConnectivity();
   displayResult("HTTP Connection", httpResult, 2);
 
@@ -335,15 +353,12 @@ async function runDiagnostics() {
   console.log(`   Mac/Linux: ifconfig | grep inet\n`);
 
   console.log(`${colors.yellow}3. Test from command line:${colors.reset}`);
-  console.log(`   curl -X GET http://${TARGET_IP}:8000/api\n`);
+  console.log(`   curl -X GET ${TARGET_URL}\n`);
 
   console.log(`${colors.yellow}4. Check Windows Firewall:${colors.reset}`);
   console.log(`   Allow port 8000 in Windows Firewall\n`);
 
-  console.log(`${colors.yellow}5. Update BASE_URL in src/services/api.ts:${colors.reset}`);
-  console.log(
-    `   const BASE_URL = "http://${TARGET_IP}:8000/api";\n`
-  );
+  console.log(`${colors.yellow}5. Set EXPO_PUBLIC_API_BASE_URL in .env.local and restart Expo.${colors.reset}`);
 
   // Section 8: Network Environment
   logSection("🌐 Network Environment");

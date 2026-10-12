@@ -40,6 +40,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('attendance/store', [AttendanceController::class, 'store']);
     Route::post('attendance/punch', [AttendanceController::class, 'punch']);
     Route::get('attendance/history', [AttendanceController::class, 'history']);
+    Route::get('attendance/{attendanceLog}/photo', [AttendanceController::class, 'photo'])
+        ->name('api.attendance.photo');
 
     Route::patch('profile/name', [ApiProfileController::class, 'updateName']);
     Route::patch('profile/password', [ApiProfileController::class, 'updatePassword']);

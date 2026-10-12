@@ -26,6 +26,17 @@ test("maps a disconnected device to the safe network message", () => {
   );
 });
 
+test("shows an actionable message when the public API URL is missing or invalid", () => {
+  assert.equal(
+    getUserFriendlyError(new Error("The TimePay API URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and rebuild the app.")),
+    "The TimePay API URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and rebuild the app."
+  );
+  assert.equal(
+    getUserFriendlyError(new Error("The production TimePay API URL is invalid. Set EXPO_PUBLIC_API_BASE_URL to the Laravel service's public HTTPS URL and rebuild the app.")),
+    "The production TimePay API URL is invalid. Set EXPO_PUBLIC_API_BASE_URL to the Laravel service's public HTTPS URL and rebuild the app."
+  );
+});
+
 test("maps timeouts and service errors without showing response details", () => {
   assert.equal(
     getUserFriendlyError({ code: "ECONNABORTED", message: "SQL timeout details" }),

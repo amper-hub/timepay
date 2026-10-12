@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\AnalyzeSelfieProof;
-use App\Models\AttendanceRecord;
 use App\Models\AttendanceLog;
 use App\Services\FacePlusPlusService;
 use Carbon\Carbon;
@@ -43,101 +42,9 @@ class AttendanceController extends Controller
      */
     public function checkIn(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'latitude' => 'required|numeric|between:-90,90',
-            'longitude' => 'required|numeric|between:-180,180',
-        ]);
+        $request->merge(['type' => 'clock_in']);
 
-        $user = auth()->user();
-        $user->loadMissing('company');
-
-        $company = $user->company;
-
-        if (! $company) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Check-in failed. Your account is not assigned to a company.',
-            ], 422);
-        }
-
-        if ($scheduleError = $this->validateClockInSchedule($company)) {
-            return $scheduleError;
-        }
-
-        $officeLatitude = $this->companyGeofenceLatitude($company);
-        $officeLongitude = $this->companyGeofenceLongitude($company);
-        $geofenceRadius = $this->companyGeofenceRadius($company);
-
-        if ($officeLatitude === null || $officeLongitude === null) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Check-in failed. Company geofence coordinates are not configured.',
-            ], 422);
-        }
-
-        // Calculate distance using Haversine formula
-        $distance = $this->calculateDistance(
-            (float) $validated['latitude'],
-            (float) $validated['longitude'],
-            $officeLatitude,
-            $officeLongitude
-        );
-
-        $distanceInMeters = (int) round($distance);
-
-        // Check if user is within the geofence
-        if ($distanceInMeters <= $geofenceRadius) {
-            // Create attendance record for today
-            $today = Carbon::today();
-
-            $attendanceRecord = AttendanceRecord::updateOrCreate(
-                [
-                    'user_id' => $user->id,
-                    'company_id' => $user->company_id,
-                    'date' => $today,
-                ],
-                [
-                    'time_in' => now()->toTimeString(),
-                    'latitude_in' => (float) $validated['latitude'],
-                    'longitude_in' => (float) $validated['longitude'],
-                    'status' => 'present',
-                ]
-            );
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Check-in successful.',
-                'attendance_record' => [
-                    'id' => $attendanceRecord->id,
-                    'user_id' => $attendanceRecord->user_id,
-                    'date' => $attendanceRecord->date,
-                    'time_in' => $attendanceRecord->time_in,
-                    'latitude_in' => $attendanceRecord->latitude_in,
-                    'longitude_in' => $attendanceRecord->longitude_in,
-                    'status' => $attendanceRecord->status,
-                ],
-                'distance_meters' => $distanceInMeters,
-                'geofence_radius_meters' => $geofenceRadius,
-            ], 200);
-        }
-
-        // User is outside the geofence
-        $distanceOutside = $distanceInMeters - $geofenceRadius;
-
-        return response()->json([
-            'success' => false,
-            'message' => 'Check-in failed. You are outside the office geofence.',
-            'distance_from_office_meters' => $distanceOutside,
-            'your_coordinates' => [
-                'latitude' => (float) $validated['latitude'],
-                'longitude' => (float) $validated['longitude'],
-            ],
-            'office_coordinates' => [
-                'latitude' => $officeLatitude,
-                'longitude' => $officeLongitude,
-            ],
-            'geofence_radius_meters' => $geofenceRadius,
-        ], 403);
+        return $this->store($request);
     }
 
     /**
@@ -174,6 +81,9 @@ class AttendanceController extends Controller
             'longitude' => 'required|numeric|between:-180,180',
             'selfie' => 'required_without:photo|image|mimes:jpeg,jpg,png|max:5120',
             'photo' => 'required_without:selfie|image|mimes:jpeg,jpg,png|max:5120',
+            'liveness_open' => 'required|image|mimes:jpeg,jpg,png|max:2048',
+            'liveness_closed' => 'required|image|mimes:jpeg,jpg,png|max:2048',
+            'liveness_reopened' => 'required|image|mimes:jpeg,jpg,png|max:2048',
         ]);
 
         $user = auth()->user();
@@ -239,9 +149,46 @@ class AttendanceController extends Controller
         $distanceInMeters = (float) $distanceInMeters;
         $isWithinGeofence = $distanceInMeters <= $geofenceRadius;
 
-        $file = $request->file('selfie') ?? $request->file('photo');
+        $selfie = $request->file('selfie') ?? $request->file('photo');
+
+        try {
+            $livenessPassed = $this->facePlusPlusService->verifyBlinkSequence(
+                $request->file('liveness_open')->getRealPath(),
+                $request->file('liveness_closed')->getRealPath(),
+                $request->file('liveness_reopened')->getRealPath()
+            );
+
+            if (! $livenessPassed) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'face_liveness_failed',
+                    'message' => 'The blink verification did not pass. Please follow the on-screen instructions and try again.',
+                ], 422);
+            }
+
+            $captureResult = $this->facePlusPlusService->compare(
+                $request->file('liveness_reopened')->getRealPath(),
+                $selfie->getRealPath()
+            );
+
+            if (! $captureResult['matched']) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'face_capture_mismatch',
+                    'message' => 'The captured selfie did not match the completed blink check. Please try again.',
+                ], 422);
+            }
+        } catch (\RuntimeException $exception) {
+            return response()->json([
+                'success' => false,
+                'error' => 'face_verification_unavailable',
+                'message' => 'Face verification is temporarily unavailable. Please try again.',
+            ], 503);
+        }
+
+        $file = $selfie;
         $filename = 'selfie_' . $user->id . '_' . now()->format('YmdHis') . '_' . str()->random(8) . '.' . $file->extension();
-        $photoPath = $file->storeAs('selfies', $filename, 'public');
+        $photoPath = $file->storeAs('selfies', $filename, 'private');
 
         if (! $photoPath) {
             return response()->json([
@@ -250,7 +197,7 @@ class AttendanceController extends Controller
             ], 500);
         }
 
-        $selfieAbsolutePath = Storage::disk('public')->path($photoPath);
+        $selfieAbsolutePath = Storage::disk('private')->path($photoPath);
 
         $isFirstTimeEnrollment = $user->baseline_photo_path === null;
         $faceResult = null;
@@ -296,7 +243,7 @@ class AttendanceController extends Controller
         $baselineAbsolutePath = $this->resolveBaselinePhotoPath($user->baseline_photo_path);
 
         if (! $baselineAbsolutePath) {
-            Storage::disk('public')->delete($photoPath);
+            Storage::disk('private')->delete($photoPath);
 
             return response()->json([
                 'success' => false,
@@ -308,7 +255,7 @@ class AttendanceController extends Controller
         try {
             $faceResult = $this->facePlusPlusService->compare($baselineAbsolutePath, $selfieAbsolutePath);
         } catch (\RuntimeException $exception) {
-            Storage::disk('public')->delete($photoPath);
+            Storage::disk('private')->delete($photoPath);
 
             return response()->json([
                 'success' => false,
@@ -355,7 +302,9 @@ class AttendanceController extends Controller
                 'is_suspicious' => $attendanceLog->is_suspicious,
                 'suspicion_reason' => $attendanceLog->suspicion_reason,
                 'distance_meters' => $attendanceLog->distance_meters,
-                'photo_path' => $attendanceLog->photo_path ? asset('storage/' . $attendanceLog->photo_path) : null,
+                'photo_path' => $attendanceLog->photo_path
+                    ? route('api.attendance.photo', ['attendanceLog' => $attendanceLog->id])
+                    : null,
             ],
             'face_verification' => [
                 'enrolled' => false,
@@ -380,6 +329,44 @@ class AttendanceController extends Controller
             'current_state' => $attendanceLog->type === 'clock_in' ? 'clocked_in' : 'clocked_out',
             'next_expected_punch' => $attendanceLog->type === 'clock_in' ? 'clock_out' : 'clock_in',
         ], 200);
+    }
+
+    /**
+     * Stream an attendance image only to its employee, company administrators,
+     * or a super administrator. The old public URLs remain available through
+     * this authenticated route while legacy files are migrated from public storage.
+     */
+    public function photo(Request $request, AttendanceLog $attendanceLog)
+    {
+        $user = $request->user();
+        $canView = match ($user->role) {
+            \App\Models\User::ROLE_SUPER_ADMIN => true,
+            \App\Models\User::ROLE_ADMIN, \App\Models\User::ROLE_EMPLOYER =>
+                $user->company_id === $attendanceLog->company_id,
+            default => $user->id === $attendanceLog->user_id,
+        };
+
+        abort_unless($canView, 403);
+
+        $photoPath = str($attendanceLog->photo_path)
+            ->replace('\\', '/')
+            ->replaceStart('storage/', '')
+            ->toString();
+
+        abort_if($photoPath === '' || str_contains($photoPath, '..'), 404);
+
+        $disk = Storage::disk('private');
+        if (! $disk->exists($photoPath)) {
+            $disk = Storage::disk('public');
+        }
+
+        abort_unless($disk->exists($photoPath), 404);
+
+        return $disk->response($photoPath, null, [
+            'Cache-Control' => 'private, no-store, max-age=0',
+            'Pragma' => 'no-cache',
+            'X-Content-Type-Options' => 'nosniff',
+        ], 'inline');
     }
 
     /**
@@ -617,8 +604,10 @@ class AttendanceController extends Controller
             ->replaceStart('storage/', '')
             ->toString();
 
-        if (Storage::disk('public')->exists($normalizedPath)) {
-            return Storage::disk('public')->path($normalizedPath);
+        foreach (['private', 'public'] as $diskName) {
+            if (Storage::disk($diskName)->exists($normalizedPath)) {
+                return Storage::disk($diskName)->path($normalizedPath);
+            }
         }
 
         return null;

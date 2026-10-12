@@ -14,7 +14,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
 import FaceDetection from "@react-native-ml-kit/face-detection";
-import apiClient, { getApiErrorMessage } from "../../services/api";
+import { apiService, getApiErrorMessage } from "../../services/api";
 import {
   getHighAccuracyAttendanceLocation,
   LOCATION_FALLBACK_WARNING,
@@ -50,9 +50,27 @@ const FaceVerificationScreen = ({ navigation, route }) => {
   const submittingRef = useRef(false);
   const frameInFlightRef = useRef(false);
   const blinkPhaseRef = useRef("waiting_for_open");
+  const livenessFrameUrisRef = useRef({
+    open: null,
+    closed: null,
+    reopened: null,
+  });
 
   const action = route?.params?.action === "clock_out" ? "clock_out" : "clock_in";
   const actionLabel = action === "clock_out" ? "Clock Out" : "Clock In";
+
+  const clearLivenessFrames = useCallback(async () => {
+    const frameUris = Object.values(livenessFrameUrisRef.current).filter(
+      (uri) => typeof uri === "string"
+    );
+    livenessFrameUrisRef.current = { open: null, closed: null, reopened: null };
+
+    await Promise.all(
+      frameUris.map((uri) =>
+        FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined)
+      )
+    );
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -63,9 +81,13 @@ const FaceVerificationScreen = ({ navigation, route }) => {
       setLivenessMessage(INITIAL_LIVENESS_INSTRUCTION);
       setScreenError(null);
       setCameraActive(true);
+      void clearLivenessFrames();
 
-      return () => setCameraActive(false);
-    }, [])
+      return () => {
+        setCameraActive(false);
+        void clearLivenessFrames();
+      };
+    }, [clearLivenessFrames])
   );
 
   useEffect(() => {
@@ -75,29 +97,14 @@ const FaceVerificationScreen = ({ navigation, route }) => {
   }, [cameraPermission, requestCameraPermission]);
 
   const submitSelfie = useCallback(
-    async (photoUri, latitude, longitude) => {
-      const formData = new FormData();
-      formData.append("latitude", String(latitude));
-      formData.append("longitude", String(longitude));
-      formData.append("type", action);
-      formData.append("selfie", {
-        uri: photoUri,
-        name: `${action}_${Date.now()}.jpg`,
-        type: "image/jpeg",
-      });
-
-      const endpoint =
-        action === "clock_in" ? "/attendance/clock-in" : "/attendance/store";
-
-      const response = await apiClient.post(endpoint, formData, {
-        timeout: 45000,
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      return response.data;
-    },
+    (photoUri, latitude, longitude, livenessFrames) =>
+      apiService.submitAttendancePunch(
+        action,
+        latitude,
+        longitude,
+        photoUri,
+        livenessFrames
+      ),
     [action]
   );
 
@@ -111,6 +118,11 @@ const FaceVerificationScreen = ({ navigation, route }) => {
     setScreenError(null);
 
     try {
+      const livenessFrames = { ...livenessFrameUrisRef.current };
+      if (!livenessFrames.open || !livenessFrames.closed || !livenessFrames.reopened) {
+        throw new Error("Please complete the blink check before submitting attendance.");
+      }
+
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.95,
         skipProcessing: false,
@@ -140,7 +152,8 @@ const FaceVerificationScreen = ({ navigation, route }) => {
       const response = await submitSelfie(
         compressedPhoto.uri,
         location.coords.latitude,
-        location.coords.longitude
+        location.coords.longitude,
+        livenessFrames
       );
 
       if (response?.face_verification?.enrolled) {
@@ -171,10 +184,11 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         errorMessage || "Verification failed. Please try again."
       );
     } finally {
+      await clearLivenessFrames();
       submittingRef.current = false;
       setSubmitting(false);
     }
-  }, [actionLabel, cameraReady, navigation, submitSelfie]);
+  }, [actionLabel, cameraReady, clearLivenessFrames, navigation, submitSelfie]);
 
   useEffect(() => {
     if (!cameraActive || !cameraReady) {
@@ -197,6 +211,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
       frameInFlightRef.current = true;
       let previewUri;
       let blinkSequenceComplete = false;
+      let keepPreviewForVerification = false;
 
       try {
         const preview = await cameraRef.current.takePictureAsync({
@@ -232,18 +247,24 @@ const FaceVerificationScreen = ({ navigation, route }) => {
 
               if (blinkPhaseRef.current === "waiting_for_open" && eyesOpen) {
                 blinkPhaseRef.current = "waiting_for_close";
+                livenessFrameUrisRef.current.open = previewUri;
+                keepPreviewForVerification = true;
                 setLivenessMessage("Eyes open detected. Now blink once.");
               } else if (
                 blinkPhaseRef.current === "waiting_for_close" &&
                 eyesClosed
               ) {
                 blinkPhaseRef.current = "waiting_for_reopen";
+                livenessFrameUrisRef.current.closed = previewUri;
+                keepPreviewForVerification = true;
                 setLivenessMessage("Blink detected. Open your eyes.");
               } else if (
                 blinkPhaseRef.current === "waiting_for_reopen" &&
                 eyesOpen
               ) {
                 blinkPhaseRef.current = "complete";
+                livenessFrameUrisRef.current.reopened = previewUri;
+                keepPreviewForVerification = true;
                 blinkSequenceComplete = true;
               }
             } else {
@@ -252,7 +273,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
           }
         }
       } catch (error) {
-        console.error("[Liveness] ML Kit frame analysis failed:", error);
+        if (__DEV__) console.warn("[Liveness] ML Kit frame analysis failed.");
         if (!cancelled) {
           setScreenError(
             "Face detection is unavailable right now. Please try again later."
@@ -260,7 +281,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         }
         return;
       } finally {
-        if (previewUri) {
+        if (previewUri && !keepPreviewForVerification) {
           await FileSystem.deleteAsync(previewUri, { idempotent: true }).catch(
             () => undefined
           );

@@ -12,10 +12,10 @@ import axios, {
 import { Alert } from "react-native";
 import { ErrorContext, getUserFriendlyError } from "./errorMessages";
 import {
-  AuthResponse,
   ApiErrorResponse,
   LoginCredentials,
   UserSession,
+  User,
   UpdateTemporaryPasswordRequest,
   ForgotPasswordRequest,
   ResetPasswordWithOtpRequest,
@@ -28,23 +28,65 @@ import {
   PendingPayResponse,
 } from "../types";
 
-/**
- * Configure this with your local Laravel server IP address
- * Example: http://192.168.1.100:8000/api
- * 
- * IMPORTANT: Update this to match your development machine's IP
- * Find your IP: Windows (ipconfig) | Mac/Linux (ifconfig)
- */
-const BASE_URL = "http://10.88.35.55:8000/api";
+const isDevelopment = __DEV__;
+
+const resolveApiBaseUrl = (
+  configuredUrl: string | undefined,
+  development: boolean
+): { baseUrl: string | null; error: string | null } => {
+  const value = configuredUrl?.trim();
+
+  if (!value) {
+    return {
+      baseUrl: null,
+      error:
+        "The TimePay API URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and rebuild the app.",
+    };
+  }
+
+  try {
+    const parsed = new URL(value);
+    const isHttp = parsed.protocol === "http:";
+
+    if (
+      (!isHttp && parsed.protocol !== "https:") ||
+      (isHttp && !development) ||
+      !parsed.hostname ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error("invalid URL");
+    }
+
+    const apiPath = parsed.pathname
+      .replace(/(?:\/api)+\/?$/i, "")
+      .replace(/\/+$/, "");
+
+    return {
+      baseUrl: `${parsed.origin}${apiPath}/api`,
+      error: null,
+    };
+  } catch {
+    return {
+      baseUrl: null,
+      error: development
+        ? "The TimePay API URL is invalid. Use an absolute HTTP or HTTPS URL reachable from this device."
+        : "The production TimePay API URL is invalid. Set EXPO_PUBLIC_API_BASE_URL to the Laravel service's public HTTPS URL and rebuild the app.",
+    };
+  }
+};
+
+const apiUrlConfiguration = resolveApiBaseUrl(
+  process.env.EXPO_PUBLIC_API_BASE_URL,
+  isDevelopment
+);
+const BASE_URL = apiUrlConfiguration.baseUrl ?? "";
 
 /**
- * Detect if running in local development (non-HTTPS)
- */
-const isDevelopment = BASE_URL.startsWith("http://");
-
-/**
- * Token storage - in production, this would be replaced with secure storage
- * For now, we manage tokens through the app's central state
+ * The current session is persisted by authStorage. Keep only the active bearer
+ * token in memory here; App hydrates it from SecureStore when it starts.
  */
 let authToken: string | null = null;
 
@@ -62,7 +104,22 @@ export const setAuthToken = (token: string | null): void => {
 
 export const getAuthToken = (): string | null => authToken;
 
-export const getApiBaseUrl = (): string => BASE_URL;
+export const getApiBaseUrl = (): string => {
+  if (apiUrlConfiguration.error) {
+    throw new Error(apiUrlConfiguration.error);
+  }
+
+  return BASE_URL;
+};
+
+export const getApiConfigurationError = (): string | null =>
+  apiUrlConfiguration.error;
+
+export interface AttendanceLivenessFrames {
+  open: string;
+  closed: string;
+  reopened: string;
+}
 
 /**
  * Display comprehensive network troubleshooting alert
@@ -112,9 +169,9 @@ const redactSensitivePayload = (payload: unknown): unknown => {
 
   if (payload && typeof payload === "object") {
     return Object.fromEntries(
-      Object.entries(payload as Record<string, unknown>).map(([key, value]) => [
+  Object.entries(payload as Record<string, unknown>).map(([key, value]) => [
         key,
-        /password|otp|token|secret/i.test(key)
+        /password|otp|token|secret|photo|selfie|image|latitude|longitude/i.test(key)
           ? "[REDACTED]"
           : redactSensitivePayload(value),
       ])
@@ -141,6 +198,10 @@ export const getApiErrorMessage = (
  */
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    if (apiUrlConfiguration.error) {
+      throw new Error(apiUrlConfiguration.error);
+    }
+
     // Attach token if it exists
     if (authToken) {
       config.headers.Authorization = `Bearer ${authToken}`;
@@ -157,7 +218,7 @@ apiClient.interceptors.request.use(
     return config;
   },
   (error: AxiosError) => {
-    console.error("[API Request Error]", error.message);
+    if (__DEV__) console.warn("[API Request Error]", error.message);
     return Promise.reject(error);
   }
 );
@@ -191,15 +252,15 @@ apiClient.interceptors.response.use(
       const logResponseError =
         error.response.status >= 500 ? console.error : console.warn;
 
-      logResponseError("[API Error Response]", {
-        status: error.response.status,
-        statusText: error.response.statusText,
-        url: error.response.config.url,
-        data: error.response.data,
-      });
+      if (__DEV__) {
+        logResponseError("[API Error Response]", {
+          status: error.response.status,
+          code: error.code,
+        });
+      }
     } else if (error.request) {
       // Request made but no response received
-      console.error("[API Network Error]", {
+      if (__DEV__) console.warn("[API Network Error]", {
         code: error.code,
         message: error.message,
         url: error.config?.url,
@@ -211,7 +272,7 @@ apiClient.interceptors.response.use(
       });
     } else {
       // Error in request setup
-      console.error("[API Client Error]", {
+      if (__DEV__) console.warn("[API Client Error]", {
         message: error.message,
         code: error.code,
       });
@@ -263,7 +324,7 @@ export const apiService = {
    */
   login: async (credentials: LoginCredentials): Promise<UserSession> => {
     try {
-      console.log("[API] Attempting login for:", credentials.email);
+      if (__DEV__) console.log("[API] Attempting login");
       
       const response = await apiClient.post<unknown>(
         "/auth/login",
@@ -272,7 +333,7 @@ export const apiService = {
 
       // Check if response is the Laravel auth response format
       if (isLaravelAuthResponse(response.data)) {
-        console.log("[API] Login successful");
+        if (__DEV__) console.log("[API] Login successful");
         
         // Transform Laravel response to UserSession
         const userSession: UserSession = {
@@ -288,18 +349,16 @@ export const apiService = {
       } else {
         // Server responded but response format is unexpected
         const errorMsg = "Login failed: Unexpected response format from server";
-        console.error("[API] Login failed:", errorMsg);
+        if (__DEV__) console.warn("[API] Login failed:", errorMsg);
         throw new Error(errorMsg);
       }
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>;
 
       // Log detailed error information
-      console.error("[API] Login error caught:", {
+      if (__DEV__) console.warn("[API] Login request failed:", {
         code: axiosError.code,
         status: axiosError.response?.status,
-        message: axiosError.message,
-        responseData: axiosError.response?.data,
       });
 
       // Network-level error (status: 0 or no response)
@@ -316,7 +375,7 @@ export const apiService = {
     payload: UpdateTemporaryPasswordRequest
   ): Promise<UserSession> => {
     try {
-      console.log("[API] Updating temporary password for user:", payload.user_id);
+      if (__DEV__) console.log("[API] Updating temporary password");
 
       const response = await apiClient.post<unknown>(
         "/auth/update-temporary-password",
@@ -338,16 +397,14 @@ export const apiService = {
 
       const errorMsg =
         "Password update failed: Unexpected response format from server";
-      console.error("[API] Password update failed:", errorMsg);
+      if (__DEV__) console.warn("[API] Password update failed:", errorMsg);
       throw new Error(errorMsg);
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>;
 
-      console.error("[API] Password update error caught:", {
+      if (__DEV__) console.warn("[API] Temporary password update failed:", {
         code: axiosError.code,
         status: axiosError.response?.status,
-        message: axiosError.message,
-        responseData: axiosError.response?.data,
       });
 
       throw error;
@@ -360,17 +417,17 @@ export const apiService = {
    */
   logout: async (): Promise<void> => {
     try {
-      console.log("[API] Attempting logout");
+      if (__DEV__) console.log("[API] Attempting logout");
       
       await apiClient.post("/auth/logout");
       setAuthToken(null);
       
-      console.log("[API] Logout successful");
+      if (__DEV__) console.log("[API] Logout successful");
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>;
       
       // Log but don't fail on logout errors (just clear token anyway)
-      console.error("[API] Logout error (clearing token anyway):", axiosError.message);
+      if (__DEV__) console.warn("[API] Logout request failed.", axiosError.code);
       setAuthToken(null);
       
       throw error;
@@ -381,14 +438,15 @@ export const apiService = {
    * GET /auth/me
    * Fetch current authenticated user data
    */
-  getCurrentUser: async (): Promise<AuthResponse> => {
+  getCurrentUser: async (): Promise<User> => {
     try {
-      console.log("[API] Fetching current user");
+      if (__DEV__) console.log("[API] Fetching current user");
       
-      const response = await apiClient.get<AuthResponse>("/auth/me");
+      const response = await apiClient.get<User>("/user");
       return response.data;
     } catch (error) {
-      console.error("[API] Get current user error:", error);
+      const axiosError = error as AxiosError<ApiErrorResponse>;
+      if (__DEV__) console.warn("[API] Current user request failed:", axiosError.response?.status);
       throw error;
     }
   },
@@ -494,15 +552,11 @@ export const apiService = {
     type: AttendancePunchType,
     latitude: number,
     longitude: number,
-    photoUri: string
+    photoUri: string,
+    livenessFrames?: AttendanceLivenessFrames
   ): Promise<AttendancePunchResponse> => {
     try {
-      console.log("[API] Submitting attendance punch:", {
-        type,
-        latitude,
-        longitude,
-        photoUri: photoUri.substring(0, 50) + "...", // Log only first 50 chars
-      });
+      if (__DEV__) console.log("[API] Submitting attendance punch", type);
 
       // Build FormData payload
       const formData = new FormData();
@@ -521,8 +575,19 @@ export const apiService = {
       // Append the file to FormData using the backend's Face++ field name.
       formData.append('selfie', photoFile as any);
 
+      if (livenessFrames) {
+        (['open', 'closed', 'reopened'] as const).forEach((phase) => {
+          formData.append(`liveness_${phase}`, {
+            uri: livenessFrames[phase],
+            name: `blink_${phase}_${Date.now()}.jpg`,
+            type: 'image/jpeg',
+          } as any);
+        });
+      }
+
       // Create a custom axios config for FormData
       const config = {
+        timeout: 120000,
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -543,10 +608,8 @@ export const apiService = {
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>;
 
-      console.error("[API] Attendance punch error:", {
+      if (__DEV__) console.warn("[API] Attendance punch failed:", {
         status: axiosError.response?.status,
-        message: axiosError.message,
-        responseData: axiosError.response?.data,
       });
 
       throw error;

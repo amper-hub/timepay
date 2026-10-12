@@ -21,7 +21,7 @@ return new class extends Migration
             $table->decimal('longitude', 11, 8);
             $table->decimal('distance_meters', 8, 2);
             $table->string('photo_path')->nullable();
-            $table->enum('status', ['verified', 'rejected']);
+            $table->enum('status', ['verified', 'rejected', 'flagged']);
             $table->timestamps();
 
             // Optimized composite index for querying by company, user, and date

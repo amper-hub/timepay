@@ -12,7 +12,7 @@ class FacePlusPlusService
 {
     private const DEFAULT_DETECT_URL = 'https://api-us.faceplusplus.com/facepp/v3/detect';
     private const DEFAULT_COMPARE_URL = 'https://api-us.faceplusplus.com/facepp/v3/compare';
-    private const MINIMUM_CONFIDENCE = 80.0;
+    private const DEFAULT_CONFIDENCE_THRESHOLD = 80.0;
 
     /**
      * Compare a user's baseline photo with a newly captured selfie.
@@ -31,7 +31,10 @@ class FacePlusPlusService
         $apiKey = config('services.faceplusplus.key');
         $apiSecret = config('services.faceplusplus.secret');
         $compareUrl = config('services.faceplusplus.compare_url', self::DEFAULT_COMPARE_URL);
-        $threshold = self::MINIMUM_CONFIDENCE;
+        $threshold = (float) config(
+            'services.faceplusplus.confidence_threshold',
+            self::DEFAULT_CONFIDENCE_THRESHOLD
+        );
 
         if (! $apiKey || ! $apiSecret) {
             Log::error('Face++ credentials are not configured.');
@@ -58,7 +61,8 @@ class FacePlusPlusService
                 ])
                 ->throw();
 
-            $confidenceValue = data_get($response->json(), 'confidence');
+            $payload = $response->json();
+            $confidenceValue = is_array($payload) ? data_get($payload, 'confidence') : null;
 
             if (! is_numeric($confidenceValue)) {
                 throw new RuntimeException('Face++ returned no comparison confidence score.');
@@ -73,9 +77,7 @@ class FacePlusPlusService
             ];
         } catch (ConnectionException|RequestException|RuntimeException $exception) {
             Log::error('Face++ comparison request failed.', [
-                'message' => $exception->getMessage(),
-                'baseline_photo' => $baselinePhoto,
-                'selfie_photo' => $selfiePhoto,
+                'exception_type' => $exception::class,
             ]);
 
             throw new RuntimeException('Face++ comparison is temporarily unavailable.', previous: $exception);
@@ -83,16 +85,71 @@ class FacePlusPlusService
     }
 
     /**
-     * Analyze a saved selfie for Face++ quality and liveness/anti-spoofing signals.
+     * Verify that the uploaded samples show one face opening, closing, and
+     * reopening both eyes. The mobile ML Kit result is never accepted as proof.
+     */
+    public function verifyBlinkSequence(string $openPhoto, string $closedPhoto, string $reopenedPhoto): bool
+    {
+        $minimumEyeConfidence = (float) config(
+            'services.faceplusplus.eye_confidence_threshold',
+            70
+        );
+
+        foreach ([
+            ['path' => $openPhoto, 'state' => 'open'],
+            ['path' => $closedPhoto, 'state' => 'closed'],
+            ['path' => $reopenedPhoto, 'state' => 'open'],
+        ] as $sample) {
+            $payload = $this->detectImage($sample['path'], 'eyestatus');
+            $faces = data_get($payload, 'faces');
+
+            if (! is_array($faces) || count($faces) !== 1) {
+                return false;
+            }
+
+            $eyeStatus = data_get($faces, '0.attributes.eyestatus');
+
+            if (! is_array($eyeStatus)) {
+                return false;
+            }
+
+            foreach (['left_eye_status', 'right_eye_status'] as $eye) {
+                $eyeMetrics = data_get($eyeStatus, $eye);
+                if (! is_array($eyeMetrics)) {
+                    return false;
+                }
+
+                $openConfidence = max(
+                    $this->nullableFloat($eyeMetrics['no_glass_eye_open'] ?? null) ?? 0,
+                    $this->nullableFloat($eyeMetrics['normal_glass_eye_open'] ?? null) ?? 0
+                );
+                $closedConfidence = max(
+                    $this->nullableFloat($eyeMetrics['no_glass_eye_close'] ?? null) ?? 0,
+                    $this->nullableFloat($eyeMetrics['normal_glass_eye_close'] ?? null) ?? 0
+                );
+
+                $stateVerified = $sample['state'] === 'open'
+                    ? $openConfidence >= $minimumEyeConfidence && $openConfidence > $closedConfidence
+                    : $closedConfidence >= $minimumEyeConfidence && $closedConfidence > $openConfidence;
+
+                if (! $stateVerified) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Analyze a saved selfie for Face++ face-count, face-quality, and blur signals.
      *
      * @return array{suspicious: bool, reason: string|null, metrics: array<string, mixed>, raw: array<string, mixed>}
      */
     public function analyzeSelfieProof(string $selfiePhoto): array
     {
         if (! is_file($selfiePhoto) || ! is_readable($selfiePhoto)) {
-            Log::warning('Face++ selfie audit photo is missing or unreadable.', [
-                'selfie_photo' => $selfiePhoto,
-            ]);
+            Log::warning('Face++ selfie audit photo is missing or unreadable.');
 
             return $this->auditResult(false, null);
         }
@@ -110,9 +167,7 @@ class FacePlusPlusService
         $selfieContents = file_get_contents($selfiePhoto);
 
         if ($selfieContents === false) {
-            Log::warning('Face++ could not read selfie audit image file.', [
-                'selfie_photo' => $selfiePhoto,
-            ]);
+            Log::warning('Face++ could not read selfie audit image file.');
 
             return $this->auditResult(false, null);
         }
@@ -136,8 +191,7 @@ class FacePlusPlusService
             return $this->evaluateAuditResponse($response->json());
         } catch (ConnectionException|RequestException|RuntimeException $exception) {
             Log::error('Face++ selfie audit request failed.', [
-                'message' => $exception->getMessage(),
-                'selfie_photo' => $selfiePhoto,
+                'exception_type' => $exception::class,
             ]);
 
             return $this->auditResult(false, null);
@@ -169,47 +223,22 @@ class FacePlusPlusService
             'facequality_threshold' => data_get($attributes, 'facequality.threshold'),
             'blur_value' => data_get($attributes, 'blur.blurness.value'),
             'blur_threshold' => data_get($attributes, 'blur.blurness.threshold'),
-            'lighting_value' => data_get($attributes, 'lighting.value'),
-            'lighting_threshold' => data_get($attributes, 'lighting.threshold'),
-            'liveness_value' => data_get($attributes, 'liveness.value')
-                ?? data_get($attributes, 'liveness.score')
-                ?? data_get($attributes, 'antispoofing.value')
-                ?? data_get($attributes, 'anti_spoofing.value'),
-            'liveness_threshold' => data_get($attributes, 'liveness.threshold')
-                ?? data_get($attributes, 'antispoofing.threshold')
-                ?? data_get($attributes, 'anti_spoofing.threshold'),
         ];
 
         $minimumFaceQuality = (float) config('services.faceplusplus.audit_min_facequality', 50);
-        $minimumLighting = (float) config('services.faceplusplus.audit_min_lighting', 35);
-        $minimumLiveness = (float) config('services.faceplusplus.audit_min_liveness', 0.65);
 
         $faceQuality = $this->nullableFloat($metrics['facequality_value']);
         $faceQualityThreshold = $this->nullableFloat($metrics['facequality_threshold']);
 
         if ($faceQuality !== null && $faceQuality < max($minimumFaceQuality, $faceQualityThreshold ?? 0)) {
-            return $this->auditResult(true, 'Face++ flagged low quality/potential spoof', $metrics, $payload);
+            return $this->auditResult(true, 'Face++ flagged low face quality', $metrics, $payload);
         }
 
         $blur = $this->nullableFloat($metrics['blur_value']);
         $blurThreshold = $this->nullableFloat($metrics['blur_threshold']);
 
         if ($blur !== null && $blurThreshold !== null && $blur > $blurThreshold) {
-            return $this->auditResult(true, 'Face++ flagged excessive blur/potential spoof', $metrics, $payload);
-        }
-
-        $lighting = $this->nullableFloat($metrics['lighting_value']);
-        $lightingThreshold = $this->nullableFloat($metrics['lighting_threshold']);
-
-        if ($lighting !== null && $lighting < max($minimumLighting, $lightingThreshold ?? 0)) {
-            return $this->auditResult(true, 'Face++ flagged poor lighting/potential spoof', $metrics, $payload);
-        }
-
-        $liveness = $this->nullableFloat($metrics['liveness_value']);
-        $livenessThreshold = $this->nullableFloat($metrics['liveness_threshold']);
-
-        if ($liveness !== null && $liveness < max($minimumLiveness, $livenessThreshold ?? 0)) {
-            return $this->auditResult(true, 'Face++ flagged low liveness/potential spoof', $metrics, $payload);
+            return $this->auditResult(true, 'Face++ flagged excessive blur', $metrics, $payload);
         }
 
         return $this->auditResult(false, null, $metrics, $payload);
@@ -233,6 +262,54 @@ class FacePlusPlusService
     private function nullableFloat(mixed $value): ?float
     {
         return is_numeric($value) ? (float) $value : null;
+    }
+
+    /** @return array<string, mixed> */
+    private function detectImage(string $imagePath, string $returnAttributes): array
+    {
+        $apiKey = config('services.faceplusplus.key');
+        $apiSecret = config('services.faceplusplus.secret');
+        $detectUrl = config('services.faceplusplus.detect_url', self::DEFAULT_DETECT_URL);
+
+        if (! $apiKey || ! $apiSecret) {
+            Log::error('Face++ credentials are not configured.');
+            throw new RuntimeException('Face++ detection service is not configured.');
+        }
+
+        if (! is_file($imagePath) || ! is_readable($imagePath)) {
+            throw new RuntimeException('Face++ could not read a verification image.');
+        }
+
+        try {
+            $imageContents = file_get_contents($imagePath);
+            if ($imageContents === false) {
+                throw new RuntimeException('Face++ could not read a verification image.');
+            }
+
+            $response = Http::withOptions([
+                'verify' => $this->sslVerifyOption(),
+            ])->timeout(15)
+                ->attach('image_file', $imageContents, basename($imagePath))
+                ->post($detectUrl, [
+                    'api_key' => $apiKey,
+                    'api_secret' => $apiSecret,
+                    'return_attributes' => $returnAttributes,
+                ])
+                ->throw();
+
+            $payload = $response->json();
+            if (! is_array($payload) || isset($payload['error_message'])) {
+                throw new RuntimeException('Face++ returned an invalid detection response.');
+            }
+
+            return $payload;
+        } catch (ConnectionException|RequestException|RuntimeException $exception) {
+            Log::error('Face++ detection request failed.', [
+                'exception_type' => $exception::class,
+            ]);
+
+            throw new RuntimeException('Face++ detection is temporarily unavailable.', previous: $exception);
+        }
     }
 
     /**

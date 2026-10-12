@@ -11,6 +11,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class PlatformOversightController extends Controller
@@ -92,6 +93,22 @@ class PlatformOversightController extends Controller
     public function resetPhoto(User $employee): RedirectResponse
     {
         abort_unless($employee->role === User::ROLE_EMPLOYEE, 404);
+
+        if ($employee->baseline_photo_path) {
+            $baselinePath = str($employee->baseline_photo_path)
+                ->replace('\\', '/')
+                ->replaceStart('storage/', '')
+                ->toString();
+
+            if (! str_contains($baselinePath, '..')) {
+                foreach (['private', 'public'] as $diskName) {
+                    $disk = Storage::disk($diskName);
+                    if ($disk->exists($baselinePath)) {
+                        $disk->delete($baselinePath);
+                    }
+                }
+            }
+        }
 
         $updates = [];
 

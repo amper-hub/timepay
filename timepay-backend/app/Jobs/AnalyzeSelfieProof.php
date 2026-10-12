@@ -32,12 +32,16 @@ class AnalyzeSelfieProof implements ShouldQueue
             return;
         }
 
-        $photoPath = Storage::disk('public')->path($attendanceLog->photo_path);
+        $disk = Storage::disk('private');
+        if (! $disk->exists($attendanceLog->photo_path)) {
+            $disk = Storage::disk('public');
+        }
+
+        $photoPath = $disk->path($attendanceLog->photo_path);
 
         if (! is_file($photoPath)) {
             Log::warning('Selfie audit skipped because the stored photo is missing.', [
                 'attendance_log_id' => $attendanceLog->id,
-                'photo_path' => $attendanceLog->photo_path,
             ]);
 
             return;

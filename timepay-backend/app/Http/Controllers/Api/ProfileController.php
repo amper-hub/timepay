@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\Password;
 
 class ProfileController extends Controller
@@ -52,7 +53,26 @@ class ProfileController extends Controller
      */
     public function resetFace(Request $request): JsonResponse
     {
-        $request->user()->update([
+        $user = $request->user();
+        $baselinePhotoPath = $user->baseline_photo_path;
+
+        if ($baselinePhotoPath) {
+            $normalizedPath = str($baselinePhotoPath)
+                ->replace('\\', '/')
+                ->replaceStart('storage/', '')
+                ->toString();
+
+            if (! str_contains($normalizedPath, '..')) {
+                foreach (['private', 'public'] as $diskName) {
+                    $disk = Storage::disk($diskName);
+                    if ($disk->exists($normalizedPath)) {
+                        $disk->delete($normalizedPath);
+                    }
+                }
+            }
+        }
+
+        $user->update([
             'baseline_photo_path' => null,
             'cloud_face_id' => null,
         ]);

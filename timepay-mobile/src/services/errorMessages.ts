@@ -144,6 +144,10 @@ export const getUserFriendlyError = (
   const code = typeof value.code === "string" ? value.code.toUpperCase() : "";
   const rawMessage = typeof value.message === "string" ? value.message : "";
 
+  if (/^The (?:production )?TimePay API URL (?:is not configured|is invalid)\./.test(rawMessage)) {
+    return rawMessage;
+  }
+
   if (value.name === "LocationTimeoutError" || context === "location") {
     return USER_ERROR_MESSAGES.location;
   }

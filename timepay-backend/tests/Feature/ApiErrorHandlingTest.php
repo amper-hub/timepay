@@ -28,14 +28,19 @@ class ApiErrorHandlingTest extends TestCase
 
     public function test_mobile_login_succeeds_with_valid_credentials(): void
     {
-        $user = User::factory()->create();
+        $user = User::factory()->create([
+            'baseline_photo_path' => 'selfies/private-enrollment.jpg',
+            'cloud_face_id' => 'provider-face-identifier',
+        ]);
 
         $this->postJson('/api/auth/login', [
             'email' => $user->email,
             'password' => 'password',
         ])
             ->assertOk()
-            ->assertJsonStructure(['token', 'user' => ['id', 'email'], 'company' => ['id']]);
+            ->assertJsonStructure(['token', 'user' => ['id', 'email'], 'company' => ['id']])
+            ->assertJsonMissingPath('user.baseline_photo_path')
+            ->assertJsonMissingPath('user.cloud_face_id');
     }
 
     public function test_api_exceptions_return_safe_messages_for_common_statuses(): void

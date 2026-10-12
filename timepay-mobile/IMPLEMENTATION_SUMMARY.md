@@ -39,7 +39,7 @@ node diagnose-network.js
 ═══════════════════════════════════════════════════════════
 
 ✓ PASS - DNS Lookup
-  Successfully resolved 192.168.254.139
+  Successfully resolved <reachable-dev-host>
 
 ✓ PASS - TCP Port Connection
   Port 8000 is open and accepting connections

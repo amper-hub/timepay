@@ -58,10 +58,11 @@ export const getHighAccuracyAttendanceLocation = async (
       throw error;
     }
 
-    console.warn(
-      "[Location] High-accuracy GPS request timed out. Falling back to last known position.",
-      error
-    );
+    if (__DEV__) {
+      console.warn(
+        "[Location] High-accuracy GPS request timed out. Falling back to last known position."
+      );
+    }
 
     const lastKnownLocation = await Location.getLastKnownPositionAsync();
 
