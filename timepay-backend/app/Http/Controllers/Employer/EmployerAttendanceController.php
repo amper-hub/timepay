@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Employer;
 
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceLog;
+use App\Models\User;
 use Illuminate\View\View;
 
 class EmployerAttendanceController extends Controller
@@ -19,9 +20,15 @@ class EmployerAttendanceController extends Controller
             ->with('user')
             ->latest('timestamp')
             ->paginate(15);
+        $employees = User::query()
+            ->where('company_id', $companyId)
+            ->where('role', User::ROLE_EMPLOYEE)
+            ->orderBy('name')
+            ->get(['id', 'name']);
 
         return view('employer.attendance', [
             'attendanceLogs' => $attendanceLogs,
+            'employees' => $employees,
         ]);
     }
 }

@@ -7,6 +7,13 @@ export const getPayslips = async () => {
   return response.data.data ?? [];
 };
 
+export const getDtr = async (startDate, endDate) => {
+  const response = await apiClient.get("/employee/dtr", {
+    params: { start_date: startDate, end_date: endDate },
+  });
+  return response.data.data;
+};
+
 export const downloadAndSharePayslip = async (payslipId) => {
   const token = getAuthToken();
 
@@ -22,6 +29,7 @@ export const downloadAndSharePayslip = async (payslipId) => {
   const downloadUrl = `${getApiBaseUrl()}/payroll/payslip/${payslipId}/download`;
 
   const result = await FileSystem.downloadAsync(downloadUrl, fileUri, {
+    idempotent: true,
     headers: {
       Accept: "application/pdf",
       Authorization: `Bearer ${token}`,
@@ -45,7 +53,46 @@ export const downloadAndSharePayslip = async (payslipId) => {
   return result.uri;
 };
 
+export const downloadAndShareDtrPdf = async (startDate, endDate) => {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error("You must be signed in to download your DTR.");
+  }
+
+  if (!FileSystem.documentDirectory) {
+    throw new Error("Device document storage is not available.");
+  }
+
+  const fileUri = `${FileSystem.documentDirectory}TimePay_DTR_${startDate}_to_${endDate}.pdf`;
+  const downloadUrl = `${getApiBaseUrl()}/employee/dtr/pdf?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
+  const result = await FileSystem.downloadAsync(downloadUrl, fileUri, {
+    idempotent: true,
+    headers: {
+      Accept: "application/pdf",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (result.status < 200 || result.status >= 300) {
+    throw new Error("Unable to download your DTR.");
+  }
+
+  const canShare = await Sharing.isAvailableAsync();
+  if (canShare) {
+    await Sharing.shareAsync(result.uri, {
+      dialogTitle: "Daily Time Record",
+      mimeType: "application/pdf",
+      UTI: "com.adobe.pdf",
+    });
+  }
+
+  return result.uri;
+};
+
 export default {
+  downloadAndShareDtrPdf,
   downloadAndSharePayslip,
+  getDtr,
   getPayslips,
 };

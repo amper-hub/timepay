@@ -1,14 +1,15 @@
 <?php
 
-use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Auth\EmployerRegistrationController;
-use App\Http\Controllers\Employer\EmployerDashboardController;
+use App\Http\Controllers\Employer\EmployeeController;
 use App\Http\Controllers\Employer\EmployerAttendanceController;
+use App\Http\Controllers\Employer\EmployerDashboardController;
+use App\Http\Controllers\Employer\EmployerDtrController;
 use App\Http\Controllers\Employer\EmployerGeofenceController;
 use App\Http\Controllers\Employer\EmployerPayrollController;
-use App\Http\Controllers\Employer\EmployeeController;
 use App\Http\Controllers\Employer\LeaveController as EmployerLeaveController;
 use App\Http\Controllers\Employer\SettingsController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SuperAdmin\AdminUserController;
 use App\Http\Controllers\SuperAdmin\EmployerManagementController;
 use App\Http\Controllers\SuperAdmin\LeaveAuditController;
@@ -16,13 +17,14 @@ use App\Http\Controllers\SuperAdmin\PlatformOversightController;
 use App\Http\Controllers\SuperAdmin\ReportController;
 use App\Http\Controllers\SuperAdmin\SuperAdminDashboardController;
 use App\Http\Middleware\IsSuperAdmin;
+use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
 // 1. Redirect the root URL based on the authenticated user's role
 Route::get('/', function () {
     $user = auth()->user();
 
-    if ($user && $user->role === \App\Models\User::ROLE_SUPER_ADMIN) {
+    if ($user && $user->role === User::ROLE_SUPER_ADMIN) {
         return redirect('/super-admin/dashboard');
     }
 
@@ -69,6 +71,17 @@ Route::middleware(['auth'])->prefix('employer')->group(function () {
     Route::patch('/settings', [SettingsController::class, 'update'])->name('employer.settings.update');
 
     Route::get('/attendance', [EmployerAttendanceController::class, 'index'])->name('employer.attendance');
+    Route::get('/attendance/dtr/export-all.xlsx', [EmployerDtrController::class, 'downloadAllExcel'])
+        ->name('employer.attendance.dtr.all');
+    Route::get('/attendance/dtr/{employee}/pdf', [EmployerDtrController::class, 'downloadPdf'])
+        ->whereNumber('employee')
+        ->name('employer.attendance.dtr.pdf');
+    Route::get('/attendance/dtr/{employee}/xlsx', [EmployerDtrController::class, 'downloadExcel'])
+        ->whereNumber('employee')
+        ->name('employer.attendance.dtr.xlsx');
+    Route::get('/attendance/dtr/{employee}', [EmployerDtrController::class, 'show'])
+        ->whereNumber('employee')
+        ->name('employer.attendance.dtr.show');
 
     Route::get('/leaves', [EmployerLeaveController::class, 'index'])->name('employer.leaves.index');
     Route::patch('/leaves/{leaveRequest}', [EmployerLeaveController::class, 'update'])->name('employer.leaves.update');

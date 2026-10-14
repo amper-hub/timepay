@@ -21,9 +21,23 @@ import {
 } from "../../services/profileService";
 import { getApiErrorMessage } from "../../services/api";
 import {
+  downloadAndShareDtrPdf,
   downloadAndSharePayslip,
+  getDtr,
   getPayslips,
 } from "../../services/payrollService";
+
+const dateString = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const datesForMonth = (date) => ({
+  start: dateString(new Date(date.getFullYear(), date.getMonth(), 1)),
+  end: dateString(new Date(date.getFullYear(), date.getMonth() + 1, 0)),
+});
 
 const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
   const [activeSection, setActiveSection] = useState(null);
@@ -40,6 +54,10 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
   const [payslips, setPayslips] = useState([]);
   const [loadingPayslips, setLoadingPayslips] = useState(false);
   const [downloadingPayslipId, setDownloadingPayslipId] = useState(null);
+  const [dtrPeriod, setDtrPeriod] = useState(() => new Date());
+  const [dtrReport, setDtrReport] = useState(null);
+  const [loadingDtr, setLoadingDtr] = useState(false);
+  const [downloadingDtr, setDownloadingDtr] = useState(false);
 
   useEffect(() => {
     setName(userSessionData?.user?.name ?? "");
@@ -61,11 +79,36 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
     }
   }, []);
 
+  const loadDtrReport = useCallback(async () => {
+    const period = datesForMonth(dtrPeriod);
+    setLoadingDtr(true);
+    setDtrReport(null);
+
+    try {
+      const report = await getDtr(period.start, period.end);
+      setDtrReport(report);
+    } catch (error) {
+      setDtrReport(null);
+      Alert.alert(
+        "Unable to load DTR",
+        getApiErrorMessage(error, "Unable to load your attendance records. Please try again.", "attendance")
+      );
+    } finally {
+      setLoadingDtr(false);
+    }
+  }, [dtrPeriod]);
+
   useEffect(() => {
     if (activeSection === "payslips") {
       loadPayslips();
     }
   }, [activeSection, loadPayslips]);
+
+  useEffect(() => {
+    if (activeSection === "payslips") {
+      loadDtrReport();
+    }
+  }, [activeSection, loadDtrReport]);
 
   const updatePasswordField = useCallback((field, value) => {
     setPasswordForm((current) => ({ ...current, [field]: value }));
@@ -165,6 +208,32 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
       setDownloadingPayslipId(null);
     }
   }, []);
+
+  const handleDownloadDtr = useCallback(async () => {
+    const period = datesForMonth(dtrPeriod);
+    setDownloadingDtr(true);
+
+    try {
+      await downloadAndShareDtrPdf(period.start, period.end);
+      Alert.alert("DTR PDF ready", "Your daily time record is ready to view or share.");
+    } catch (error) {
+      Alert.alert(
+        "Unable to download DTR",
+        getApiErrorMessage(error, "Unable to download your DTR right now. Please try again.", "attendance")
+      );
+    } finally {
+      setDownloadingDtr(false);
+    }
+  }, [dtrPeriod]);
+
+  const changeDtrMonth = useCallback((amount) => {
+    setDtrPeriod((current) => new Date(current.getFullYear(), current.getMonth() + amount, 1));
+  }, []);
+
+  const dtrMonthLabel = dtrPeriod.toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
 
   const sectionTitle = {
     editName: "Edit Name",
@@ -395,6 +464,139 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
 
           {activeSection === "payslips" ? (
             <>
+              <View style={styles.dtrCard}>
+                <View style={styles.dtrHeader}>
+                  <View style={styles.dtrHeadingCopy}>
+                    <Text style={styles.dtrTitle}>Daily Time Record</Text>
+                    <Text style={styles.dtrSubtitle}>Your attendance for the selected month</Text>
+                  </View>
+                  <TouchableOpacity
+                    disabled={loadingDtr}
+                    onPress={loadDtrReport}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Refresh DTR"
+                    style={styles.dtrRefreshButton}
+                  >
+                    {loadingDtr ? (
+                      <ActivityIndicator color="#047857" size="small" />
+                    ) : (
+                      <Ionicons name="refresh-outline" size={18} color="#047857" />
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.dtrMonthPicker}>
+                  <TouchableOpacity
+                    onPress={() => changeDtrMonth(-1)}
+                    activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous month"
+                    style={styles.dtrMonthArrow}
+                  >
+                    <Ionicons name="chevron-back" size={20} color="#334155" />
+                  </TouchableOpacity>
+                  <Text style={styles.dtrMonthLabel}>{dtrMonthLabel}</Text>
+                  <TouchableOpacity
+                    onPress={() => changeDtrMonth(1)}
+                    activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel="Next month"
+                    style={styles.dtrMonthArrow}
+                  >
+                    <Ionicons name="chevron-forward" size={20} color="#334155" />
+                  </TouchableOpacity>
+                </View>
+
+                {loadingDtr && !dtrReport ? (
+                  <View style={styles.dtrLoading}>
+                    <ActivityIndicator color="#059669" />
+                    <Text style={styles.dtrEmptyText}>Loading your attendance…</Text>
+                  </View>
+                ) : dtrReport?.records?.length ? (
+                  <>
+                    <View style={styles.dtrTotalRow}>
+                      <Text style={styles.dtrTotalLabel}>Period total</Text>
+                      <Text style={styles.dtrTotalValue}>
+                        {Number(dtrReport.total_hours).toFixed(2)} hours
+                      </Text>
+                    </View>
+                    <View style={styles.dtrRecords}>
+                      {dtrReport.records.map((record, index) => {
+                        const completed = record.status === "Completed";
+                        return (
+                          <View
+                            key={`${record.date}-${index}`}
+                            style={[
+                              styles.dtrRecord,
+                              index === dtrReport.records.length - 1 && styles.lastDtrRecord,
+                            ]}
+                          >
+                            <View style={styles.dtrRecordHeading}>
+                              <Text style={styles.dtrDate}>
+                                {new Date(`${record.date}T12:00:00`).toLocaleDateString(undefined, {
+                                  weekday: "short",
+                                  month: "short",
+                                  day: "numeric",
+                                })}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.dtrStatus,
+                                  completed ? styles.dtrStatusComplete : styles.dtrStatusAttention,
+                                ]}
+                              >
+                                {record.status}
+                              </Text>
+                            </View>
+                            <Text style={styles.dtrPunches}>
+                              In {record.clock_in || "—"}  ·  Out {record.clock_out || "—"}
+                            </Text>
+                            <View style={styles.dtrRecordFooter}>
+                              <Text style={styles.dtrSchedule}>
+                                {record.scheduled_shift ? `Company schedule ${record.scheduled_shift}` : "No company schedule on file"}
+                              </Text>
+                              <Text style={styles.dtrHours}>
+                                {record.net_hours === null ? "—" : `${Number(record.net_hours).toFixed(2)} hrs`}
+                              </Text>
+                            </View>
+                            {record.remarks ? (
+                              <Text style={styles.dtrRemarks}>{record.remarks}</Text>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </>
+                ) : (
+                  <Text style={styles.dtrEmptyText}>
+                    No attendance records for {dtrMonthLabel}.
+                  </Text>
+                )}
+
+                <Text style={styles.dtrNote}>
+                  Break times are not stored, so no break deduction is applied. Incomplete, flagged, or rejected punches do not add hours.
+                </Text>
+                <TouchableOpacity
+                  disabled={downloadingDtr || !dtrReport}
+                  onPress={handleDownloadDtr}
+                  activeOpacity={0.86}
+                  style={[
+                    styles.dtrDownloadButton,
+                    (downloadingDtr || !dtrReport) && styles.disabledButton,
+                  ]}
+                >
+                  {downloadingDtr ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <>
+                      <Ionicons name="download-outline" size={18} color="#ffffff" />
+                      <Text style={styles.dtrDownloadText}>Download DTR PDF</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+
               <View style={styles.sectionActionHeader}>
                 <SectionHeading title="Payroll history" />
                 <TouchableOpacity
@@ -708,6 +910,184 @@ const styles = StyleSheet.create({
     color: "#374151",
     fontSize: 13,
     fontWeight: "600",
+  },
+  dtrCard: {
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: "#ffffff",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.035,
+    shadowRadius: 9,
+    elevation: 1,
+  },
+  dtrHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  dtrHeadingCopy: {
+    flex: 1,
+  },
+  dtrTitle: {
+    color: "#111827",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  dtrSubtitle: {
+    marginTop: 3,
+    color: "#64748b",
+    fontSize: 12,
+  },
+  dtrRefreshButton: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: "#ecfdf5",
+  },
+  dtrMonthPicker: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 15,
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  dtrMonthArrow: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: "#f1f5f9",
+  },
+  dtrMonthLabel: {
+    color: "#1f2937",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  dtrTotalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 5,
+    marginBottom: 4,
+    paddingVertical: 11,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#e5e7eb",
+  },
+  dtrTotalLabel: {
+    color: "#475569",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  dtrTotalValue: {
+    color: "#047857",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  dtrRecords: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#e5e7eb",
+  },
+  dtrRecord: {
+    paddingVertical: 13,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e5e7eb",
+  },
+  lastDtrRecord: {
+    borderBottomWidth: 0,
+  },
+  dtrRecordHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  dtrDate: {
+    color: "#111827",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  dtrStatus: {
+    overflow: "hidden",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  dtrStatusComplete: {
+    color: "#047857",
+    backgroundColor: "#d1fae5",
+  },
+  dtrStatusAttention: {
+    color: "#92400e",
+    backgroundColor: "#fef3c7",
+  },
+  dtrPunches: {
+    marginTop: 7,
+    color: "#475569",
+    fontSize: 12,
+  },
+  dtrRecordFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 6,
+  },
+  dtrSchedule: {
+    flex: 1,
+    color: "#64748b",
+    fontSize: 11,
+  },
+  dtrHours: {
+    color: "#111827",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  dtrRemarks: {
+    marginTop: 6,
+    color: "#92400e",
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  dtrLoading: {
+    minHeight: 76,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  dtrEmptyText: {
+    paddingVertical: 15,
+    color: "#64748b",
+    fontSize: 13,
+    textAlign: "center",
+  },
+  dtrNote: {
+    marginTop: 9,
+    color: "#64748b",
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  dtrDownloadButton: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 14,
+    borderRadius: 13,
+    backgroundColor: "#059669",
+  },
+  dtrDownloadText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "800",
   },
   centerState: {
     minHeight: 90,
