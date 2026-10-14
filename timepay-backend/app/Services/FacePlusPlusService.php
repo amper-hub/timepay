@@ -88,17 +88,13 @@ class FacePlusPlusService
 
         try {
 
-            $baselineContents = file_get_contents($baselinePhoto);
+            $baselineImage = $this->prepareFacePlusPlusImage($baselinePhoto);
 
-            $selfieContents = file_get_contents($selfiePhoto);
+            $selfieImage = $this->prepareFacePlusPlusImage($selfiePhoto);
 
+            $baselineContents = $baselineImage['contents'];
 
-
-            if ($baselineContents === false || $selfieContents === false) {
-
-                throw new RuntimeException('Face++ could not read the reference or selfie image.');
-
-            }
+            $selfieContents = $selfieImage['contents'];
 
             $response = Http::withOptions([
 
@@ -108,9 +104,9 @@ class FacePlusPlusService
 
                 ->retry(2, 250)
 
-                ->attach('image_file1', $baselineContents, basename($baselinePhoto))
+                ->attach('image_file1', $baselineContents, $baselineImage['filename'], ['Content-Type' => 'image/jpeg'])
 
-                ->attach('image_file2', $selfieContents, basename($selfiePhoto))
+                ->attach('image_file2', $selfieContents, $selfieImage['filename'], ['Content-Type' => 'image/jpeg'])
 
                 ->post($compareUrl, [
 
@@ -328,19 +324,9 @@ class FacePlusPlusService
 
 
 
-        $selfieContents = file_get_contents($selfiePhoto);
+        $selfieImage = $this->prepareFacePlusPlusImage($selfiePhoto);
 
-
-
-        if ($selfieContents === false) {
-
-            Log::warning('Face++ could not read selfie audit image file.');
-
-
-
-            return $this->auditResult(false, null);
-
-        }
+        $selfieContents = $selfieImage['contents'];
 
 
 
@@ -354,7 +340,7 @@ class FacePlusPlusService
 
                 ->retry(2, 250)
 
-                ->attach('image_file', $selfieContents, basename($selfiePhoto))
+                ->attach('image_file', $selfieContents, $selfieImage['filename'], ['Content-Type' => 'image/jpeg'])
 
                 ->post($detectUrl, [
 
@@ -565,13 +551,9 @@ class FacePlusPlusService
 
         try {
 
-            $imageContents = file_get_contents($imagePath);
+            $preparedImage = $this->prepareFacePlusPlusImage($imagePath);
 
-            if ($imageContents === false) {
-
-                throw new RuntimeException('Face++ could not read a verification image.');
-
-            }
+            $imageContents = $preparedImage['contents'];
 
 
 
@@ -581,7 +563,7 @@ class FacePlusPlusService
 
             ])->timeout(15)
 
-                ->attach('image_file', $imageContents, basename($imagePath))
+                ->attach('image_file', $imageContents, $preparedImage['filename'], ['Content-Type' => 'image/jpeg'])
 
                 ->post($detectUrl, [
 
@@ -624,6 +606,106 @@ class FacePlusPlusService
     }
 
 
+
+    /**
+     * Normalize uploaded images before sending them to Face++.
+     *
+     * Face++ can reject large camera images with INVALID_IMAGE_SIZE. Re-encode
+     * valid images as JPEG and constrain the longest edge to 1600px. If GD is
+     * unavailable, accept only already-small images that are valid image data.
+     *
+     * @return array{contents: string, filename: string}
+     */
+    private function prepareFacePlusPlusImage(string $path): array
+    {
+        if (! is_file($path) || ! is_readable($path)) {
+            throw new RuntimeException('Face++ could not read a verification image.');
+        }
+
+        $contents = file_get_contents($path);
+
+        if ($contents === false || $contents === '') {
+            throw new RuntimeException('Face++ could not read a verification image.');
+        }
+
+        $imageInfo = @getimagesizefromstring($contents);
+
+        if ($imageInfo === false) {
+            throw new RuntimeException('The verification upload is not a supported image.');
+        }
+
+        $maxDimension = 1600;
+        $width = (int) $imageInfo[0];
+        $height = (int) $imageInfo[1];
+
+        if (function_exists('imagecreatefromstring') && function_exists('imagejpeg')) {
+            $source = @imagecreatefromstring($contents);
+
+            if ($source === false) {
+                throw new RuntimeException('The verification image could not be decoded.');
+            }
+
+            try {
+                $scale = min(1, $maxDimension / max($width, $height));
+                $targetWidth = max(1, (int) round($width * $scale));
+                $targetHeight = max(1, (int) round($height * $scale));
+                $target = imagecreatetruecolor($targetWidth, $targetHeight);
+
+                if ($target === false) {
+                    throw new RuntimeException('The verification image could not be prepared.');
+                }
+
+                try {
+                    $white = imagecolorallocate($target, 255, 255, 255);
+                    imagefill($target, 0, 0, $white);
+
+                    if (! imagecopyresampled(
+                        $target,
+                        $source,
+                        0,
+                        0,
+                        0,
+                        0,
+                        $targetWidth,
+                        $targetHeight,
+                        $width,
+                        $height
+                    )) {
+                        throw new RuntimeException('The verification image could not be resized.');
+                    }
+
+                    ob_start();
+                    $written = imagejpeg($target, null, 82);
+                    $jpeg = ob_get_clean();
+
+                    if (! $written || ! is_string($jpeg) || $jpeg === '') {
+                        throw new RuntimeException('The verification image could not be encoded as JPEG.');
+                    }
+
+                    return [
+                        'contents' => $jpeg,
+                        'filename' => pathinfo($path, PATHINFO_FILENAME) . '.jpg',
+                    ];
+                } finally {
+                    imagedestroy($target);
+                }
+            } finally {
+                imagedestroy($source);
+            }
+        }
+
+        // Without GD, avoid sending images known to exceed conservative limits.
+        if (max($width, $height) > $maxDimension || strlen($contents) > 2_000_000) {
+            throw new RuntimeException(
+                'The verification image is too large for Face++. Please capture a smaller image or enable PHP GD.'
+            );
+        }
+
+        return [
+            'contents' => $contents,
+            'filename' => basename($path),
+        ];
+    }
 
     /**
 
