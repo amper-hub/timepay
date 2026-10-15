@@ -69,6 +69,24 @@ class PayrollWorkflowTest extends TestCase
         $this->assertContains('recurring_profile_item_partial_period_requires_review', $entry->review_flags);
     }
 
+    public function test_attendance_crossing_pay_period_boundary_is_excluded_and_flagged(): void
+    {
+        $employee = $this->employee('Synthetic Boundary Shift Employee');
+        $this->profile($employee, ['salary_type' => 'hourly', 'pay_frequency' => 'monthly']);
+        $this->rate($employee, 'hourly', '20.00');
+        $this->attendance($employee, '2026-10-31 22:00:00', 'clock_in');
+        $this->attendance($employee, '2026-11-01 06:00:00', 'clock_out');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+        $entry = $calculated->entries->sole();
+
+        $this->assertSame(0, $entry->worked_minutes);
+        $this->assertSame('0.00', $entry->gross_pay);
+        $this->assertContains('attendance_crosses_pay_period_boundary_requires_review', $entry->review_flags);
+        $this->assertDatabaseCount('payroll_entry_attendance_logs', 0);
+    }
+
     public function test_monthly_calculation_uses_centavo_arithmetic_and_official_rule_snapshots(): void
     {
         $employee = $this->employee('Monthly Employee');
