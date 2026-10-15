@@ -99,6 +99,43 @@ class PayrollWorkflowTest extends TestCase
         $this->assertDatabaseCount('payroll_entries', 0);
     }
 
+    public function test_failed_recalculation_preserves_previous_payroll_entries_transactionally(): void
+    {
+        $employee = $this->employee('Synthetic Recalculation Rollback Employee');
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($employee, 'monthly', '30000.00');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+        $existingEntry = $this->entry($employee, $period, '12345.67');
+
+        \\App\\Models\\PayrollProfileItem::query()->create([
+            'company_id' => $this->company->id,
+            'user_id' => $employee->id,
+            'category' => 'earning',
+            'code' => 'unverified_non_taxable_benefit',
+            'label' => 'Unverified non-taxable benefit',
+            'amount' => '2500.00',
+            'taxable' => false,
+            'effective_from' => '2026-10-01',
+            'effective_to' => null,
+            'created_by' => $this->employer->id,
+        ]);
+
+        try {
+            app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+            $this->fail('Recalculation must fail closed when a non-taxable benefit lacks a verified rule.');
+        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+            $this->assertArrayHasKey('profile_items', $exception->errors());
+        }
+
+        $this->assertDatabaseHas('payroll_entries', [
+            'id' => $existingEntry->id,
+            'payroll_period_id' => $period->id,
+            'user_id' => $employee->id,
+            'net_pay' => '12345.67',
+        ]);
+        $this->assertSame('draft', $period->fresh()->status);
+    }
+
     public function test_attendance_crossing_pay_period_boundary_is_excluded_and_flagged(): void
     {
         $employee = $this->employee('Synthetic Boundary Shift Employee');
