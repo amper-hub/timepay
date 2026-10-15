@@ -32,7 +32,7 @@ return [
 
         'local' => [
             'driver' => 'local',
-            'root' => env('FILESYSTEM_PRIVATE_ROOT', storage_path('app/private')),
+            'root' => storage_path('app/private'),
             'serve' => true,
             'throw' => false,
             'report' => false,
@@ -40,7 +40,7 @@ return [
 
         'private' => [
             'driver' => 'local',
-            'root' => storage_path('app/private'),
+            'root' => env('FILESYSTEM_PRIVATE_ROOT', storage_path('app/private')),
             'throw' => true,
             'report' => false,
         ],
