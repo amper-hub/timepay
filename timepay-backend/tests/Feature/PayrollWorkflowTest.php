@@ -133,6 +133,30 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame($period->id, $entry->payroll_period_id);
     }
 
+    public function test_hourly_payroll_frequency_does_not_use_the_daily_bir_tax_table(): void
+    {
+        $employee = $this->employee('Synthetic Hourly Tax Frequency Employee');
+        $this->profile($employee, [
+            'salary_type' => 'hourly',
+            'pay_frequency' => 'hourly',
+            'withholding_tax_enabled' => true,
+        ]);
+        $this->rate($employee, 'hourly', '100.00');
+        $period = $this->period($this->company, '2026-10-15', '2026-10-15', 'hourly');
+        $this->attendance($employee, '2026-10-15 08:00:00', 'clock_in');
+        $this->attendance($employee, '2026-10-15 17:00:00', 'clock_out');
+
+        try {
+            app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+            $this->fail('Hourly payroll must not silently use the daily BIR tax table.');
+        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+            $this->assertStringContainsString('has no supported BIR withholding-tax table', $exception->errors()['frequency'][0]);
+        }
+
+        $this->assertSame('draft', $period->fresh()->status);
+        $this->assertDatabaseCount('payroll_entries', 0);
+    }
+
     public function test_missing_effective_compensation_rate_blocks_payroll_calculation(): void
     {
         $employee = $this->employee('Synthetic Missing Rate Employee');
