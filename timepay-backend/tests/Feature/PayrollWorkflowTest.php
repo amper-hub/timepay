@@ -43,6 +43,32 @@ class PayrollWorkflowTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_partial_period_recurring_items_are_flagged_for_manual_review(): void
+    {
+        $employee = $this->employee('Synthetic Recurring Item Employee');
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($employee, 'monthly', '30000.00');
+        \\App\\Models\\PayrollProfileItem::query()->create([
+            'company_id' => $this->company->id,
+            'user_id' => $employee->id,
+            'category' => 'earning',
+            'code' => 'temporary_allowance',
+            'label' => 'Temporary allowance',
+            'amount' => '500.00',
+            'taxable' => true,
+            'effective_from' => '2026-10-15',
+            'effective_to' => '2026-10-31',
+            'created_by' => $this->employer->id,
+        ]);
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+        $entry = $calculated->entries->sole();
+
+        $this->assertSame('30500.00', $entry->gross_pay);
+        $this->assertContains('recurring_profile_item_partial_period_requires_review', $entry->review_flags);
+    }
+
     public function test_monthly_calculation_uses_centavo_arithmetic_and_official_rule_snapshots(): void
     {
         $employee = $this->employee('Monthly Employee');
