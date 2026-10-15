@@ -87,6 +87,17 @@ Route::middleware(['auth'])->prefix('employer')->group(function () {
     Route::patch('/leaves/{leaveRequest}', [EmployerLeaveController::class, 'update'])->name('employer.leaves.update');
 
     Route::get('/payroll', [EmployerPayrollController::class, 'index'])->name('employer.payroll');
+    Route::post('/payroll/periods', [EmployerPayrollController::class, 'storePeriod'])->name('employer.payroll.periods.store');
+    Route::post('/payroll/periods/{payrollPeriod}/calculate', [EmployerPayrollController::class, 'calculatePeriod'])->name('employer.payroll.calculate');
+    Route::post('/payroll/periods/{payrollPeriod}/approve', [EmployerPayrollController::class, 'approvePeriod'])->name('employer.payroll.approve');
+    Route::post('/payroll/periods/{payrollPeriod}/void', [EmployerPayrollController::class, 'voidPeriod'])->name('employer.payroll.void');
+    Route::post('/payroll/entries/{payrollEntry}/payments', [EmployerPayrollController::class, 'recordPayment'])->name('employer.payroll.payments.store');
+    Route::get('/payroll/periods/{payrollPeriod}/export.xlsx', [EmployerPayrollController::class, 'exportPeriodXlsx'])->name('employer.payroll.export.xlsx');
+    Route::get('/payroll/periods/{payrollPeriod}/register.pdf', [EmployerPayrollController::class, 'exportPeriodPdf'])->name('employer.payroll.export.pdf');
+    Route::patch('/payroll/profile/{user}', [EmployerPayrollController::class, 'updateEmployeeRate'])->name('employer.payroll.profile.update');
+    Route::post('/payroll/profile/{user}/items', [EmployerPayrollController::class, 'storeProfileItem'])->name('employer.payroll.profile.items.store');
+    Route::patch('/payroll/profiles', [EmployerPayrollController::class, 'updateSelectedEmployeeRate'])->name('employer.payroll.profiles.update');
+    Route::post('/payroll/profile-items', [EmployerPayrollController::class, 'storeSelectedProfileItem'])->name('employer.payroll.profile-items.store');
     Route::post('/payroll/update/{user}', [EmployerPayrollController::class, 'updateEmployeeRate'])->name('employer.payroll.update');
     Route::post('/payroll/{user}/mark-as-paid', [EmployerPayrollController::class, 'markAsPaid'])->name('employer.payroll.mark-as-paid');
 

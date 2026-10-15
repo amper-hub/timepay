@@ -98,6 +98,21 @@ class User extends Authenticatable implements MustVerifyEmailContract
         return $this->hasMany(LeaveRequest::class);
     }
 
+    public function payrollProfile(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(PayrollProfile::class);
+    }
+
+    public function payrollEntries(): HasMany
+    {
+        return $this->hasMany(PayrollEntry::class);
+    }
+
+    public function compensationHistory(): HasMany
+    {
+        return $this->hasMany(PayrollCompensationHistory::class)->orderBy('effective_from');
+    }
+
     /**
      * Get the attendance logs for the user.
      */
