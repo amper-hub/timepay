@@ -111,6 +111,15 @@ class PayrollCalculationService
                 $taxableCents = $work['taxable_cents'];
 
                 foreach ($this->activeProfileItems((int) $employee->id, $lockedPeriod) as $item) {
+                    // Until benefit-specific, cumulative de minimis rules are implemented,
+                    // a manually marked non-taxable recurring earning could understate
+                    // withholding. Fail closed instead of silently trusting the boolean.
+                    if ($item->category === 'earning' && ! $item->taxable) {
+                        throw ValidationException::withMessages([
+                            'profile_items' => "Payroll cannot calculate employee {$employee->id}: non-taxable recurring earning '{$item->code}' requires a verified benefit-specific tax rule. Correct the classification or wait until the applicable rule is configured.",
+                        ]);
+                    }
+
                     // Profile items have no explicit proration policy. Do not silently
                     // treat a partial-period item as a full-period amount without review.
                     if ($item->effective_from->gt($lockedPeriod->period_start)
