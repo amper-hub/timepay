@@ -2,6 +2,8 @@
 
 This checklist is a release gate, not evidence that all checks have passed. Do not deploy payroll changes until an authorized reviewer records the results.
 
+Tracked external release blocker: https://github.com/amper-hub/timepay/issues/3. This issue records the statutory approval, historical compensation verification, backup restore, and migration rehearsal evidence required before release.
+
 ## Candidate validation snapshot
 
 - Candidate reviewed: `9b848ef8e9f8e846126f7f959f35be9fc454dfde`
