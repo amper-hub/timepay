@@ -193,3 +193,63 @@ export interface PendingPayResponse {
   currency_symbol: string;
   unpaid_hours: number;
 }
+
+export interface PayrollLine {
+  category: "earning" | "employee_deduction" | "employer_contribution" | string;
+  code: string;
+  label: string;
+  amount: string;
+  formatted_amount: string;
+  taxable: boolean;
+  details?: Record<string, unknown> | null;
+}
+
+export interface PayrollPayslip {
+  id: string;
+  entry_id: number;
+  payroll_period_id: number;
+  employee_name: string;
+  company_name: string;
+  currency: string;
+  pay_period: string;
+  period_start: string;
+  period_end: string;
+  pay_date: string | null;
+  pay_frequency: string;
+  regular_hours: number;
+  payable_days: number;
+  gross_pay: string;
+  deductions: string;
+  employer_contributions: string;
+  net_pay: string;
+  amount_paid: string;
+  remaining_balance: string;
+  payment_status: "unpaid" | "partially_paid" | "paid" | "no_payment_due" | string;
+  formatted_gross_pay: string;
+  formatted_deductions: string;
+  formatted_employer_contributions: string;
+  formatted_net_pay: string;
+  formatted_amount_paid: string;
+  formatted_remaining_balance: string;
+  earnings: PayrollLine[];
+  deduction_lines: PayrollLine[];
+  employer_contribution_lines: PayrollLine[];
+  year_to_date: PayrollYearToDate;
+  review_flags: string[];
+}
+
+export interface PayrollYearToDate {
+  year: number;
+  currency: string;
+  gross_pay: string;
+  taxable_compensation: string;
+  employee_deductions: string;
+  employer_contributions: string;
+  net_pay: string;
+  formatted_gross_pay: string;
+  formatted_taxable_compensation: string;
+  formatted_employee_deductions: string;
+  formatted_employer_contributions: string;
+  formatted_net_pay: string;
+  payroll_entries: number;
+}

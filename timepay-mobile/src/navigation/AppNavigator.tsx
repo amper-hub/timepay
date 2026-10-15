@@ -8,6 +8,7 @@ import HomeScreen from "../screens/HomeScreen";
 import AttendanceScreen from "../screens/Attendance";
 import FaceVerificationScreen from "../screens/FaceVerification";
 import LeaveScreen from "../screens/Leaves";
+import PayrollScreen from "../screens/PayrollScreen";
 import ProfileScreen from "../screens/Profile";
 import { colors } from "../theme/colors";
 
@@ -16,6 +17,7 @@ export type EmployeeTabParamList = {
   Attendance: undefined;
   FaceVerification: { action: "clock_in" | "clock_out" };
   Leave: undefined;
+  Payroll: undefined;
   Profile: undefined;
 };
 
@@ -125,6 +127,15 @@ const AppNavigator: React.FC<AppNavigatorProps> = ({
           }}
         >
           {() => <LeaveScreen userSessionData={userSessionData} />}
+        </Tab.Screen>
+
+        <Tab.Screen
+          name="Payroll"
+          options={{
+            tabBarIcon: ({ focused }) => tabIcon("wallet", "wallet-outline", focused),
+          }}
+        >
+          {(props) => <PayrollScreen {...props} />}
         </Tab.Screen>
 
         <Tab.Screen
