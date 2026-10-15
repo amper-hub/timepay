@@ -202,7 +202,7 @@ class PayrollWorkflowTest extends TestCase
     public function test_overlapping_statutory_rules_block_payroll_calculation(): void
     {
         $employee = $this->employee('Synthetic Overlapping Statutory Rule Employee');
-        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly', 'sss_enabled' => true]);
         $this->rate($employee, 'monthly', '30000.00');
         $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
 
