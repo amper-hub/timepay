@@ -118,35 +118,27 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame($period->id, $entry->payroll_period_id);
     }
 
-    public function test_thirteenth_month_uses_approved_basic_pay_and_centavo_rounding_before_review(): void
+    public function test_thirteenth_month_calculation_is_blocked_before_calendar_year_end(): void
     {
-        $employee = $this->employee('Annual Pay Employee');
+        $employee = $this->employee('Synthetic Annual Pay Employee');
         $this->profile($employee, ['pay_frequency' => 'monthly', 'rank_and_file' => true]);
         $approvedPeriod = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly', 'approved');
         $approvedEntry = $this->entry($employee, $approvedPeriod, '1000.06');
         $approvedEntry->lines()->create([
             'category' => 'earning', 'code' => 'basic_pay', 'label' => 'Basic pay', 'amount' => '1000.06', 'taxable' => true,
         ]);
-        $approvedEntry->lines()->create([
-            'category' => 'earning', 'code' => 'allowance', 'label' => 'Allowance', 'amount' => '500.00', 'taxable' => true,
-        ]);
 
         $period = $this->period($this->company, '2026-01-01', '2026-12-31', 'yearly');
-        $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
-        $entry = $calculated->entries->sole();
 
-        $this->assertSame('83.34', $entry->gross_pay);
-        $this->assertSame('0.00', $entry->employee_deductions);
-        $this->assertSame('1000.06', data_get($entry->calculation_snapshot, 'basic_salary_in_approved_runs'));
-        $this->assertSame('2026-01-01', $calculated->period_start->toDateString());
-        $this->assertContains('13th_month_uses_approved_basic_pay_snapshots', $entry->review_flags);
-        $this->assertContains('calendar_year_not_completed', $entry->review_flags);
+        try {
+            app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+            $this->fail('13th-month payroll must not calculate before the calendar year ends.');
+        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+            $this->assertArrayHasKey('period', $exception->errors());
+        }
 
-        Sanctum::actingAs($this->employer);
-        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve")->assertUnprocessable();
-        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve", [
-            'review_note' => 'Verified annual basic pay and centavo rounding.',
-        ])->assertOk()->assertJsonPath('data.status', 'approved');
+        $this->assertSame('draft', $period->fresh()->status);
+        $this->assertDatabaseCount('payroll_entries', 1);
     }
 
     public function test_calculation_flags_require_an_audited_review_note_before_approval(): void
