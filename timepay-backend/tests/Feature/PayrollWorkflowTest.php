@@ -133,6 +133,30 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame($period->id, $entry->payroll_period_id);
     }
 
+    public function test_hourly_paid_employee_can_be_paid_monthly_using_monthly_tax_table(): void
+    {
+        $employee = $this->employee('Synthetic Hourly Paid Monthly Employee');
+        $this->profile($employee, [
+            'salary_type' => 'hourly',
+            'pay_frequency' => 'monthly',
+            'sss_enabled' => false,
+            'philhealth_enabled' => false,
+            'pagibig_enabled' => false,
+            'withholding_tax_enabled' => true,
+        ]);
+        $this->rate($employee, 'hourly', '100.00');
+        $this->attendance($employee, '2026-10-15 08:00:00', 'clock_in');
+        $this->attendance($employee, '2026-10-15 17:00:00', 'clock_out');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+        $entry = $calculated->entries->sole();
+
+        $this->assertSame('900.00', $entry->gross_pay);
+        $this->assertSame('monthly', $period->fresh()->frequency);
+        $this->assertNotContains('missing_effective_pay_rate', $entry->review_flags);
+    }
+
     public function test_hourly_payroll_frequency_does_not_use_the_daily_bir_tax_table(): void
     {
         $employee = $this->employee('Synthetic Hourly Tax Frequency Employee');
