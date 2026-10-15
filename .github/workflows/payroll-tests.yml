@@ -1,0 +1,51 @@
+name: Payroll safety tests
+
+on:
+  pull_request:
+    paths:
+      - "timepay-backend/**"
+      - ".github/workflows/payroll-tests.yml"
+  push:
+    branches:
+      - main
+      - "fix/payroll-calculation-safety"
+    paths:
+      - "timepay-backend/**"
+      - ".github/workflows/payroll-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  payroll-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: timepay-backend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: mbstring, bcmath, sqlite3, pdo_sqlite, dom, curl, fileinfo, gd, intl, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare application environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          mkdir -p database
+          touch database/database.sqlite
+
+      - name: Run payroll safety regression tests
+        run: php artisan test --filter=PayrollWorkflowTest
+
+      - name: Run payroll migration safety tests
+        run: php artisan test --filter=PayrollMigrationSafetyTest
