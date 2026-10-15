@@ -87,6 +87,21 @@ class PayrollWorkflowTest extends TestCase
         $this->assertDatabaseCount('payroll_entry_attendance_logs', 0);
     }
 
+    public function test_overlapping_compensation_history_is_flagged_for_manual_review(): void
+    {
+        $employee = $this->employee('Synthetic Overlapping Rate Employee');
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($employee, 'monthly', '30000.00');
+        $this->rate($employee, 'monthly', '32000.00', '2026-10-15');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+        $entry = $calculated->entries->sole();
+
+        $this->assertContains('compensation_history_overlap_requires_review', $entry->review_flags);
+        $this->assertSame('31032.26', $entry->gross_pay);
+    }
+
     public function test_monthly_calculation_uses_centavo_arithmetic_and_official_rule_snapshots(): void
     {
         $employee = $this->employee('Monthly Employee');
