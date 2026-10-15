@@ -9,6 +9,7 @@ use App\Http\Controllers\Employer\EmployerPayrollController;
 use App\Http\Controllers\Api\MobilePasswordResetController;
 use App\Http\Controllers\Api\PayrollPayslipController;
 use App\Http\Controllers\Api\ProfileController as ApiProfileController;
+use App\Http\Controllers\Api\StorageHealthController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -30,6 +31,8 @@ Route::post('/reset-password', [MobilePasswordResetController::class, 'resetPass
 
 // Protected routes requiring Sanctum authentication
 Route::middleware('auth:sanctum')->group(function () {
+    Route::get('health/storage', StorageHealthController::class)->name('api.health.storage');
+
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
