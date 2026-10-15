@@ -6,10 +6,11 @@ Tracked external release blocker: https://github.com/amper-hub/timepay/issues/3.
 
 ## Candidate validation snapshot
 
-- Candidate reviewed: `9b848ef8e9f8e846126f7f959f35be9fc454dfde`
-- GitHub Actions payroll safety workflow: https://github.com/amper-hub/timepay/actions/runs/38704273733
-- Result: **passed** for this exact commit, including the payroll safety regression tests, migration safety tests, and the full backend test suite. The candidate also rejects explicitly non-taxable recurring earnings at API validation time until benefit-specific rules are implemented. This is a fail-closed guard, not RR No. 29-2025 compliance or statutory approval.
-- This CI result does not certify statutory correctness, production data recovery, or deployment readiness. Any new commit requires checking CI for the new exact candidate.
+- Candidate reviewed: `812f32c8808400cdb438a2573468a76869397e83`
+- GitHub Actions payroll safety workflows: https://github.com/amper-hub/timepay/actions/runs/38704676877 and https://github.com/amper-hub/timepay/actions/runs/38704670620
+- Result: **passed** for this exact commit, including the payroll safety regression tests, payroll migration safety tests, and the full backend test suite.
+- Safety controls in this candidate: explicitly non-taxable recurring earnings are rejected until benefit-specific rules are approved and implemented; PDF/XLSX payroll register exports are rejected unless the period is approved, partially paid, or paid. Regression tests cover export attempts for draft and pending-review periods.
+- These CI results do not certify statutory correctness, production data recovery, or deployment readiness. This is a fail-closed safeguard, not RR No. 29-2025 compliance or statutory approval.
 
 ## Before merge or deployment
 
