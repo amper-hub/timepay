@@ -117,7 +117,7 @@ class FacePlusPlusServiceTest extends TestCase
         // FacePlusPlusService validates and decodes image bytes before making
         // HTTP requests, so use a real 1x1 PNG fixture instead of arbitrary text.
         $image = base64_decode(
-            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l2cAAAAASUVORK5CYII=',
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=',
             true
         );
 
