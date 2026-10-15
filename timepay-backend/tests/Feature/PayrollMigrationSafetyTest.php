@@ -30,7 +30,8 @@ class PayrollMigrationSafetyTest extends TestCase
     {
         $this->employee('42.00', '0.00');
 
-        $this->assertDoesNotThrow(fn () => $this->runLegacyRatePreflight());
+        $this->runLegacyRatePreflight();
+        $this->assertTrue(true);
     }
 
     public function test_legacy_employee_with_no_positive_rate_is_rejected(): void
