@@ -445,6 +445,27 @@ class PayrollWorkflowTest extends TestCase
         ])->assertUnprocessable();
     }
 
+    public function test_negative_net_pay_is_rejected_during_payroll_approval(): void
+    {
+        $employee = $this->employee('Synthetic Negative Net Pay Employee');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly', 'pending_review');
+        $entry = $this->entry($employee, $period, '-25.00');
+        $entry->update(['net_pay' => '-25.00', 'review_flags' => []]);
+
+        Sanctum::actingAs($this->employer);
+        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('payroll');
+
+        $this->assertSame('pending_review', $period->fresh()->status);
+        $this->assertNull($period->fresh()->approved_at);
+        $this->assertDatabaseMissing('payroll_audits', [
+            'entity_type' => 'payroll_period',
+            'entity_id' => $period->id,
+            'action' => 'approved',
+        ]);
+    }
+
     public function test_payments_are_rejected_until_the_payroll_period_is_approved(): void
     {
         $employee = $this->employee('Pending Review Payment Employee');
