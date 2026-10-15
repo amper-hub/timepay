@@ -4,9 +4,9 @@ This checklist is a release gate, not evidence that all checks have passed. Do n
 
 ## Candidate validation snapshot
 
-- Candidate reviewed: `d75fbabb0e70286a42e6b151fccef8c9ba9db5d4`
-- GitHub Actions payroll safety workflow: https://github.com/amper-hub/timepay/actions/runs/38704007938
-- Result: **passed** for this exact commit, including the payroll safety regression tests, migration safety tests, and the full backend test suite.
+- Candidate reviewed: `9b848ef8e9f8e846126f7f959f35be9fc454dfde`
+- GitHub Actions payroll safety workflow: https://github.com/amper-hub/timepay/actions/runs/38704273733
+- Result: **passed** for this exact commit, including the payroll safety regression tests, migration safety tests, and the full backend test suite. The candidate also rejects explicitly non-taxable recurring earnings at API validation time until benefit-specific rules are implemented. This is a fail-closed guard, not RR No. 29-2025 compliance or statutory approval.
 - This CI result does not certify statutory correctness, production data recovery, or deployment readiness. Any new commit requires checking CI for the new exact candidate.
 
 ## Before merge or deployment
