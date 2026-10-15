@@ -133,6 +133,23 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame($period->id, $entry->payroll_period_id);
     }
 
+    public function test_missing_effective_compensation_rate_blocks_payroll_calculation(): void
+    {
+        $employee = $this->employee('Synthetic Missing Rate Employee');
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        try {
+            app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+            $this->fail('Payroll with missing compensation coverage must be blocked.');
+        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+            $this->assertStringContainsString('no effective compensation rate covers', $exception->errors()['compensation_history'][0]);
+        }
+
+        $this->assertSame('draft', $period->fresh()->status);
+        $this->assertDatabaseCount('payroll_entries', 0);
+    }
+
     public function test_overlapping_statutory_rules_block_payroll_calculation(): void
     {
         $employee = $this->employee('Synthetic Overlapping Statutory Rule Employee');
