@@ -23,6 +23,7 @@ Tracked external release blocker: https://github.com/amper-hub/timepay/issues/3.
 - [ ] Run the candidate migration against the isolated restored copy. Verify all payroll tables, seeded statutory rule versions, employee profile/rate backfills, and application smoke tests.
 - [ ] Review migration failure behavior and recovery. The migration's `down()` drops payroll tables and therefore deletes payroll data created in them; do not use rollback as a routine production recovery plan after payroll data exists.
 - [ ] Verify that the deployment platform's pre-deploy migration command and application release process target the intended environment and database.
+- [ ] Resolve durable upload storage before production use: the checked Railway API service has no mounted persistent volume, while `timepay-backend/.env.example` defaults to `FILESYSTEM_DISK=local` and Laravel's local disk stores files under `storage/app/private`. Confirm whether production stores attendance/identity proof or other user uploads on this disk; if so, configure and test a durable supported storage target (for example, approved object storage or an explicitly mounted persistent volume), then verify access controls, retention, and backup/restore behavior. Do not assume container-local files survive redeploys or instance replacement.
 - [ ] Record reviewer names, candidate commit, backup/restore result, migration result, and go/no-go decision in the release review.
 
 ## Go/no-go rules
