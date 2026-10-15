@@ -107,7 +107,7 @@ class PayrollWorkflowTest extends TestCase
         $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
         $existingEntry = $this->entry($employee, $period, '12345.67');
 
-        \\App\\Models\\PayrollProfileItem::query()->create([
+        \App\Models\PayrollProfileItem::query()->create([
             'company_id' => $this->company->id,
             'user_id' => $employee->id,
             'category' => 'earning',
@@ -123,7 +123,7 @@ class PayrollWorkflowTest extends TestCase
         try {
             app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
             $this->fail('Recalculation must fail closed when a non-taxable benefit lacks a verified rule.');
-        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+        } catch (\Illuminate\Validation\ValidationException $exception) {
             $this->assertArrayHasKey('profile_items', $exception->errors());
         }
 
