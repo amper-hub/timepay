@@ -244,7 +244,6 @@ return new class extends Migration
 
         $effectiveDates = $this->legacyRateEffectiveDates();
         $problems = [];
-        $effectiveDates = $this->legacyRateEffectiveDates();
 
         foreach ($users as $user) {
             $hourly = (float) ($user->hourly_rate ?? 0);
@@ -324,6 +323,8 @@ return new class extends Migration
             ->whereNotNull('company_id')
             ->whereIn(DB::raw('LOWER(role)'), ['employee'])
             ->get();
+
+        $effectiveDates = $this->legacyRateEffectiveDates();
 
         foreach ($users as $user) {
             $hourly = (float) ($user->hourly_rate ?? 0);
