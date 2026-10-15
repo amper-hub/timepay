@@ -659,12 +659,16 @@ class PayrollCalculationService
         if (isset($this->ruleCache[$key])) {
             return $this->ruleCache[$key];
         }
-        $rule = PayrollStatutoryRule::query()->where('code', $code)->whereDate('effective_from', '<=', $date->toDateString())
+        $effectiveRules = PayrollStatutoryRule::query()->where('code', $code)->whereDate('effective_from', '<=', $date->toDateString())
             ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $date->toDateString()))
-            ->orderByDesc('effective_from')->first();
-        if (! $rule) {
+            ->orderByDesc('effective_from')->get();
+        if ($effectiveRules->isEmpty()) {
             throw ValidationException::withMessages(['statutory_rules' => "No effective {$code} rule is configured for {$date->toDateString()}."]);
         }
+        if ($effectiveRules->count() > 1) {
+            throw ValidationException::withMessages(['statutory_rules' => "Multiple effective {$code} rules overlap on {$date->toDateString()}. Resolve the statutory rule dates before calculating payroll."]);
+        }
+        $rule = $effectiveRules->sole();
         return $this->ruleCache[$key] = ['name' => $rule->name, 'effective_from' => $rule->effective_from->toDateString(), 'configuration' => $rule->configuration];
     }
 
