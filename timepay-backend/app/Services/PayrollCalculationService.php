@@ -148,6 +148,11 @@ class PayrollCalculationService
                 if ($profile->withholding_tax_enabled) {
                     $taxableAfterStatutory = max(0, $taxableCents - $statutory['employee_statutory_cents']);
                     $withholdingCents = $this->withholdingTax($employee, $lockedPeriod, $taxableAfterStatutory, $lineData);
+                    if ($withholdingCents < 0) {
+                        // A year-end credit can increase net pay. Require an explicit
+                        // payroll review rather than silently treating it as routine.
+                        $flags[] = 'year_end_withholding_credit_requires_review';
+                    }
                     if ($withholdingCents !== 0) {
                         $lineData[] = $this->line('employee_deduction', 'bir_withholding_tax', 'Withholding tax', $withholdingCents, null, null, false, ['rule' => 'BIR Annex E / annualized year-end reconciliation']);
                         $employeeDeductionsCents += $withholdingCents;
