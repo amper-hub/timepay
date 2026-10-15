@@ -603,12 +603,17 @@ class PayrollCalculationService
             return $this->taxFromRule($ytdTaxable, $rule['configuration']['periods']['yearly']) - $priorWithholding;
         }
 
+        // BIR compensation tables are keyed to the actual payroll period, not
+        // the employee's hourly/daily wage basis. There is no hourly tax table.
         $taxPeriod = match ($period->frequency) {
-            'hourly', 'daily' => 'daily',
+            'daily' => 'daily',
             'weekly' => 'weekly',
             'semimonthly' => 'semimonthly',
             'monthly' => 'monthly',
             'yearly' => 'yearly',
+            default => throw ValidationException::withMessages([
+                'frequency' => "The {$period->frequency} payroll frequency has no supported BIR withholding-tax table. Use an approved payroll-period frequency before calculating withholding tax.",
+            ]),
         };
         if ($taxPeriod === 'yearly') {
             return $this->taxFromRule($taxableCents, $rule['configuration']['periods']['yearly']);
