@@ -9,9 +9,8 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // Validate legacy compensation data before creating any payroll tables.
-        // The legacy schema has hourly_rate and daily_rate but no monthly_rate or
-        // per-employee salary basis, so infer only when exactly one positive rate exists.
+        // Validate legacy rates and explicitly reviewed effective dates before schema changes.
+        // The legacy schema cannot establish when a rate became effective; never infer "today".
         $this->assertLegacyCompensationIsUnambiguous();
 
         Schema::create('payroll_profiles', function (Blueprint $table) {
@@ -243,7 +242,10 @@ return new class extends Migration
             ->whereIn(DB::raw('LOWER(role)'), ['employee'])
             ->get(['id', 'company_id', 'hourly_rate', 'daily_rate']);
 
+        $effectiveDates = $this->legacyRateEffectiveDates();
         $problems = [];
+        $effectiveDates = $this->legacyRateEffectiveDates();
+
         foreach ($users as $user) {
             $hourly = (float) ($user->hourly_rate ?? 0);
             $daily = (float) ($user->daily_rate ?? 0);
@@ -253,15 +255,63 @@ return new class extends Migration
             if ($hasHourly === $hasDaily) {
                 $problems[] = "user_id={$user->id} (hourly_rate={$hourly}, daily_rate={$daily})";
             }
+
+            $effectiveFrom = $effectiveDates[(string) $user->id] ?? null;
+            if (! $this->isValidEffectiveDate($effectiveFrom)) {
+                $problems[] = "user_id={$user->id} (missing or invalid verified effective date)";
+            }
         }
 
         if ($problems !== []) {
             throw new RuntimeException(
                 'Payroll migration stopped before creating payroll tables because compensation basis/rate is missing or ambiguous for: '
                 . implode('; ', $problems)
-                . '. Correct each employee rate explicitly, then rerun the migration.'
+                . '. Correct each employee rate and provide a verified YYYY-MM-DD effective date for every employee in PAYROLL_LEGACY_RATE_EFFECTIVE_DATES, then rerun the migration.'
             );
         }
+    }
+
+    /**
+     * Read employer-verified historical effective dates keyed by legacy user ID.
+     * Example: {"123":"2024-01-01","456":"2025-07-15"}.
+     */
+    private function legacyRateEffectiveDates(): array
+    {
+        $raw = getenv('PAYROLL_LEGACY_RATE_EFFECTIVE_DATES');
+        if ($raw === false || trim($raw) === '') {
+            return [];
+        }
+
+        try {
+            $dates = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\\JsonException $exception) {
+            throw new RuntimeException(
+                'PAYROLL_LEGACY_RATE_EFFECTIVE_DATES must be a JSON object mapping employee user IDs to verified YYYY-MM-DD dates.',
+                previous: $exception,
+            );
+        }
+
+        if (! is_array($dates)) {
+            throw new RuntimeException(
+                'PAYROLL_LEGACY_RATE_EFFECTIVE_DATES must be a JSON object mapping employee user IDs to verified YYYY-MM-DD dates.'
+            );
+        }
+
+        return $dates;
+    }
+
+    private function isValidEffectiveDate(mixed $date): bool
+    {
+        if (! is_string($date) || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $date)) {
+            return false;
+        }
+
+        $parsed = \\DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+        $errors = \\DateTimeImmutable::getLastErrors();
+
+        return $parsed !== false
+            && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))
+            && $parsed->format('Y-m-d') === $date;
     }
 
     private function backfillExistingEmployees(): void
@@ -290,7 +340,15 @@ return new class extends Migration
 
             $salaryType = $hasDaily ? 'daily' : 'hourly';
             $rate = $hasDaily ? $daily : $hourly;
-            $effectiveFrom = now()->toDateString();
+            $effectiveFrom = $effectiveDates[(string) $user->id] ?? null;
+
+            // Preflight should have rejected this before schema changes; keep the
+            // backfill defensive in case the migration is invoked unusually.
+            if (! $this->isValidEffectiveDate($effectiveFrom)) {
+                throw new \\RuntimeException(
+                    "Cannot backfill payroll compensation for user_id={$user->id}: a verified YYYY-MM-DD effective date is required in PAYROLL_LEGACY_RATE_EFFECTIVE_DATES."
+                );
+            }
 
             DB::table('payroll_profiles')->updateOrInsert(
                 ['user_id' => $user->id],
