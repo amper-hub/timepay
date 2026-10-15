@@ -1,6 +1,7 @@
 name: Payroll safety tests
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "timepay-backend/**"
