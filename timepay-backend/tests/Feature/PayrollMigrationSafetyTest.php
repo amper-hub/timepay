@@ -1,13 +1,13 @@
 <?php
 
-namespace Tests\\Feature;
+namespace Tests\Feature;
 
-use App\\Models\\Company;
-use App\\Models\\User;
-use Illuminate\\Foundation\\Testing\\RefreshDatabase;
+use App\Models\Company;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use ReflectionMethod;
 use RuntimeException;
-use Tests\\TestCase;
+use Tests\TestCase;
 
 class PayrollMigrationSafetyTest extends TestCase
 {
