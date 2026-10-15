@@ -214,6 +214,33 @@ class PayrollWorkflowTest extends TestCase
         $this->assertContains('year_end_withholding_credit_requires_review', $entry->review_flags);
     }
 
+    public function test_year_end_tax_credit_flag_requires_audited_review_before_approval(): void
+    {
+        $employee = $this->employee('Synthetic Tax Credit Review Employee');
+        $period = $this->period($this->company, '2026-12-01', '2026-12-31', 'monthly', 'pending_review');
+        $entry = $this->entry($employee, $period, '45500.00', [
+            'review_flags' => ['year_end_withholding_credit_requires_review'],
+        ]);
+        $entry->lines()->create([
+            'category' => 'employee_deduction', 'code' => 'bir_withholding_tax',
+            'label' => 'Year-end withholding credit', 'amount' => '-5500.00', 'taxable' => false,
+        ]);
+
+        Sanctum::actingAs($this->employer);
+        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve")
+            ->assertUnprocessable()->assertJsonValidationErrors('review_note');
+        $this->assertSame('pending_review', $period->fresh()->status);
+
+        $note = 'Reviewed the year-end withholding credit against the annual tax reconciliation.';
+        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve", ['review_note' => $note])
+            ->assertOk()->assertJsonPath('data.status', 'approved');
+
+        $audit = PayrollAudit::query()->where('entity_type', 'payroll_period')
+            ->where('entity_id', $period->id)->where('action', 'approved')->sole();
+        $this->assertSame($note, data_get($audit->after_data, 'review_note'));
+        $this->assertContains($entry->id, data_get($audit->after_data, 'flagged_entry_ids', []));
+    }
+
     public function test_monthly_withholding_tax_matches_independent_annex_e_bracket_calculation(): void
     {
         $employee = $this->employee('Synthetic Annex E Boundary Employee');
