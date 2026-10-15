@@ -211,6 +211,7 @@ class PayrollWorkflowTest extends TestCase
         // A negative December deduction represents the ₱5,500 year-end credit.
         $this->assertSame('-5500.00', $entry->lines->firstWhere('code', 'bir_withholding_tax')->amount);
         $this->assertSame('45500.00', $entry->net_pay);
+        $this->assertContains('year_end_withholding_credit_requires_review', $entry->review_flags);
     }
 
     public function test_monthly_withholding_tax_matches_independent_annex_e_bracket_calculation(): void
