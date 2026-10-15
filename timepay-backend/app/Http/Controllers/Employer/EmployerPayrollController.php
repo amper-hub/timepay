@@ -439,6 +439,7 @@ class EmployerPayrollController extends Controller
     public function exportPeriodXlsx(Request $request, PayrollPeriod $payrollPeriod): BinaryFileResponse
     {
         $this->assertCompany($request, $payrollPeriod->company_id);
+        abort_unless(in_array($payrollPeriod->status, ['approved', 'partially_paid', 'paid'], true), 409, 'Payroll exports are available only after approval.');
         $period = $payrollPeriod->load(['entries.employee', 'entries.lines']);
         return Excel::download(new PayrollRegisterExport($period), 'timepay-payroll-'.$period->period_start->format('Ymd').'-'.$period->period_end->format('Ymd').'.xlsx');
     }
@@ -446,6 +447,7 @@ class EmployerPayrollController extends Controller
     public function exportPeriodPdf(Request $request, PayrollPeriod $payrollPeriod)
     {
         $this->assertCompany($request, $payrollPeriod->company_id);
+        abort_unless(in_array($payrollPeriod->status, ['approved', 'partially_paid', 'paid'], true), 409, 'Payroll exports are available only after approval.');
         $period = $payrollPeriod->load(['entries.employee', 'entries.lines']);
         $company = $request->user()->company;
         $companyName = data_get($period->entries->first()?->calculation_snapshot, 'company_snapshot.name', $company->name);
