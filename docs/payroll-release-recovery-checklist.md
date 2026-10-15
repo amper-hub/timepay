@@ -4,9 +4,9 @@ This checklist is a release gate, not evidence that all checks have passed. Do n
 
 ## Candidate validation snapshot
 
-- Candidate reviewed: `f9ab04c9aacb1a1c7f35ca405910270d9841bd5e`
-- GitHub Actions payroll safety workflow: https://github.com/amper-hub/timepay/actions/runs/38703525353
-- Result: **passed** for that exact commit, including payroll regression tests, migration safety tests, and the full backend test suite.
+- Candidate reviewed: `d75fbabb0e70286a42e6b151fccef8c9ba9db5d4`
+- GitHub Actions payroll safety workflow: https://github.com/amper-hub/timepay/actions/runs/38704007938
+- Result: **passed** for this exact commit, including the payroll safety regression tests, migration safety tests, and the full backend test suite.
 - This CI result does not certify statutory correctness, production data recovery, or deployment readiness. Any new commit requires checking CI for the new exact candidate.
 
 ## Before merge or deployment
