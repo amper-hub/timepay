@@ -151,13 +151,12 @@ class PayrollWorkflowTest extends TestCase
         $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
         $entry = $calculated->entries->sole();
 
-        // Annex E monthly band: ₱33,333–₱66,666 = ₱1,875 + 20% over ₱33,333.
-        // Use the table's exact configured lower boundary of ₱33,332.00.
-        $expectedTaxCents = 187500 + (int) round((4000000 - 3333200) * 0.20);
+        // BIR Annex E monthly band: ₱33,333–₱66,666 = ₱1,875 + 20% over ₱33,333.
+        $expectedTaxCents = 187500 + (int) round((4000000 - 3333300) * 0.20);
         $this->assertSame('40000.00', $entry->gross_pay);
-        $this->assertSame('3208.60', $entry->lines->firstWhere('code', 'bir_withholding_tax')->amount);
+        $this->assertSame('3208.40', $entry->lines->firstWhere('code', 'bir_withholding_tax')->amount);
         $this->assertSame($expectedTaxCents, (int) round((float) $entry->lines->firstWhere('code', 'bir_withholding_tax')->amount * 100));
-        $this->assertSame('36791.40', $entry->net_pay);
+        $this->assertSame('36791.60', $entry->net_pay);
     }
 
     public function test_hourly_paid_employee_can_be_paid_monthly_using_monthly_tax_table(): void
