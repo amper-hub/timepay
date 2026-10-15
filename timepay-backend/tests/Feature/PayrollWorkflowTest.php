@@ -173,6 +173,46 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame('36792.40', $entry->net_pay);
     }
 
+    public function test_december_withholding_reconciliation_credits_prior_overwithholding(): void
+    {
+        $employee = $this->employee('Synthetic Year-End Tax Refund Employee');
+        $this->profile($employee, [
+            'salary_type' => 'monthly',
+            'pay_frequency' => 'monthly',
+            'sss_enabled' => false,
+            'philhealth_enabled' => false,
+            'pagibig_enabled' => false,
+            'withholding_tax_enabled' => true,
+        ]);
+        $this->rate($employee, 'monthly', '40000.00');
+
+        // Deliberately synthetic over-withholding: prior periods recorded ₱4,000
+        // each, so year-to-date withholding exceeds the annual Annex E liability.
+        for ($month = 1; $month <= 11; $month++) {
+            $start = Carbon::create(2026, $month, 1)->startOfMonth()->toDateString();
+            $end = Carbon::create(2026, $month, 1)->endOfMonth()->toDateString();
+            $priorPeriod = $this->period($this->company, $start, $end, 'monthly', 'approved');
+            $priorEntry = $this->entry($employee, $priorPeriod, '36000.00');
+            $priorEntry->lines()->create([
+                'category' => 'earning', 'code' => 'basic_pay', 'label' => 'Basic pay',
+                'amount' => '40000.00', 'taxable' => true,
+            ]);
+            $priorEntry->lines()->create([
+                'category' => 'employee_deduction', 'code' => 'bir_withholding_tax', 'label' => 'Withholding tax',
+                'amount' => '4000.00', 'taxable' => false,
+            ]);
+        }
+
+        $december = $this->period($this->company, '2026-12-01', '2026-12-31', 'monthly');
+        $calculated = app(PayrollCalculationService::class)->calculate($december, (int) $this->employer->id);
+        $entry = $calculated->entries->sole();
+
+        // Annual liability is ₱38,500; ₱44,000 was already withheld.
+        // A negative December deduction represents the ₱5,500 year-end credit.
+        $this->assertSame('-5500.00', $entry->lines->firstWhere('code', 'bir_withholding_tax')->amount);
+        $this->assertSame('45500.00', $entry->net_pay);
+    }
+
     public function test_monthly_withholding_tax_matches_independent_annex_e_bracket_calculation(): void
     {
         $employee = $this->employee('Synthetic Annex E Boundary Employee');
