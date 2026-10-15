@@ -283,7 +283,7 @@ return new class extends Migration
 
         try {
             $dates = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\\JsonException $exception) {
+        } catch (\JsonException $exception) {
             throw new RuntimeException(
                 'PAYROLL_LEGACY_RATE_EFFECTIVE_DATES must be a JSON object mapping employee user IDs to verified YYYY-MM-DD dates.',
                 previous: $exception,
@@ -301,12 +301,12 @@ return new class extends Migration
 
     private function isValidEffectiveDate(mixed $date): bool
     {
-        if (! is_string($date) || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $date)) {
+        if (! is_string($date) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
             return false;
         }
 
-        $parsed = \\DateTimeImmutable::createFromFormat('!Y-m-d', $date);
-        $errors = \\DateTimeImmutable::getLastErrors();
+        $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+        $errors = \DateTimeImmutable::getLastErrors();
 
         return $parsed !== false
             && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))
@@ -346,7 +346,7 @@ return new class extends Migration
             // Preflight should have rejected this before schema changes; keep the
             // backfill defensive in case the migration is invoked unusually.
             if (! $this->isValidEffectiveDate($effectiveFrom)) {
-                throw new \\RuntimeException(
+                throw new \RuntimeException(
                     "Cannot backfill payroll compensation for user_id={$user->id}: a verified YYYY-MM-DD effective date is required in PAYROLL_LEGACY_RATE_EFFECTIVE_DATES."
                 );
             }
