@@ -74,6 +74,16 @@ class PayrollCalculationService
                 $intervalsForPeriod = [];
 
                 foreach ($intervals as $interval) {
+                    $overlapsPeriod = $interval['clock_in']->lte($periodEnd)
+                        && $interval['clock_out']->gte($periodStart);
+                    $crossesBoundary = $interval['clock_in']->lt($periodStart)
+                        || $interval['clock_out']->gt($periodEnd);
+
+                    if ($overlapsPeriod && $crossesBoundary) {
+                        $flags[] = 'attendance_crosses_pay_period_boundary_requires_review';
+                        continue;
+                    }
+
                     if ($interval['clock_in']->lt($periodStart) || $interval['clock_in']->gt($periodEnd)) {
                         continue;
                     }
