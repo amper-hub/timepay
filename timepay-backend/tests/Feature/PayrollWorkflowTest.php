@@ -133,6 +133,34 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame($period->id, $entry->payroll_period_id);
     }
 
+    public function test_overlapping_statutory_rules_block_payroll_calculation(): void
+    {
+        $employee = $this->employee('Synthetic Overlapping Statutory Rule Employee');
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($employee, 'monthly', '30000.00');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        $existingRule = \\App\\Models\\PayrollStatutoryRule::query()->where('code', 'sss')->firstOrFail();
+        \\App\\Models\\PayrollStatutoryRule::query()->create([
+            'code' => 'sss',
+            'name' => 'Synthetic overlapping SSS rule for regression test',
+            'effective_from' => '2026-01-01',
+            'effective_to' => null,
+            'configuration' => $existingRule->configuration,
+            'source_url' => 'https://example.invalid/synthetic-test-rule',
+        ]);
+
+        try {
+            app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+            $this->fail('Overlapping statutory rules must block payroll calculation.');
+        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+            $this->assertStringContainsString('Multiple effective sss rules overlap', $exception->errors()['statutory_rules'][0]);
+        }
+
+        $this->assertSame('draft', $period->fresh()->status);
+        $this->assertDatabaseCount('payroll_entries', 0);
+    }
+
     public function test_thirteenth_month_calculation_is_blocked_before_calendar_year_end(): void
     {
         $employee = $this->employee('Synthetic Annual Pay Employee');
