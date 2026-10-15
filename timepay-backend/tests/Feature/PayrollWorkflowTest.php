@@ -75,7 +75,7 @@ class PayrollWorkflowTest extends TestCase
         $employee = $this->employee('Synthetic Non-Taxable Benefit Employee');
         $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
         $this->rate($employee, 'monthly', '30000.00');
-        \\App\\Models\\PayrollProfileItem::query()->create([
+        \App\Models\PayrollProfileItem::query()->create([
             'company_id' => $this->company->id,
             'user_id' => $employee->id,
             'category' => 'earning',
@@ -92,7 +92,7 @@ class PayrollWorkflowTest extends TestCase
         try {
             app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
             $this->fail('Non-taxable recurring earnings must not be accepted without a verified benefit-specific rule.');
-        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+        } catch (\Illuminate\Validation\ValidationException $exception) {
             $this->assertArrayHasKey('profile_items', $exception->errors());
         }
 
