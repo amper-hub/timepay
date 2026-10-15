@@ -277,6 +277,12 @@ class PayrollCalculationService
         }
 
         $year = (int) $period->period_start->format('Y');
+        if (now(config('app.timezone'))->toDateString() < "{$year}-12-31") {
+            throw ValidationException::withMessages([
+                'period' => 'The 13th-month run cannot be calculated until the calendar year has ended and all eligible basic-pay periods can be finalized.',
+            ]);
+        }
+
         $employees = User::query()->where('company_id', $period->company_id)
             ->whereRaw('LOWER(role) = ?', ['employee'])
             ->whereHas('payrollProfile', fn ($query) => $query->where('payroll_eligible', true)->where('rank_and_file', true))
