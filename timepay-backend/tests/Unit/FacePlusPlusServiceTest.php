@@ -114,7 +114,18 @@ class FacePlusPlusServiceTest extends TestCase
     private function image(string $name): string
     {
         $path = tempnam(sys_get_temp_dir(), 'timepay-face-');
-        file_put_contents($path, 'test-image-content');
+        // FacePlusPlusService validates and decodes image bytes before making
+        // HTTP requests, so use a real 1x1 PNG fixture instead of arbitrary text.
+        $image = base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l2cAAAAASUVORK5CYII=',
+            true
+        );
+
+        if ($image === false) {
+            throw new RuntimeException('Could not decode the test image fixture.');
+        }
+
+        file_put_contents($path, $image);
         $this->imagePaths[] = $path;
 
         return $path;
