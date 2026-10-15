@@ -70,6 +70,31 @@ class PayrollWorkflowTest extends TestCase
         $this->assertContains('recurring_profile_item_partial_period_requires_review', $entry->review_flags);
     }
 
+    public function test_api_rejects_non_taxable_recurring_earning_before_saving_unsupported_tax_rule(): void
+    {
+        $employee = $this->employee('Synthetic Unsupported Benefit API Employee');
+        Sanctum::actingAs($this->employer);
+
+        $response = $this->postJson('/api/employer/payroll/profiles/'.$employee->id.'/items', [
+            'category' => 'earning',
+            'code' => 'rice_subsidy',
+            'label' => 'Rice subsidy',
+            'amount' => '2500.00',
+            'taxable' => false,
+            'effective_from' => '2026-10-01',
+            'effective_to' => null,
+        ]);
+
+        $response->assertUnprocessable()
+            ->assertJsonValidationErrors(['taxable']);
+
+        $this->assertDatabaseMissing('payroll_profile_items', [
+            'user_id' => $employee->id,
+            'code' => 'rice_subsidy',
+            'taxable' => false,
+        ]);
+    }
+
     public function test_non_taxable_recurring_earning_fails_closed_until_benefit_specific_rules_exist(): void
     {
         $employee = $this->employee('Synthetic Non-Taxable Benefit Employee');
