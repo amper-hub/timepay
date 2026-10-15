@@ -57,6 +57,30 @@ class PayrollMigrationSafetyTest extends TestCase
         $this->runLegacyRatePreflight();
     }
 
+    public function test_malformed_effective_date_json_is_rejected_with_actionable_error(): void
+    {
+        $this->employee('42.00', '0.00');
+        $malformed = '{"42":';
+        putenv('PAYROLL_LEGACY_RATE_EFFECTIVE_DATES='.$malformed);
+        $_ENV['PAYROLL_LEGACY_RATE_EFFECTIVE_DATES'] = $malformed;
+        $_SERVER['PAYROLL_LEGACY_RATE_EFFECTIVE_DATES'] = $malformed;
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('PAYROLL_LEGACY_RATE_EFFECTIVE_DATES must be a JSON object');
+        $this->runLegacyRatePreflight();
+    }
+
+    public function test_every_legacy_employee_requires_its_own_verified_effective_date(): void
+    {
+        $first = $this->employee('42.00', '0.00');
+        $second = $this->employee('0.00', '900.00');
+        $this->setEffectiveDateMap([(string) $first->id => '2024-01-15']);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('user_id='.$second->id.' (missing or invalid verified effective date)');
+        $this->runLegacyRatePreflight();
+    }
+
     public function test_legacy_employee_with_no_positive_rate_is_rejected(): void
     {
         $this->employee('0.00', '0.00');
