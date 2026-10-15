@@ -445,6 +445,25 @@ class PayrollWorkflowTest extends TestCase
         ])->assertUnprocessable();
     }
 
+    public function test_payments_are_rejected_until_the_payroll_period_is_approved(): void
+    {
+        $employee = $this->employee('Pending Review Payment Employee');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly', 'pending_review');
+        $entry = $this->entry($employee, $period, '100.00');
+
+        Sanctum::actingAs($this->employer);
+        $this->postJson("/api/employer/payroll/entries/{$entry->id}/payments", [
+            'amount' => '25.00',
+            'payment_date' => '2026-10-15',
+            'method' => 'manual_bank_deposit',
+            'reference_number' => 'PENDING-100',
+        ])->assertUnprocessable();
+
+        $this->assertSame('0.00', $entry->fresh()->amount_paid);
+        $this->assertSame('pending_review', $period->fresh()->status);
+        $this->assertDatabaseCount('payroll_payments', 0);
+    }
+
     public function test_partial_payments_are_idempotently_scoped_and_cannot_exceed_the_balance(): void
     {
         $employee = $this->employee('Payment Employee');
@@ -536,6 +555,24 @@ class PayrollWorkflowTest extends TestCase
         Sanctum::actingAs($employee);
         $this->get('/api/payroll/payslip/entry-'.$entry->id.'/download')
             ->assertOk()->assertHeader('content-type', 'application/pdf');
+    }
+
+    public function test_payroll_register_exports_are_scoped_to_the_employers_company(): void
+    {
+        $employee = $this->employee('Export Isolation Employee');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly', 'approved');
+        $this->entry($employee, $period, '125.50');
+
+        $otherCompany = Company::query()->create(['name' => 'Unrelated Export Co', 'pay_metric' => 'hourly', 'currency' => 'PHP']);
+        $otherEmployer = User::factory()->create([
+            'company_id' => $otherCompany->id,
+            'role' => User::ROLE_EMPLOYER,
+            'status' => 'active',
+        ]);
+
+        Sanctum::actingAs($otherEmployer);
+        $this->get("/api/employer/payroll/periods/{$period->id}/export.xlsx")->assertNotFound();
+        $this->get("/api/employer/payroll/periods/{$period->id}/register.pdf")->assertNotFound();
     }
 
     public function test_new_employee_creation_creates_a_payroll_profile_and_rate_history(): void
