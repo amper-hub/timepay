@@ -70,6 +70,35 @@ class PayrollWorkflowTest extends TestCase
         $this->assertContains('recurring_profile_item_partial_period_requires_review', $entry->review_flags);
     }
 
+    public function test_non_taxable_recurring_earning_fails_closed_until_benefit_specific_rules_exist(): void
+    {
+        $employee = $this->employee('Synthetic Non-Taxable Benefit Employee');
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($employee, 'monthly', '30000.00');
+        \\App\\Models\\PayrollProfileItem::query()->create([
+            'company_id' => $this->company->id,
+            'user_id' => $employee->id,
+            'category' => 'earning',
+            'code' => 'rice_subsidy',
+            'label' => 'Rice subsidy',
+            'amount' => '2500.00',
+            'taxable' => false,
+            'effective_from' => '2026-10-01',
+            'effective_to' => null,
+            'created_by' => $this->employer->id,
+        ]);
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        try {
+            app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+            $this->fail('Non-taxable recurring earnings must not be accepted without a verified benefit-specific rule.');
+        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+            $this->assertArrayHasKey('profile_items', $exception->errors());
+        }
+
+        $this->assertDatabaseCount('payroll_entries', 0);
+    }
+
     public function test_attendance_crossing_pay_period_boundary_is_excluded_and_flagged(): void
     {
         $employee = $this->employee('Synthetic Boundary Shift Employee');
