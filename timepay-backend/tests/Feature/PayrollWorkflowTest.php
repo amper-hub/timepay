@@ -48,7 +48,7 @@ class PayrollWorkflowTest extends TestCase
         $employee = $this->employee('Synthetic Recurring Item Employee');
         $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
         $this->rate($employee, 'monthly', '30000.00');
-        \\App\\Models\\PayrollProfileItem::query()->create([
+        \App\Models\PayrollProfileItem::query()->create([
             'company_id' => $this->company->id,
             'user_id' => $employee->id,
             'category' => 'earning',
@@ -173,7 +173,7 @@ class PayrollWorkflowTest extends TestCase
         try {
             app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
             $this->fail('Hourly payroll must not silently use the daily BIR tax table.');
-        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+        } catch (\Illuminate\Validation\ValidationException $exception) {
             $this->assertStringContainsString('has no supported BIR withholding-tax table', $exception->errors()['frequency'][0]);
         }
 
@@ -190,7 +190,7 @@ class PayrollWorkflowTest extends TestCase
         try {
             app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
             $this->fail('Payroll with missing compensation coverage must be blocked.');
-        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+        } catch (\Illuminate\Validation\ValidationException $exception) {
             $this->assertStringContainsString('no effective compensation rate covers', $exception->errors()['compensation_history'][0]);
         }
 
@@ -205,8 +205,8 @@ class PayrollWorkflowTest extends TestCase
         $this->rate($employee, 'monthly', '30000.00');
         $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
 
-        $existingRule = \\App\\Models\\PayrollStatutoryRule::query()->where('code', 'sss')->firstOrFail();
-        \\App\\Models\\PayrollStatutoryRule::query()->create([
+        $existingRule = \App\Models\PayrollStatutoryRule::query()->where('code', 'sss')->firstOrFail();
+        \App\Models\PayrollStatutoryRule::query()->create([
             'code' => 'sss',
             'name' => 'Synthetic overlapping SSS rule for regression test',
             'effective_from' => '2026-01-01',
@@ -218,7 +218,7 @@ class PayrollWorkflowTest extends TestCase
         try {
             app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
             $this->fail('Overlapping statutory rules must block payroll calculation.');
-        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+        } catch (\Illuminate\Validation\ValidationException $exception) {
             $this->assertStringContainsString('Multiple effective sss rules overlap', $exception->errors()['statutory_rules'][0]);
         }
 
@@ -241,7 +241,7 @@ class PayrollWorkflowTest extends TestCase
         try {
             app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
             $this->fail('13th-month payroll must not calculate before the calendar year ends.');
-        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+        } catch (\Illuminate\Validation\ValidationException $exception) {
             $this->assertArrayHasKey('period', $exception->errors());
         }
 
@@ -253,7 +253,7 @@ class PayrollWorkflowTest extends TestCase
         try {
             app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
             $this->fail('13th-month payroll must remain blocked throughout December 31.');
-        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+        } catch (\Illuminate\Validation\ValidationException $exception) {
             $this->assertArrayHasKey('period', $exception->errors());
         } finally {
             Carbon::setTestNow();
