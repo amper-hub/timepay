@@ -359,7 +359,23 @@ class PayrollCalculationService
         $days = [];
         $monthlyBases = [];
 
-        $matchingRates = $rates->where('basis', $profile->salary_type);
+        // Overlapping effective dates make the compensation history ambiguous.
+        // Keep the existing deterministic rate selection, but require explicit review.
+        $matchingRates = $rates->where('basis', $profile->salary_type)->values();
+        for ($i = 0; $i < $matchingRates->count(); $i++) {
+            for ($j = $i + 1; $j < $matchingRates->count(); $j++) {
+                $left = $matchingRates[$i];
+                $right = $matchingRates[$j];
+                $leftEnd = $left->effective_to ?? Carbon::parse('9999-12-31', config('app.timezone'));
+                $rightEnd = $right->effective_to ?? Carbon::parse('9999-12-31', config('app.timezone'));
+                if ($left->effective_from->lte($rightEnd) && $right->effective_from->lte($leftEnd)
+                    && $left->effective_from->lte($end) && $right->effective_from->lte($end)
+                    && $leftEnd->gte($start) && $rightEnd->gte($start)) {
+                    $flags[] = 'compensation_history_overlap_requires_review';
+                    break 2;
+                }
+            }
+        }
         if ($matchingRates->isEmpty()) {
             $flags[] = 'missing_effective_pay_rate';
         } elseif ($matchingRates->contains(fn (PayrollCompensationHistory $rate): bool => $this->toCents($rate->rate) <= 0)) {
