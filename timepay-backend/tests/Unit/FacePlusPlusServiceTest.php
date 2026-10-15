@@ -53,10 +53,12 @@ class FacePlusPlusServiceTest extends TestCase
 
         $this->assertTrue($passed);
         Http::assertSentCount(3);
-        Http::assertSent(fn (Request $request): bool =>
-            $request->url() === 'https://face.test/detect'
-            && str_contains($request->body(), 'return_attributes')
-            && str_contains($request->body(), 'eyestatus')
+
+        Http::assertSent(
+            fn (Request $request): bool =>
+                $request->url() === 'https://face.test/detect'
+                && str_contains($request->body(), 'return_attributes')
+                && str_contains($request->body(), 'eyestatus')
         );
     }
 
@@ -80,7 +82,9 @@ class FacePlusPlusServiceTest extends TestCase
     public function test_compare_uses_the_configured_threshold(): void
     {
         Http::fake([
-            'https://face.test/compare' => Http::response(['confidence' => 89.5]),
+            'https://face.test/compare' => Http::response([
+                'confidence' => 89.5,
+            ]),
         ]);
 
         $result = app(FacePlusPlusService::class)->compare(
@@ -96,7 +100,9 @@ class FacePlusPlusServiceTest extends TestCase
     public function test_provider_errors_fail_as_temporary_unavailability(): void
     {
         Http::fake([
-            'https://face.test/detect' => Http::response(['error_message' => 'AUTHENTICATION_ERROR'], 401),
+            'https://face.test/detect' => Http::response([
+                'error_message' => 'AUTHENTICATION_ERROR',
+            ], 401),
         ]);
 
         try {
@@ -105,17 +111,53 @@ class FacePlusPlusServiceTest extends TestCase
                 $this->image('closed.jpg'),
                 $this->image('reopened.jpg')
             );
+
             $this->fail('Expected a temporary provider error.');
         } catch (RuntimeException $exception) {
-            $this->assertSame('Face++ detection is temporarily unavailable.', $exception->getMessage());
+            $this->assertSame(
+                'Face++ detection is temporarily unavailable.',
+                $exception->getMessage()
+            );
         }
     }
 
     private function image(string $name): string
     {
+        if (! function_exists('imagecreatetruecolor')) {
+            throw new RuntimeException(
+                'The GD extension is required to create valid JPEG test fixtures.'
+            );
+        }
+
+        $image = imagecreatetruecolor(32, 32);
+
+        if ($image === false) {
+            throw new RuntimeException(
+                'Could not create the test image.'
+            );
+        }
+
         $path = tempnam(sys_get_temp_dir(), 'timepay-face-');
-        file_put_contents($path, 'test-image-content');
+
+        if ($path === false) {
+            imagedestroy($image);
+
+            throw new RuntimeException(
+                'Could not create a temporary image file.'
+            );
+        }
+
         $this->imagePaths[] = $path;
+
+        try {
+            if (! imagejpeg($image, $path, 90)) {
+                throw new RuntimeException(
+                    'Could not write the test JPEG.'
+                );
+            }
+        } finally {
+            imagedestroy($image);
+        }
 
         return $path;
     }
