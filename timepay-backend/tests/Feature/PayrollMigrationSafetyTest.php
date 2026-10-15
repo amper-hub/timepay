@@ -19,6 +19,9 @@ class PayrollMigrationSafetyTest extends TestCase
     {
         parent::setUp();
 
+        putenv('PAYROLL_LEGACY_RATE_EFFECTIVE_DATES');
+        unset($_ENV['PAYROLL_LEGACY_RATE_EFFECTIVE_DATES'], $_SERVER['PAYROLL_LEGACY_RATE_EFFECTIVE_DATES']);
+
         $this->company = Company::query()->create([
             'name' => 'Migration Safety Co',
             'pay_metric' => 'hourly',
@@ -26,12 +29,32 @@ class PayrollMigrationSafetyTest extends TestCase
         ]);
     }
 
-    public function test_legacy_employee_with_exactly_one_positive_rate_is_unambiguous(): void
+    public function test_legacy_employee_with_one_positive_rate_and_verified_effective_date_is_unambiguous(): void
     {
-        $this->employee('42.00', '0.00');
+        $employee = $this->employee('42.00', '0.00');
+        $this->setEffectiveDateMap([(string) $employee->id => '2024-01-15']);
 
         $this->runLegacyRatePreflight();
         $this->assertTrue(true);
+    }
+
+    public function test_legacy_employee_without_verified_effective_date_is_rejected(): void
+    {
+        $this->employee('42.00', '0.00');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('missing or invalid verified effective date');
+        $this->runLegacyRatePreflight();
+    }
+
+    public function test_legacy_employee_with_invalid_effective_date_is_rejected(): void
+    {
+        $employee = $this->employee('42.00', '0.00');
+        $this->setEffectiveDateMap([(string) $employee->id => '2026-02-30']);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('missing or invalid verified effective date');
+        $this->runLegacyRatePreflight();
     }
 
     public function test_legacy_employee_with_no_positive_rate_is_rejected(): void
@@ -50,6 +73,14 @@ class PayrollMigrationSafetyTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('compensation basis/rate is missing or ambiguous');
         $this->runLegacyRatePreflight();
+    }
+
+    private function setEffectiveDateMap(array $dates): void
+    {
+        $encoded = json_encode($dates, JSON_THROW_ON_ERROR);
+        putenv('PAYROLL_LEGACY_RATE_EFFECTIVE_DATES='.$encoded);
+        $_ENV['PAYROLL_LEGACY_RATE_EFFECTIVE_DATES'] = $encoded;
+        $_SERVER['PAYROLL_LEGACY_RATE_EFFECTIVE_DATES'] = $encoded;
     }
 
     private function employee(string $hourlyRate, string $dailyRate): User
