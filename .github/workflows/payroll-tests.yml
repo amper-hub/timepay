@@ -50,3 +50,6 @@ jobs:
 
       - name: Run payroll migration safety tests
         run: php artisan test --filter=PayrollMigrationSafetyTest
+
+      - name: Run full backend test suite
+        run: php artisan test
