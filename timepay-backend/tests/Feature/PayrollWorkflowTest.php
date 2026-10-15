@@ -27,6 +27,7 @@ class PayrollWorkflowTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->withoutVite();
 
         Carbon::setTestNow('2026-10-15 12:00:00');
         $this->company = Company::query()->create(['name' => 'Payroll Test Co', 'pay_metric' => 'hourly', 'currency' => 'PHP']);
