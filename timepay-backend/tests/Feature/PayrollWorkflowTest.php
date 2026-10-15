@@ -134,6 +134,45 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame($period->id, $entry->payroll_period_id);
     }
 
+    public function test_december_withholding_reconciles_prior_approved_tax_to_annual_annex_e_liability(): void
+    {
+        $employee = $this->employee('Synthetic Year-End Tax Reconciliation Employee');
+        $this->profile($employee, [
+            'salary_type' => 'monthly',
+            'pay_frequency' => 'monthly',
+            'sss_enabled' => false,
+            'philhealth_enabled' => false,
+            'pagibig_enabled' => false,
+            'withholding_tax_enabled' => true,
+        ]);
+        $this->rate($employee, 'monthly', '40000.00');
+
+        // Eleven already-approved periods each recorded ₱40,000 taxable compensation
+        // and ₱3,208.40 withholding. The annual Annex E liability on ₱480,000 is ₱38,500.
+        for ($month = 1; $month <= 11; $month++) {
+            $start = Carbon::create(2026, $month, 1)->startOfMonth()->toDateString();
+            $end = Carbon::create(2026, $month, 1)->endOfMonth()->toDateString();
+            $priorPeriod = $this->period($this->company, $start, $end, 'monthly', 'approved');
+            $priorEntry = $this->entry($employee, $priorPeriod, '36791.60');
+            $priorEntry->lines()->create([
+                'category' => 'earning', 'code' => 'basic_pay', 'label' => 'Basic pay',
+                'amount' => '40000.00', 'taxable' => true,
+            ]);
+            $priorEntry->lines()->create([
+                'category' => 'employee_deduction', 'code' => 'bir_withholding_tax', 'label' => 'Withholding tax',
+                'amount' => '3208.40', 'taxable' => false,
+            ]);
+        }
+
+        $december = $this->period($this->company, '2026-12-01', '2026-12-31', 'monthly');
+        $calculated = app(PayrollCalculationService::class)->calculate($december, (int) $this->employer->id);
+        $entry = $calculated->entries->sole();
+
+        $this->assertSame('40000.00', $entry->gross_pay);
+        $this->assertSame('3207.60', $entry->lines->firstWhere('code', 'bir_withholding_tax')->amount);
+        $this->assertSame('36792.40', $entry->net_pay);
+    }
+
     public function test_monthly_withholding_tax_matches_independent_annex_e_bracket_calculation(): void
     {
         $employee = $this->employee('Synthetic Annex E Boundary Employee');
