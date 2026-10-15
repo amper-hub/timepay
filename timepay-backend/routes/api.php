@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Employee\PayrollController as EmployeePayrollContro
 use App\Http\Controllers\Api\EmployeeDtrController;
 use App\Http\Controllers\Api\MobilePasswordResetController;
 use App\Http\Controllers\Api\PayrollPayslipController;
+use App\Http\Controllers\Api\StorageHealthController;
 use App\Http\Controllers\Api\ProfileController as ApiProfileController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
