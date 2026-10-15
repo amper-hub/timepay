@@ -9,6 +9,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Validate legacy compensation data before creating any payroll tables.
+        // The legacy schema has hourly_rate and daily_rate but no monthly_rate or
+        // per-employee salary basis, so infer only when exactly one positive rate exists.
+        $this->assertLegacyCompensationIsUnambiguous();
+
         Schema::create('payroll_profiles', function (Blueprint $table) {
             $table->id();
             $table->foreignId('company_id')->constrained()->cascadeOnDelete();
@@ -217,25 +222,83 @@ return new class extends Migration
         }
     }
 
+    /**
+     * Fail before schema changes when legacy pay rates cannot be safely migrated.
+     *
+     * Legacy users have hourly_rate and daily_rate only. A single positive rate
+     * is the only available evidence of the employee's compensation basis.
+     */
+    private function assertLegacyCompensationIsUnambiguous(): void
+    {
+        if (! Schema::hasTable('users')
+            || ! Schema::hasColumn('users', 'company_id')
+            || ! Schema::hasColumn('users', 'role')
+            || ! Schema::hasColumn('users', 'hourly_rate')
+            || ! Schema::hasColumn('users', 'daily_rate')) {
+            return;
+        }
+
+        $users = DB::table('users')
+            ->whereNotNull('company_id')
+            ->whereIn(DB::raw('LOWER(role)'), ['employee'])
+            ->get(['id', 'company_id', 'hourly_rate', 'daily_rate']);
+
+        $problems = [];
+        foreach ($users as $user) {
+            $hourly = (float) ($user->hourly_rate ?? 0);
+            $daily = (float) ($user->daily_rate ?? 0);
+            $hasHourly = $hourly > 0;
+            $hasDaily = $daily > 0;
+
+            if ($hasHourly === $hasDaily) {
+                $problems[] = "user_id={$user->id} (hourly_rate={$hourly}, daily_rate={$daily})";
+            }
+        }
+
+        if ($problems !== []) {
+            throw new RuntimeException(
+                'Payroll migration stopped before creating payroll tables because compensation basis/rate is missing or ambiguous for: '
+                . implode('; ', $problems)
+                . '. Correct each employee rate explicitly, then rerun the migration.'
+            );
+        }
+    }
+
     private function backfillExistingEmployees(): void
     {
         if (! Schema::hasColumn('users', 'company_id') || ! Schema::hasColumn('users', 'role')) {
             return;
         }
 
-        $users = DB::table('users')->whereNotNull('company_id')->whereIn(DB::raw('LOWER(role)'), ['employee'])->get();
+        $users = DB::table('users')
+            ->whereNotNull('company_id')
+            ->whereIn(DB::raw('LOWER(role)'), ['employee'])
+            ->get();
+
         foreach ($users as $user) {
-            $company = DB::table('companies')->where('id', $user->company_id)->first();
-            $salaryType = ($company->pay_metric ?? 'hourly') === 'daily' ? 'daily' : 'hourly';
-            $rate = $salaryType === 'daily' ? ($user->daily_rate ?? 0) : ($user->hourly_rate ?? 0);
+            $hourly = (float) ($user->hourly_rate ?? 0);
+            $daily = (float) ($user->daily_rate ?? 0);
+            $hasHourly = $hourly > 0;
+            $hasDaily = $daily > 0;
+
+            // Repeat the validation defensively; never manufacture a zero-rate record.
+            if ($hasHourly === $hasDaily) {
+                throw new \RuntimeException(
+                    "Cannot backfill payroll compensation for user_id={$user->id}: exactly one positive legacy rate is required."
+                );
+            }
+
+            $salaryType = $hasDaily ? 'daily' : 'hourly';
+            $rate = $hasDaily ? $daily : $hourly;
+            $effectiveFrom = now()->toDateString();
 
             DB::table('payroll_profiles')->updateOrInsert(
                 ['user_id' => $user->id],
                 ['company_id' => $user->company_id, 'salary_type' => $salaryType, 'pay_frequency' => 'monthly', 'created_at' => now(), 'updated_at' => now()],
             );
             DB::table('payroll_compensation_histories')->updateOrInsert(
-                ['user_id' => $user->id, 'effective_from' => '2000-01-01'],
-                ['company_id' => $user->company_id, 'basis' => $salaryType, 'rate' => $rate, 'effective_to' => null, 'changed_by' => null, 'created_at' => now(), 'updated_at' => now()],
+                ['user_id' => $user->id, 'effective_from' => $effectiveFrom],
+                ['company_id' => $user->company_id, 'basis' => $salaryType, 'rate' => number_format($rate, 2, '.', ''), 'effective_to' => null, 'changed_by' => null, 'created_at' => now(), 'updated_at' => now()],
             );
         }
     }
