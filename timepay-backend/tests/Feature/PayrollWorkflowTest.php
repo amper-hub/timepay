@@ -218,9 +218,8 @@ class PayrollWorkflowTest extends TestCase
     {
         $employee = $this->employee('Synthetic Tax Credit Review Employee');
         $period = $this->period($this->company, '2026-12-01', '2026-12-31', 'monthly', 'pending_review');
-        $entry = $this->entry($employee, $period, '45500.00', [
-            'review_flags' => ['year_end_withholding_credit_requires_review'],
-        ]);
+        $entry = $this->entry($employee, $period, '45500.00');
+        $entry->update(['review_flags' => ['year_end_withholding_credit_requires_review']]);
         $entry->lines()->create([
             'category' => 'employee_deduction', 'code' => 'bir_withholding_tax',
             'label' => 'Year-end withholding credit', 'amount' => '-5500.00', 'taxable' => false,
