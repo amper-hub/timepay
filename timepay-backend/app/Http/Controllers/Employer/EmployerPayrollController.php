@@ -361,6 +361,12 @@ class EmployerPayrollController extends Controller
             'effective_from' => 'required|date',
             'effective_to' => 'nullable|date|after_or_equal:effective_from',
         ]);
+        if ($data['category'] === 'earning' && array_key_exists('taxable', $data) && ! (bool) $data['taxable']) {
+            throw ValidationException::withMessages([
+                'taxable' => 'Non-taxable recurring benefits are not supported until benefit-specific tax rules and cumulative limits are configured. Save this item as taxable or wait for the verified benefit rules.',
+            ]);
+        }
+
         $effectiveFrom = Carbon::parse($data['effective_from'], config('app.timezone'))->toDateString();
         $effectiveTo = isset($data['effective_to']) ? Carbon::parse($data['effective_to'], config('app.timezone'))->toDateString() : null;
 
