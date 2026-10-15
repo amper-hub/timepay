@@ -96,6 +96,13 @@ class PayrollCalculationService
                 $taxableCents = $work['taxable_cents'];
 
                 foreach ($this->activeProfileItems((int) $employee->id, $lockedPeriod) as $item) {
+                    // Profile items have no explicit proration policy. Do not silently
+                    // treat a partial-period item as a full-period amount without review.
+                    if ($item->effective_from->gt($lockedPeriod->period_start)
+                        || ($item->effective_to && $item->effective_to->lt($lockedPeriod->period_end))) {
+                        $flags[] = 'recurring_profile_item_partial_period_requires_review';
+                    }
+
                     $amount = $this->toCents($item->amount);
                     if ($item->category === 'earning') {
                         $lineData[] = $this->line('earning', $item->code, $item->label, $amount, null, null, $item->taxable, ['source' => 'recurring_profile_item']);
