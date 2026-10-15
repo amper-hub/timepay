@@ -101,6 +101,11 @@ class PayrollCalculationService
                 }
 
                 $work = $this->calculateBaseEarnings($employee, $profile, $lockedPeriod, $intervalsForPeriod, $flags);
+                if (in_array('missing_effective_pay_rate', $flags, true)) {
+                    throw ValidationException::withMessages([
+                        'compensation_history' => "Payroll cannot be calculated for {$employee->id}: no effective compensation rate covers part or all of the pay period. Correct the rate history and retry.",
+                    ]);
+                }
                 $lineData = $work['lines'];
                 $grossCents = $work['gross_cents'];
                 $taxableCents = $work['taxable_cents'];
