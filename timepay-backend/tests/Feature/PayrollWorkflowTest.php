@@ -154,6 +154,20 @@ class PayrollWorkflowTest extends TestCase
 
         $this->assertSame('draft', $period->fresh()->status);
         $this->assertDatabaseCount('payroll_entries', 1);
+
+        // The entire calendar year must be complete: December 31 itself is too early.
+        Carbon::setTestNow('2026-12-31 23:59:59');
+        try {
+            app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+            $this->fail('13th-month payroll must remain blocked throughout December 31.');
+        } catch (\\Illuminate\\Validation\\ValidationException $exception) {
+            $this->assertArrayHasKey('period', $exception->errors());
+        } finally {
+            Carbon::setTestNow();
+        }
+
+        $this->assertSame('draft', $period->fresh()->status);
+        $this->assertDatabaseCount('payroll_entries', 1);
     }
 
     public function test_calculation_flags_require_an_audited_review_note_before_approval(): void
