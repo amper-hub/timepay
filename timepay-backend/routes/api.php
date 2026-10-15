@@ -29,6 +29,8 @@ Route::post('/reset-password', [MobilePasswordResetController::class, 'resetPass
 
 // Protected routes requiring Sanctum authentication
 Route::middleware('auth:sanctum')->group(function () {
+    Route::get('health/storage', StorageHealthController::class)->name('api.health.storage');
+
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
