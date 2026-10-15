@@ -669,6 +669,19 @@ class PayrollWorkflowTest extends TestCase
             ->assertOk()->assertHeader('content-type', 'application/pdf');
     }
 
+    public function test_payroll_register_exports_are_blocked_until_period_is_approved(): void
+    {
+        Sanctum::actingAs($this->employer);
+
+        $draft = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly', 'draft');
+        $pendingReview = $this->period($this->company, '2026-11-01', '2026-11-30', 'monthly', 'pending_review');
+
+        foreach ([$draft, $pendingReview] as $period) {
+            $this->get("/api/employer/payroll/periods/{$period->id}/export.xlsx")->assertStatus(409);
+            $this->get("/api/employer/payroll/periods/{$period->id}/register.pdf")->assertStatus(409);
+        }
+    }
+
     public function test_payroll_register_exports_are_scoped_to_the_employers_company(): void
     {
         $employee = $this->employee('Export Isolation Employee');
