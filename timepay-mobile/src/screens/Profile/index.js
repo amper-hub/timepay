@@ -186,7 +186,7 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
         getApiErrorMessage(
           error,
           "Unable to reset facial recognition right now. Please try again.",
-          "face"
+          "profile"
         )
       );
     } finally {
@@ -757,7 +757,7 @@ function SettingsRow({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#f7f7f7",
+    backgroundColor: "#F5F7FA",
   },
   flex: {
     flex: 1,
@@ -768,7 +768,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 18,
-    backgroundColor: "#f7f7f7",
+    backgroundColor: "#F5F7FA",
   },
   backButton: {
     width: 64,
@@ -799,14 +799,16 @@ const styles = StyleSheet.create({
   sectionHeading: {
     marginTop: 15,
     marginBottom: 10,
-    color: "#252525",
-    fontSize: 16,
+    color: "#1F2937",
+    fontSize: 17,
     fontWeight: "700",
   },
   group: {
     overflow: "hidden",
     borderRadius: 18,
     backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     shadowColor: "#000000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.035,
@@ -867,16 +869,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
   },
   fieldLabel: {
-    color: "#777777",
-    fontSize: 12,
+    color: "#64748B",
+    fontSize: 14,
     fontWeight: "600",
   },
   textInput: {
-    minHeight: 32,
+    minHeight: 40,
     paddingHorizontal: 0,
     paddingVertical: 5,
     color: "#171717",
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "500",
   },
   primaryButton: {

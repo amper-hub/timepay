@@ -12,6 +12,7 @@ use App\Models\PayrollProfile;
 use App\Models\PayrollProfileItem;
 use App\Models\PayrollStatutoryRule;
 use App\Models\User;
+use App\Support\PayrollReviewFlags;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
@@ -41,6 +42,7 @@ class PayrollCalculationService
             $employees = User::query()
                 ->where('company_id', $lockedPeriod->company_id)
                 ->whereRaw('LOWER(role) = ?', ['employee'])
+                ->where('status', 'active')
                 ->whereHas('payrollProfile', fn ($query) => $query->where('payroll_eligible', true)->where('pay_frequency', $lockedPeriod->frequency))
                 ->with(['payrollProfile', 'company'])
                 ->orderBy('id')
@@ -66,8 +68,12 @@ class PayrollCalculationService
                 /** @var PayrollProfile $profile */
                 $profile = $employee->payrollProfile;
                 $sourceLogs = $logsByEmployee->get($employee->id, collect());
-                $intervals = $this->verifiedIntervals($sourceLogs);
                 $flags = [];
+                if ($sourceLogs->groupBy(fn (AttendanceLog $log): string => $log->type.'|'.$log->timestamp->format('Y-m-d H:i:s.u'))
+                    ->contains(fn (Collection $duplicates): bool => $duplicates->count() > 1)) {
+                    $flags[] = 'duplicate_attendance_requires_review';
+                }
+                $intervals = $this->verifiedIntervals($sourceLogs);
                 if (strtolower((string) $employee->status) !== 'active') {
                     $flags[] = 'employee_status_requires_review';
                 }
@@ -98,7 +104,10 @@ class PayrollCalculationService
                 foreach ($this->activeProfileItems((int) $employee->id, $lockedPeriod) as $item) {
                     $amount = $this->toCents($item->amount);
                     if ($item->category === 'earning') {
-                        $lineData[] = $this->line('earning', $item->code, $item->label, $amount, null, null, $item->taxable, ['source' => 'recurring_profile_item']);
+                        $lineData[] = $this->line('earning', $item->code, $item->label, $amount, null, null, $item->taxable, [
+                            'source' => 'recurring_profile_item', 'profile_item_id' => (int) $item->id,
+                            'effective_from' => $item->effective_from->toDateString(), 'effective_to' => $item->effective_to?->toDateString(),
+                        ]);
                         $grossCents += $amount;
                         if ($item->taxable) {
                             $taxableCents += $amount;
@@ -106,6 +115,9 @@ class PayrollCalculationService
                     } else {
                         $lineData[] = $this->line('employee_deduction', $item->code, $item->label, $amount, null, null, false, [
                             'source' => 'recurring_profile_item',
+                            'profile_item_id' => (int) $item->id,
+                            'effective_from' => $item->effective_from->toDateString(),
+                            'effective_to' => $item->effective_to?->toDateString(),
                             'authorization_reference' => $item->authorization_reference,
                         ]);
                     }
@@ -124,6 +136,11 @@ class PayrollCalculationService
                 }
 
                 if ($profile->withholding_tax_enabled) {
+                    $taxRule = $this->rule('bir_compensation_tax', $lockedPeriod->period_end);
+                    $statutory['rules']['bir_compensation_tax'] = [
+                        'name' => $taxRule['name'], 'effective_from' => $taxRule['effective_from'],
+                        'configuration' => $taxRule['configuration'],
+                    ];
                     $taxableAfterStatutory = max(0, $taxableCents - $statutory['employee_statutory_cents']);
                     $withholdingCents = $this->withholdingTax($employee, $lockedPeriod, $taxableAfterStatutory, $lineData);
                     if ($withholdingCents !== 0) {
@@ -182,6 +199,10 @@ class PayrollCalculationService
                             'pagibig_enabled' => $profile->pagibig_enabled,
                             'withholding_tax_enabled' => $profile->withholding_tax_enabled,
                         ],
+                        'attendance_snapshot' => collect($intervalsForPeriod)->flatMap(fn (array $interval): array => [
+                            ['id' => $interval['clock_in_id'], 'timestamp' => $interval['clock_in']->toDateTimeString(), 'type' => 'clock_in'],
+                            ['id' => $interval['clock_out_id'], 'timestamp' => $interval['clock_out']->toDateTimeString(), 'type' => 'clock_out'],
+                        ])->values()->all(),
                         'worked_minutes' => $work['worked_minutes'],
                         'payable_days' => $work['payable_days'],
                         'hourly_daily_monthly_rates' => $work['rates'],
@@ -224,19 +245,197 @@ class PayrollCalculationService
     public function approve(PayrollPeriod $period, User $actor, ?string $reviewNote = null): PayrollPeriod
     {
         return DB::transaction(function () use ($period, $actor, $reviewNote): PayrollPeriod {
-            $locked = PayrollPeriod::query()->whereKey($period->id)->lockForUpdate()->with('entries')->firstOrFail();
+            $locked = PayrollPeriod::query()->whereKey($period->id)->lockForUpdate()->with(['entries.employee', 'entries.lines'])->firstOrFail();
             if ($locked->status !== 'pending_review') {
                 throw ValidationException::withMessages(['status' => 'Only payroll awaiting review can be approved.']);
             }
             if ($locked->entries->isEmpty()) {
                 throw ValidationException::withMessages(['period' => 'Calculate payroll before approving it.']);
             }
-            if ($locked->entries->contains(fn (PayrollEntry $entry): bool => $this->toCents($entry->net_pay) < 0)) {
-                throw ValidationException::withMessages(['payroll' => 'Payroll has negative net pay. Resolve deductions before approval.']);
-            }
             $flaggedEntries = $locked->entries->filter(fn (PayrollEntry $entry): bool => ! empty($entry->review_flags));
             if ($flaggedEntries->isNotEmpty() && mb_strlen(trim((string) $reviewNote)) < 10) {
                 throw ValidationException::withMessages(['review_note' => 'Add a review note of at least 10 characters to approve payroll with calculation flags.']);
+            }
+
+            $criticalFlags = PayrollReviewFlags::critical();
+            $issues = [];
+            $periodTotals = ['gross' => 0, 'deductions' => 0, 'employer' => 0, 'net' => 0];
+            $linkedLogIds = [];
+            $attendanceSnapshotsByEntry = [];
+
+            foreach ($locked->entries as $entry) {
+                $employeeName = $entry->employee?->name ?? 'Unknown employee';
+                $employeeLabel = "{$employeeName} (ID {$entry->user_id})";
+                $flags = $entry->review_flags ?? [];
+                foreach (array_intersect($criticalFlags, $flags) as $flag) {
+                    $issues[] = "{$employeeLabel}: critical calculation issue '{$flag}' must be corrected and recalculated before approval.";
+                }
+
+                if ((int) $entry->company_id !== (int) $locked->company_id || (int) $entry->payroll_period_id !== (int) $locked->id
+                    || ! $entry->employee || (int) $entry->employee->company_id !== (int) $locked->company_id
+                    || strtolower((string) $entry->employee->role) !== 'employee'
+                    || (int) data_get($entry->calculation_snapshot, 'employee_snapshot.id', $entry->user_id) !== (int) $entry->user_id) {
+                    $issues[] = "{$employeeLabel}: employee is missing or belongs to a different company.";
+                    continue;
+                }
+                $inactiveAnnualPayWasExplicitlyReviewed = $locked->frequency === 'yearly'
+                    && in_array('inactive_employee_13th_month_requires_review', $entry->review_flags ?? [], true);
+                if (strtolower((string) $entry->employee->status) !== 'active' && ! $inactiveAnnualPayWasExplicitlyReviewed) {
+                    $issues[] = "{$employeeLabel}: employee is inactive; ordinary payroll cannot be approved for this account.";
+                }
+
+                $snapshot = $entry->calculation_snapshot ?? [];
+                if ($locked->frequency !== 'yearly') {
+                    $currentProfile = PayrollProfile::query()->where('company_id', $locked->company_id)
+                        ->where('user_id', $entry->user_id)->first();
+                    $profileSnapshot = data_get($snapshot, 'payroll_profile_snapshot', []);
+                    if (! $currentProfile || ! $currentProfile->payroll_eligible
+                        || $currentProfile->pay_frequency !== $locked->frequency) {
+                        $issues[] = "{$employeeLabel}: current payroll eligibility or frequency no longer matches this snapshot.";
+                    } elseif ($profileSnapshot !== []) {
+                        foreach ($profileSnapshot as $field => $value) {
+                            if ((string) $currentProfile->{$field} !== (string) $value) {
+                                $issues[] = "{$employeeLabel}: payroll setting '{$field}' changed after calculation; recalculate before approval.";
+                                break;
+                            }
+                        }
+                    }
+
+                    $currentRates = $this->ratesFor((int) $entry->user_id, $locked)->map(fn (PayrollCompensationHistory $rate): array => [
+                        'basis' => $rate->basis, 'rate' => $rate->rate,
+                        'effective_from' => $rate->effective_from->toDateString(), 'effective_to' => $rate->effective_to?->toDateString(),
+                    ])->values()->all();
+                    if ($currentRates !== data_get($snapshot, 'hourly_daily_monthly_rates', [])) {
+                        $issues[] = "{$employeeLabel}: compensation history changed after calculation; recalculate before approval.";
+                    }
+
+                    $recurringLines = $entry->lines->filter(fn (PayrollEntryLine $line): bool => data_get($line->details, 'source') === 'recurring_profile_item');
+                    $activeItems = $this->activeProfileItems((int) $entry->user_id, $locked);
+                    if ($activeItems->pluck('id')->map(fn ($id): int => (int) $id)->sort()->values()->all()
+                        !== $recurringLines->map(fn (PayrollEntryLine $line): int => (int) data_get($line->details, 'profile_item_id'))->sort()->values()->all()) {
+                        $issues[] = "{$employeeLabel}: recurring earnings or deductions changed after calculation; recalculate before approval.";
+                    }
+                    foreach ($recurringLines as $line) {
+                        $item = PayrollProfileItem::query()->where('company_id', $locked->company_id)
+                            ->where('user_id', $entry->user_id)->find(data_get($line->details, 'profile_item_id'));
+                        $expectedCategory = $item?->category === 'earning' ? 'earning' : 'employee_deduction';
+                        if (! $item || $item->code !== $line->code || $item->label !== $line->label
+                            || $this->toCents($item->amount) !== $this->toCents($line->amount)
+                            || $expectedCategory !== $line->category || (bool) $item->taxable !== (bool) $line->taxable
+                            || $item->effective_from->toDateString() !== data_get($line->details, 'effective_from')
+                            || $item->effective_to?->toDateString() !== data_get($line->details, 'effective_to')) {
+                            $issues[] = "{$employeeLabel}: a recurring earning or deduction changed after calculation; recalculate before approval.";
+                            break;
+                        }
+                    }
+
+                    foreach (data_get($snapshot, 'statutory_rules', []) as $code => $ruleSnapshot) {
+                        $currentRule = PayrollStatutoryRule::query()->where('code', $code)
+                            ->whereDate('effective_from', $ruleSnapshot['effective_from'])
+                            ->whereDate('effective_from', '<=', $locked->period_end->toDateString())
+                            ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $locked->period_end->toDateString()))
+                            ->first();
+                        if (! $currentRule || $currentRule->configuration !== ($ruleSnapshot['configuration'] ?? null)) {
+                            $issues[] = "{$employeeLabel}: statutory rule '{$code}' changed or is unavailable; recalculate before approval.";
+                        }
+                    }
+                    if (($profileSnapshot['withholding_tax_enabled'] ?? false)
+                        && ! array_key_exists('bir_compensation_tax', data_get($snapshot, 'statutory_rules', []))) {
+                        $issues[] = "{$employeeLabel}: the applicable withholding-tax rule is missing from the calculation snapshot.";
+                    }
+                }
+
+                $attendanceSnapshot = collect(data_get($snapshot, 'attendance_snapshot', []))
+                    ->keyBy(fn (array $source): int => (int) $source['id']);
+                $attendanceSnapshotsByEntry[(int) $entry->id] = $attendanceSnapshot;
+                $entrySourceIds = DB::table('payroll_entry_attendance_logs')->where('payroll_entry_id', $entry->id)
+                    ->pluck('attendance_log_id')->map(fn ($id): int => (int) $id)->sort()->values();
+                if ($attendanceSnapshot->keys()->map(fn ($id): int => (int) $id)->sort()->values()->all() !== $entrySourceIds->all()) {
+                    $issues[] = "{$employeeLabel}: attendance sources no longer match the calculation snapshot.";
+                }
+
+                $lineSums = ['earning' => 0, 'employee_deduction' => 0, 'employer_contribution' => 0];
+                foreach ($entry->lines as $line) {
+                    if (array_key_exists($line->category, $lineSums)) {
+                        $lineSums[$line->category] += $this->toCents($line->amount);
+                    }
+                }
+                $grossCents = $this->toCents($entry->gross_pay);
+                $deductionCents = $this->toCents($entry->employee_deductions);
+                $employerCents = $this->toCents($entry->employer_contributions);
+                $netCents = $this->toCents($entry->net_pay);
+                $expectedNet = $grossCents - $deductionCents;
+                if ($grossCents !== $lineSums['earning'] || $deductionCents !== $lineSums['employee_deduction']
+                    || $employerCents !== $lineSums['employer_contribution'] || $netCents !== $expectedNet) {
+                    $issues[] = "{$employeeLabel}: saved totals do not match the calculated register lines; recalculate before approval.";
+                }
+                if ($this->toCents($entry->employer_cost) !== $grossCents + $employerCents) {
+                    $issues[] = "{$employeeLabel}: employer cost does not match gross pay plus employer contributions.";
+                }
+                if ($entry->payments()->exists() || $this->toCents($entry->amount_paid) !== 0) {
+                    $issues[] = "{$employeeLabel}: payment records already exist before approval; review the payment audit history.";
+                }
+                if ($grossCents === 0 && ((int) $entry->worked_minutes > 0 || (int) $entry->payable_days > 0 || $lineSums['earning'] > 0)) {
+                    $issues[] = "{$employeeLabel}: gross pay is zero despite payable attendance or earnings; verify rates and recalculate.";
+                }
+                if ($deductionCents > $grossCents || $netCents < 0) {
+                    $issues[] = "{$employeeLabel}: deductions exceed gross pay; correct the calculation before approval.";
+                }
+
+                $periodTotals['gross'] += $grossCents;
+                $periodTotals['deductions'] += $deductionCents;
+                $periodTotals['employer'] += $employerCents;
+                $periodTotals['net'] += $netCents;
+
+                $sourceIds = DB::table('payroll_entry_attendance_logs')->where('payroll_entry_id', $entry->id)
+                    ->pluck('attendance_log_id')->map(fn ($id): int => (int) $id)->all();
+                foreach ($sourceIds as $sourceId) {
+                    if (isset($linkedLogIds[$sourceId])) {
+                        $issues[] = "{$employeeLabel}: attendance record {$sourceId} is duplicated in this payroll run.";
+                    }
+                    $linkedLogIds[$sourceId] = (int) $entry->id;
+                }
+            }
+
+            if ($linkedLogIds !== []) {
+                $logs = \App\Models\AttendanceLog::query()->whereIn('id', array_keys($linkedLogIds))->lockForUpdate()->get()->keyBy('id');
+                foreach ($linkedLogIds as $logId => $entryId) {
+                    $entry = $locked->entries->firstWhere('id', $entryId);
+                    $log = $logs->get($logId);
+                    if (! $log || (int) $log->company_id !== (int) $locked->company_id
+                        || (int) $log->user_id !== (int) $entry?->user_id || $log->status !== 'verified' || $log->is_paid) {
+                        $employeeName = $entry?->employee?->name ?? 'Unknown employee';
+                        $issues[] = "{$employeeName} (ID {$entry?->user_id}): linked attendance record {$logId} is missing, unverified, paid, or outside this employee/company.";
+                        continue;
+                    }
+                    $sourceSnapshot = $attendanceSnapshotsByEntry[$entryId]?->get($logId);
+                    if (! $sourceSnapshot || $log->type !== $sourceSnapshot['type']
+                        || $log->timestamp->toDateTimeString() !== $sourceSnapshot['timestamp']) {
+                        $employeeName = $entry?->employee?->name ?? 'Unknown employee';
+                        $issues[] = "{$employeeName} (ID {$entry?->user_id}): attendance record {$logId} changed after calculation; recalculate before approval.";
+                    }
+
+                    $alreadyIncluded = DB::table('payroll_entry_attendance_logs as source')
+                        ->join('payroll_entries as other_entry', 'other_entry.id', '=', 'source.payroll_entry_id')
+                        ->join('payroll_periods as other_period', 'other_period.id', '=', 'other_entry.payroll_period_id')
+                        ->where('source.attendance_log_id', $logId)->where('other_period.id', '!=', $locked->id)
+                        ->where('other_period.status', '!=', 'voided')->exists();
+                    if ($alreadyIncluded) {
+                        $employeeName = $entry?->employee?->name ?? 'Unknown employee';
+                        $issues[] = "{$employeeName} (ID {$entry?->user_id}): attendance record {$logId} is included in another non-voided payroll period.";
+                    }
+                }
+            }
+
+            if ($periodTotals['gross'] !== $this->toCents($locked->gross_total)
+                || $periodTotals['deductions'] !== $this->toCents($locked->deduction_total)
+                || $periodTotals['employer'] !== $this->toCents($locked->employer_contribution_total)
+                || $periodTotals['net'] !== $this->toCents($locked->net_total)) {
+                $issues[] = 'Payroll period totals do not match the employee register; recalculate before approval.';
+            }
+
+            if ($issues !== []) {
+                throw ValidationException::withMessages(['payroll' => array_values(array_unique($issues))]);
             }
 
             $before = ['status' => $locked->status, 'net_total' => $locked->net_total];
@@ -288,6 +487,9 @@ class PayrollCalculationService
             $taxCents = $annualTaxCents - $priorTaxCents;
 
             $flags = ['13th_month_uses_approved_basic_pay_snapshots'];
+            if (strtolower((string) $employee->status) !== 'active') {
+                $flags[] = 'inactive_employee_13th_month_requires_review';
+            }
             if (now(config('app.timezone'))->toDateString() < "{$year}-12-31") {
                 $flags[] = 'calendar_year_not_completed';
             }
@@ -337,9 +539,10 @@ class PayrollCalculationService
         $monthlyBases = [];
 
         $matchingRates = $rates->where('basis', $profile->salary_type);
-        if ($matchingRates->isEmpty()) {
+        $rateIsRequired = $profile->salary_type === 'monthly' || $intervals !== [];
+        if ($matchingRates->isEmpty() && $rateIsRequired) {
             $flags[] = 'missing_effective_pay_rate';
-        } elseif ($matchingRates->contains(fn (PayrollCompensationHistory $rate): bool => $this->toCents($rate->rate) <= 0)) {
+        } elseif ($rateIsRequired && $matchingRates->contains(fn (PayrollCompensationHistory $rate): bool => $this->toCents($rate->rate) <= 0)) {
             $flags[] = 'zero_compensation_rate_requires_review';
         }
 

@@ -77,8 +77,10 @@
             this.loading = false;
         },
         closeModal() {
+            const employeeWasCreated = Boolean(this.createdEmployee);
             this.resetForm();
             this.open = false;
+            if (employeeWasCreated) window.location.reload();
         },
     }"
     @open-add-employee-modal.window="open = true"
@@ -144,7 +146,7 @@
                 <div x-show="step === 'form'" x-cloak>
                     <form @submit.prevent="submitEmployee()" class="space-y-5">
                         <div>
-                            <label for="employee-name" class="block text-sm font-medium text-slate-700">Full Name</label>
+                    <label for="employee-name" class="block text-base font-semibold text-slate-800">Full Name</label>
                             <input
                                 id="employee-name"
                                 type="text"
@@ -152,7 +154,7 @@
                                 :disabled="loading"
                                 required
                                 autocomplete="name"
-                                class="mt-1.5 block w-full rounded-lg border px-3 py-2.5 text-sm shadow-sm transition focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500"
+                                class="mt-1.5 block min-h-11 w-full rounded-lg border px-3 py-2.5 text-base shadow-sm transition focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500"
                                 :class="errors.name ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-slate-300 focus:border-emerald-600 focus:ring-emerald-200'"
                                 placeholder="Jane Smith"
                             >
@@ -162,7 +164,7 @@
                         </div>
 
                         <div>
-                            <label for="employee-email" class="block text-sm font-medium text-slate-700">Email Address</label>
+                    <label for="employee-email" class="block text-base font-semibold text-slate-800">Email Address</label>
                             <input
                                 id="employee-email"
                                 type="email"
@@ -170,7 +172,7 @@
                                 :disabled="loading"
                                 required
                                 autocomplete="email"
-                                class="mt-1.5 block w-full rounded-lg border px-3 py-2.5 text-sm shadow-sm transition focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500"
+                                class="mt-1.5 block min-h-11 w-full rounded-lg border px-3 py-2.5 text-base shadow-sm transition focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500"
                                 :class="errors.email ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-slate-300 focus:border-emerald-600 focus:ring-emerald-200'"
                                 placeholder="jane@company.com"
                             >
@@ -180,9 +182,9 @@
                         </div>
 
                         <div>
-                            <label for="employee-hourly-rate" class="block text-sm font-medium text-slate-700">Hourly Rate</label>
+                            <label for="employee-hourly-rate" class="block text-base font-semibold text-slate-800">Hourly Rate</label>
                             <div class="relative mt-1.5">
-                                <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-sm text-slate-500" x-text="currencySymbol"></span>
+                                <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-base text-slate-600" x-text="currencySymbol"></span>
                                 <input
                                     id="employee-hourly-rate"
                                     type="number"
@@ -191,7 +193,7 @@
                                     x-model="form.hourly_rate"
                                     :disabled="loading"
                                     required
-                                    class="block w-full rounded-lg border py-2.5 pl-7 pr-3 text-sm shadow-sm transition focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500"
+                                    class="block min-h-11 w-full rounded-lg border py-2.5 pl-7 pr-3 text-base shadow-sm transition focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500"
                                     :class="errors.hourly_rate ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-slate-300 focus:border-emerald-600 focus:ring-emerald-200'"
                                     placeholder="15.00"
                                 >
@@ -206,14 +208,14 @@
                                 type="button"
                                 @click="closeModal()"
                                 :disabled="loading"
-                                class="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                class="min-h-11 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-base font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 Cancel
                             </button>
                             <button
                                 type="submit"
                                 :disabled="loading"
-                                class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                class="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-base font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 <svg
                                     x-show="loading"
@@ -249,7 +251,7 @@
                     </div>
 
                     <div class="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-amber-800">Temporary Password</p>
+                        <p class="text-sm font-semibold uppercase tracking-wide text-amber-800">Temporary Password</p>
                         <p class="mt-1 text-sm text-amber-900">This password is shown only once. Copy it now and share it securely with the employee.</p>
 
                         <div class="mt-4 flex items-center gap-3 rounded-lg border border-amber-300 bg-white px-4 py-3 shadow-inner">
@@ -257,7 +259,7 @@
                             <button
                                 type="button"
                                 @click="copyPassword()"
-                                class="flex-shrink-0 rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-900 transition hover:bg-amber-200"
+                                class="flex min-h-11 flex-shrink-0 items-center rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-900 transition hover:bg-amber-200"
                             >
                                 <span x-text="copied ? 'Copied!' : 'Copy to Clipboard'"></span>
                             </button>
@@ -283,14 +285,14 @@
                         <button
                             type="button"
                             @click="resetForm()"
-                            class="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                            class="min-h-11 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-base font-semibold text-slate-700 transition hover:bg-slate-50"
                         >
                             Add Another Employee
                         </button>
                         <button
                             type="button"
                             @click="closeModal()"
-                            class="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700"
+                            class="min-h-11 rounded-lg bg-emerald-600 px-4 py-2.5 text-base font-semibold text-white transition hover:bg-emerald-700"
                         >
                             Done
                         </button>

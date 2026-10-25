@@ -105,39 +105,360 @@ class PayrollWorkflowTest extends TestCase
         ])->assertOk()->assertJsonPath('data.status', 'approved');
     }
 
-    public function test_calculation_flags_require_an_audited_review_note_before_approval(): void
+    public function test_inactive_employee_thirteenth_month_is_an_audited_final_pay_exception_without_reactivation(): void
     {
-        $employee = $this->employee('Hourly Employee');
-        $this->profile($employee, ['pay_frequency' => 'monthly']);
-        $this->rate($employee, 'hourly', '20.00');
-        $this->attendance($employee, '2026-10-02 08:00:00', 'clock_in');
-        $this->attendance($employee, '2026-10-02 18:00:00', 'clock_out');
-        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
-
+        $employee = $this->employee('Separated Rank And File Employee');
+        $this->profile($employee, ['pay_frequency' => 'monthly', 'rank_and_file' => true]);
+        $approvedPeriod = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly', 'approved');
+        $approvedEntry = $this->entry($employee, $approvedPeriod, '12000.00');
+        $approvedEntry->lines()->create([
+            'category' => 'earning', 'code' => 'basic_pay', 'label' => 'Basic pay', 'amount' => '12000.00', 'taxable' => true,
+        ]);
         $employee->update(['status' => 'inactive']);
+        $period = $this->period($this->company, '2026-01-01', '2026-12-31', 'yearly');
         $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
-        $this->assertContains('employee_status_requires_review', $calculated->entries->sole()->review_flags);
-        $this->assertSame('inactive', data_get($calculated->entries->sole()->calculation_snapshot, 'employee_status_snapshot'));
+        $this->assertContains('inactive_employee_13th_month_requires_review', $calculated->entries->sole()->review_flags);
+        Sanctum::actingAs($this->employer);
+
+        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve")->assertUnprocessable()->assertJsonValidationErrors('review_note');
+        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve", [
+            'review_note' => 'Reviewed the separated employee’s final 13th-month calculation.',
+        ])->assertOk()->assertJsonPath('data.status', 'approved');
+
+        $this->assertSame('inactive', $employee->fresh()->status);
+        $this->assertDatabaseHas('payroll_audits', ['entity_id' => $period->id, 'action' => 'approved']);
+    }
+
+    public function test_reviewable_warning_requires_an_audited_note_before_approval(): void
+    {
+        $employee = $this->employee('Monthly Employee');
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($employee, 'monthly', '30000.00');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-30', 'monthly');
+        $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+        $this->assertContains('monthly_salary_prorated_by_calendar_day', $calculated->entries->sole()->review_flags);
         Sanctum::actingAs($this->employer);
 
         $this->postJson("/api/employer/payroll/periods/{$period->id}/approve")->assertUnprocessable();
         $this->postJson("/api/employer/payroll/periods/{$period->id}/approve", [
-            'review_note' => 'Checked the long shift and inactive status against approved records.',
+            'review_note' => 'Reviewed the partial-month salary proration against the period dates.',
         ])->assertOk()->assertJsonPath('data.status', 'approved');
 
         $audit = PayrollAudit::query()->where('entity_type', 'payroll_period')->where('entity_id', $period->id)
             ->where('action', 'approved')->sole();
-        $this->assertSame('Checked the long shift and inactive status against approved records.', data_get($audit->after_data, 'review_note'));
+        $this->assertSame('Reviewed the partial-month salary proration against the period dates.', data_get($audit->after_data, 'review_note'));
+        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve")->assertUnprocessable()->assertJsonValidationErrors('status');
+    }
+
+    public function test_inactive_employees_are_excluded_from_new_ordinary_payroll_calculations(): void
+    {
+        $active = $this->employee('Active Payroll Employee');
+        $inactive = $this->employee('Inactive Payroll Employee');
+        foreach ([$active, $inactive] as $employee) {
+            $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+            $this->rate($employee, 'monthly', '30000.00');
+        }
+        $inactive->update(['status' => 'inactive']);
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+
+        $this->assertSame([$active->id], $calculated->entries->pluck('user_id')->all());
+        $this->assertDatabaseMissing('payroll_entries', ['payroll_period_id' => $period->id, 'user_id' => $inactive->id]);
+    }
+
+    public function test_missing_compensation_rate_blocks_approval_even_with_a_review_note(): void
+    {
+        $employee = $this->employee('Rate Gap Employee');
+        $this->profile($employee, ['salary_type' => 'hourly', 'pay_frequency' => 'monthly']);
+        $this->attendance($employee, '2026-10-12 08:00:00', 'clock_in');
+        $this->attendance($employee, '2026-10-12 17:00:00', 'clock_out');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+        app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+        Sanctum::actingAs($this->employer);
+
+        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve", [
+            'review_note' => 'Looked at the employee record before approval.',
+        ])->assertUnprocessable()->assertJsonValidationErrors('payroll');
+        $this->assertDatabaseHas('payroll_periods', ['id' => $period->id, 'status' => 'pending_review']);
+    }
+
+    public function test_attendance_marked_paid_after_calculation_blocks_approval(): void
+    {
+        $employee = $this->employee('Paid Attendance Employee');
+        $this->profile($employee, ['salary_type' => 'hourly', 'pay_frequency' => 'monthly']);
+        $this->rate($employee, 'hourly', '100.00');
+        $clockIn = $this->attendance($employee, '2026-10-12 08:00:00', 'clock_in');
+        $this->attendance($employee, '2026-10-12 17:00:00', 'clock_out');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+        app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+        $clockIn->update(['is_paid' => true]);
+        Sanctum::actingAs($this->employer);
+
+        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve", [
+            'review_note' => 'Reviewed the register and attendance again.',
+        ])->assertUnprocessable()->assertJsonValidationErrors('payroll');
+    }
+
+    public function test_compensation_changed_after_calculation_requires_recalculation(): void
+    {
+        $employee = $this->employee('Changed Rate Employee');
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $rate = $this->rate($employee, 'monthly', '30000.00');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+        app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+        $rate->update(['rate' => '35000.00']);
+        Sanctum::actingAs($this->employer);
+
+        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve")
+            ->assertUnprocessable()->assertJsonValidationErrors('payroll');
+    }
+
+    public function test_zero_pay_is_approvable_when_hourly_employee_has_no_payable_work(): void
+    {
+        $employee = $this->employee('No Work Employee');
+        $this->profile($employee, ['salary_type' => 'hourly', 'pay_frequency' => 'monthly']);
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+        $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+        $this->assertSame('0.00', $calculated->entries->sole()->gross_pay);
+        $this->assertSame([], $calculated->entries->sole()->review_flags);
+        Sanctum::actingAs($this->employer);
+
+        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve")->assertOk()->assertJsonPath('data.status', 'approved');
+    }
+
+    public function test_deductions_exceeding_gross_block_approval(): void
+    {
+        $employee = $this->employee('Excess Deduction Employee');
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($employee, 'monthly', '1000.00');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+        $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+        $entry = $calculated->entries->sole();
+        $entry->lines()->create([
+            'category' => 'employee_deduction', 'code' => 'test_deduction', 'label' => 'Test deduction', 'amount' => '1500.00', 'taxable' => false,
+        ]);
+        $entry->update(['employee_deductions' => '1500.00', 'net_pay' => '-500.00', 'review_flags' => ['negative_net_pay_requires_review']]);
+        $period->update(['deduction_total' => '1500.00', 'net_total' => '-500.00']);
+        Sanctum::actingAs($this->employer);
+
+        $this->postJson("/api/employer/payroll/periods/{$period->id}/approve", [
+            'review_note' => 'The deductions and pay amounts were reviewed.',
+        ])->assertUnprocessable()->assertJsonValidationErrors('payroll');
+    }
+
+    public function test_statutory_contribution_thresholds_use_separate_employee_and_employer_shares(): void
+    {
+        $cases = [
+            ['Boundary 5250', '5250.00', '275.00', '560.00', '250.00', '105.00'],
+            ['Boundary 15000', '15000.00', '750.00', '1530.00', '375.00', '200.00'],
+            ['Boundary 100000', '100000.00', '1750.00', '3530.00', '2500.00', '200.00'],
+        ];
+        foreach ($cases as [$name, $salary, $sssEmployee, $sssEmployerAndEc, $philhealthEmployee, $pagibigEmployee]) {
+            $employee = $this->employee($name);
+            $this->profile($employee, [
+                'salary_type' => 'monthly', 'sss_enabled' => true, 'philhealth_enabled' => true, 'pagibig_enabled' => true,
+            ]);
+            $this->rate($employee, 'monthly', $salary);
+        }
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+        $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+
+        foreach ($cases as [$name, , $sssEmployee, $sssEmployerAndEc, $philhealthEmployee, $pagibigEmployee]) {
+            $entry = $calculated->entries->first(fn (PayrollEntry $entry): bool => $entry->employee->name === $name);
+            $this->assertSame($sssEmployee, $entry->lines->firstWhere('code', 'sss_employee')->amount);
+            $this->assertSame($sssEmployerAndEc, number_format($entry->lines->whereIn('code', ['sss_employer', 'sss_ec'])->sum(fn ($line): float => (float) $line->amount), 2, '.', ''));
+            $this->assertSame($philhealthEmployee, $entry->lines->firstWhere('code', 'philhealth_employee')->amount);
+            $this->assertSame($pagibigEmployee, $entry->lines->firstWhere('code', 'pagibig_employee')->amount);
+        }
+    }
+
+    public function test_bir_monthly_table_boundary_values_are_applied_to_centavo_precision(): void
+    {
+        foreach ([['Tax threshold', '20833.00', '0.00'], ['Tax above threshold', '20834.00', '0.15']] as [$name, $salary, $tax]) {
+            $employee = $this->employee($name);
+            $this->profile($employee, ['salary_type' => 'monthly', 'withholding_tax_enabled' => true]);
+            $this->rate($employee, 'monthly', $salary);
+        }
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+        $calculated = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id);
+
+        foreach ([['Tax threshold', '0.00'], ['Tax above threshold', '0.15']] as [$name, $expectedTax]) {
+            $entry = $calculated->entries->first(fn (PayrollEntry $entry): bool => $entry->employee->name === $name);
+            $this->assertSame($expectedTax, $entry->lines->firstWhere('code', 'bir_withholding_tax')?->amount ?? '0.00');
+        }
     }
 
     public function test_web_payroll_actions_return_to_the_period_the_employer_just_created(): void
     {
         $this->actingAs($this->employer);
-        $this->post('/employer/payroll/periods', [
+        $response = $this->post('/employer/payroll/periods', [
             'period_start' => '2026-10-01', 'period_end' => '2026-10-31', 'frequency' => 'monthly',
-        ])->assertRedirect(route('employer.payroll'));
+        ]);
 
-        $this->get(route('employer.payroll'))->assertOk()->assertSee('Pay register');
+        $response->assertRedirect();
+        $this->get($response->headers->get('Location'))->assertOk()->assertSee('Employee register');
+    }
+
+    public function test_payroll_page_shows_the_simple_summary_and_first_run_empty_state(): void
+    {
+        $this->employee('Setup check employee');
+
+        $this->actingAs($this->employer)
+            ->get(route('employer.payroll'))
+            ->assertOk()
+            ->assertSee('Manage payroll periods, review calculations, and track manual payments.')
+            ->assertSee('Payroll overview')
+            ->assertSee('Eligible Employees')
+            ->assertSee('Gross payroll')
+            ->assertSee('Total deductions')
+            ->assertSee('Net payroll')
+            ->assertDontSee('Employer payroll cost');
+
+        $this->get(route('employer.payroll', ['section' => 'periods']))
+            ->assertOk()
+            ->assertSee('No payroll periods yet. Create your first payroll period to get started.');
+
+        $this->get(route('employer.payroll', ['section' => 'settings']))
+            ->assertOk()
+            ->assertSee('Employee Payroll Settings')
+            ->assertSee('Pay Profile')
+            ->assertSee('Eligibility and Contributions')
+            ->assertSee('Recurring Earnings and Deductions');
+    }
+
+    public function test_payroll_page_uses_calculated_period_values_and_shows_review_warnings(): void
+    {
+        $employee = $this->employee('Review Employee');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly', 'pending_review');
+        $period->update([
+            'gross_total' => '125.50',
+            'deduction_total' => '10.00',
+            'employer_contribution_total' => '12.00',
+            'net_total' => '115.50',
+            'calculated_at' => now(),
+        ]);
+        $entry = $this->entry($employee, $period, '115.50');
+        $entry->update(['review_flags' => ['employee_status_requires_review']]);
+
+        $this->actingAs($this->employer)
+            ->get(route('employer.payroll', ['period_id' => $period->id]))
+            ->assertOk()
+            ->assertSee($this->company->formatMoney('125.50'))
+            ->assertSee($this->company->formatMoney('10.00'))
+            ->assertSee($this->company->formatMoney('115.50'))
+            ->assertSee('Review flags before approval')
+            ->assertSee('Employee is inactive. Ordinary payroll approval is blocked; review the employee’s outstanding pay separately.')
+            ->assertSee('Review note')
+            ->assertSee('Approval is blocked until critical issues are corrected and the period is recalculated.')
+            ->assertSee('View payment history and balances');
+    }
+
+    public function test_draft_payroll_shows_company_scoped_employee_setup_warnings(): void
+    {
+        $employee = $this->employee('Missing Profile Employee');
+        $otherCompany = Company::query()->create(['name' => 'Other Co', 'pay_metric' => 'hourly', 'currency' => 'PHP']);
+        $this->employee('Other Company Employee', $otherCompany);
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        $this->actingAs($this->employer)
+            ->get(route('employer.payroll', ['period_id' => $period->id]))
+            ->assertOk()
+            ->assertSee('Check employee setup before calculating')
+            ->assertSee('Missing Profile Employee')
+            ->assertSee('Missing pay profile.')
+            ->assertDontSee('Other Company Employee');
+    }
+
+    public function test_web_period_creation_rejects_an_end_date_before_the_start_date(): void
+    {
+        $this->actingAs($this->employer)
+            ->from(route('employer.payroll'))
+            ->post('/employer/payroll/periods', [
+                'period_start' => '2026-10-20',
+                'period_end' => '2026-10-19',
+                'frequency' => 'monthly',
+            ])
+            ->assertRedirect(route('employer.payroll'))
+            ->assertSessionHasErrors('period_end');
+
+        $this->assertDatabaseCount('payroll_periods', 0);
+    }
+
+    public function test_web_pay_profile_form_updates_effective_dated_compensation(): void
+    {
+        $employee = $this->employee('Profile update employee');
+
+        $this->actingAs($this->employer)
+            ->patch('/employer/payroll/profiles?section=settings', [
+                'user_id' => $employee->id,
+                'salary_type' => 'daily',
+                'rate' => '800.00',
+                'pay_frequency' => 'weekly',
+                'effective_from' => '2026-10-16',
+            ])
+            ->assertRedirect(route('employer.payroll', ['section' => 'settings']));
+
+        $this->assertDatabaseHas('payroll_profiles', [
+            'user_id' => $employee->id,
+            'salary_type' => 'daily',
+            'pay_frequency' => 'weekly',
+        ]);
+        $rate = PayrollCompensationHistory::query()->where('user_id', $employee->id)->sole();
+        $this->assertSame('daily', $rate->basis);
+        $this->assertSame('800.00', $rate->rate);
+        $this->assertSame('2026-10-16', $rate->effective_from->toDateString());
+    }
+
+    public function test_web_recurring_deduction_requires_authorization_and_records_the_item(): void
+    {
+        $employee = $this->employee('Recurring item employee');
+        $this->actingAs($this->employer)
+            ->from(route('employer.payroll', ['section' => 'settings']))
+            ->post('/employer/payroll/profile-items?section=settings', [
+                'user_id' => $employee->id,
+                'category' => 'deduction',
+                'code' => 'equipment_recovery',
+                'label' => 'Equipment recovery',
+                'amount' => '50.00',
+                'effective_from' => '2026-10-15',
+            ])
+            ->assertRedirect(route('employer.payroll', ['section' => 'settings']))
+            ->assertSessionHasErrors('authorization_reference');
+
+        $this->assertDatabaseCount('payroll_profile_items', 0);
+
+        $this->from(route('employer.payroll', ['section' => 'settings']))
+            ->post('/employer/payroll/profile-items?section=settings', [
+                'user_id' => $employee->id,
+                'category' => 'deduction',
+                'code' => 'equipment_recovery',
+                'label' => 'Equipment recovery',
+                'amount' => '50.00',
+                'authorization_reference' => 'SIGNED-AUTH-100',
+                'effective_from' => '2026-10-15',
+            ])
+            ->assertRedirect(route('employer.payroll', ['section' => 'settings']));
+
+        $this->assertDatabaseHas('payroll_profile_items', [
+            'user_id' => $employee->id,
+            'category' => 'deduction',
+            'code' => 'equipment_recovery',
+            'authorization_reference' => 'SIGNED-AUTH-100',
+            'taxable' => false,
+        ]);
+    }
+
+    public function test_payroll_period_status_filter_shows_only_matching_periods(): void
+    {
+        $approved = $this->period($this->company, '2026-08-01', '2026-08-31', 'monthly', 'approved');
+        $draft = $this->period($this->company, '2026-09-01', '2026-09-30', 'monthly', 'draft');
+
+        $this->actingAs($this->employer)
+            ->get(route('employer.payroll', ['section' => 'periods', 'period_status' => 'approved']))
+            ->assertOk()
+            ->assertSee($approved->period_start->format('M d, Y'))
+            ->assertDontSee($draft->period_start->format('M d, Y'));
     }
 
     public function test_payroll_periods_cannot_overlap_active_runs_or_use_a_wrong_period_length(): void
@@ -275,13 +596,13 @@ class PayrollWorkflowTest extends TestCase
             'withholding_tax_enabled' => true,
         ]);
 
-        $this->actingAs($this->employer)->patch('/employer/payroll/profiles', [
+        $this->actingAs($this->employer)->patch('/employer/payroll/profiles?section=settings', [
             'user_id' => $employee->id,
             'sss_enabled' => '0',
             'philhealth_enabled' => null,
             'pagibig_enabled' => '0',
             'withholding_tax_enabled' => '0',
-        ])->assertRedirect(route('employer.payroll'));
+        ])->assertRedirect(route('employer.payroll', ['section' => 'settings']));
 
         $profile->refresh();
         $this->assertFalse($profile->sss_enabled);

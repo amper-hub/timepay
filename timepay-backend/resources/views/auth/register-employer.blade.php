@@ -1,119 +1,70 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register Employer - TimePay</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-50 text-slate-950 antialiased">
-    <main class="min-h-screen overflow-hidden px-4 py-8 sm:px-6">
-        <section class="relative">
-            <div class="relative mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm lg:grid-cols-[1.05fr_0.95fr]">
-                <div class="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-teal-600 to-slate-900 p-8 text-white sm:p-10 lg:flex lg:flex-col lg:justify-between">
-                    <div class="absolute left-12 top-28 h-48 w-48 rounded-full border border-white/15"></div>
-                    <div class="absolute bottom-12 right-12 h-64 w-64 rounded-full border border-emerald-200/20"></div>
-                    <a href="{{ url('/') }}" class="inline-flex items-center gap-3">
-                        <img src="{{ Vite::asset('resources/img/timepay-logo.png') }}" alt="TimePay" class="h-12 w-auto object-contain">
-                    </a>
+<x-guest-layout>
+    <div class="mb-7">
+        <p class="text-sm font-semibold text-emerald-700">Business registration</p>
+        <h1 class="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Create your TimePay business account</h1>
+        <p class="mt-2 text-base leading-6 text-slate-600">Set up your company and employer sign-in. You can configure your work location after signing in.</p>
+    </div>
 
-                    <div class="relative mt-14 max-w-2xl">
-                        <p class="inline-flex rounded-full border border-white/15 bg-white/15 px-4 py-2 text-sm font-bold text-emerald-50 backdrop-blur">
-                            Geofence + Face ID time tracking for modern teams
-                        </p>
-                        <h1 class="mt-8 text-4xl font-black tracking-tight text-white sm:text-5xl">
-                            Stop chasing timesheets. Verify work where it happens.
-                        </h1>
-                        <p class="mt-6 text-lg leading-8 text-emerald-50/85">
-                            TimePay helps employers track clock-ins and clock-outs with GPS geofencing, facial verification, attendance history, leave workflows, and payroll-ready records.
-                        </p>
-                    </div>
+    @if ($errors->any())
+        <div class="mb-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
+            <p class="font-semibold">Please check the highlighted fields.</p>
+            <p class="mt-1">Your entered information has been kept so you can correct and resubmit.</p>
+        </div>
+    @endif
 
-                    <div class="relative mt-10 grid gap-4 sm:grid-cols-3">
-                        <div class="rounded-lg border border-white/15 bg-white/10 p-5 backdrop-blur">
-                            <p class="text-2xl font-black text-emerald-300">GPS</p>
-                            <p class="mt-2 text-sm text-emerald-50/80">Confirm staff are inside the approved work zone.</p>
-                        </div>
-                        <div class="rounded-lg border border-white/15 bg-white/10 p-5 backdrop-blur">
-                            <p class="text-2xl font-black text-emerald-300">Face ID</p>
-                            <p class="mt-2 text-sm text-emerald-50/80">Reduce buddy punching with biometric verification.</p>
-                        </div>
-                        <div class="rounded-lg border border-white/15 bg-white/10 p-5 backdrop-blur">
-                            <p class="text-2xl font-black text-teal-200">SaaS</p>
-                            <p class="mt-2 text-sm text-emerald-50/80">Multi-tenant tools for employers and platform admins.</p>
-                        </div>
-                    </div>
-                </div>
+    <form id="employer-registration-form" method="POST" action="{{ route('employer.register.store') }}" class="space-y-5">
+        @csrf
 
-                <div class="bg-white p-6 text-slate-950 sm:p-8 lg:p-10">
-                    <div>
-                        <p class="text-sm font-black uppercase tracking-wide text-emerald-600">Create your employer account</p>
-                        <h2 class="mt-2 text-3xl font-black">Start using TimePay</h2>
-                        <p class="mt-2 text-sm leading-6 text-slate-500">
-                            Register your company and first employer account. You can configure geofence coordinates after sign in.
-                        </p>
-                    </div>
+        <div>
+            <label for="company_name" class="block text-base font-semibold text-slate-800">Business name <span aria-hidden="true" class="text-rose-600">*</span></label>
+            <input id="company_name" name="company_name" type="text" value="{{ old('company_name') }}" required autofocus autocomplete="organization" aria-describedby="company_name-error" class="mt-2 block min-h-12 w-full rounded-xl border-slate-300 bg-white px-4 text-base shadow-sm focus:border-emerald-600 focus:ring-emerald-600">
+            @error('company_name')<p id="company_name-error" class="mt-2 text-sm text-rose-700">{{ $message }}</p>@enderror
+        </div>
 
-                    @if ($errors->any())
-                        <div class="mt-6 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-                            Please review the form and try again.
-                        </div>
-                    @endif
+        <div>
+            <label for="employer_name" class="block text-base font-semibold text-slate-800">Account owner name <span aria-hidden="true" class="text-rose-600">*</span></label>
+            <input id="employer_name" name="employer_name" type="text" value="{{ old('employer_name') }}" required autocomplete="name" aria-describedby="employer_name-error" class="mt-2 block min-h-12 w-full rounded-xl border-slate-300 bg-white px-4 text-base shadow-sm focus:border-emerald-600 focus:ring-emerald-600">
+            @error('employer_name')<p id="employer_name-error" class="mt-2 text-sm text-rose-700">{{ $message }}</p>@enderror
+        </div>
 
-                    <form method="POST" action="{{ route('employer.register.store') }}" class="mt-7 space-y-5">
-                        @csrf
+        <div>
+            <label for="email" class="block text-base font-semibold text-slate-800">Work email <span aria-hidden="true" class="text-rose-600">*</span></label>
+            <input id="email" name="email" type="email" value="{{ old('email') }}" required autocomplete="email" aria-describedby="email-error" class="mt-2 block min-h-12 w-full rounded-xl border-slate-300 bg-white px-4 text-base shadow-sm focus:border-emerald-600 focus:ring-emerald-600">
+            @error('email')<p id="email-error" class="mt-2 text-sm text-rose-700">{{ $message }}</p>@enderror
+        </div>
 
-                        <div>
-                            <label for="company_name" class="block text-sm font-bold text-slate-700">Company Name</label>
-                            <input id="company_name" name="company_name" type="text" value="{{ old('company_name') }}" required autofocus class="mt-2 block w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500">
-                            @error('company_name')
-                                <p class="mt-1 text-sm text-rose-600">{{ $message }}</p>
-                            @enderror
-                        </div>
-
-                        <div>
-                            <label for="employer_name" class="block text-sm font-bold text-slate-700">Employer Name</label>
-                            <input id="employer_name" name="employer_name" type="text" value="{{ old('employer_name') }}" required class="mt-2 block w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500">
-                            @error('employer_name')
-                                <p class="mt-1 text-sm text-rose-600">{{ $message }}</p>
-                            @enderror
-                        </div>
-
-                        <div>
-                            <label for="email" class="block text-sm font-bold text-slate-700">Email Address</label>
-                            <input id="email" name="email" type="email" value="{{ old('email') }}" required class="mt-2 block w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500">
-                            @error('email')
-                                <p class="mt-1 text-sm text-rose-600">{{ $message }}</p>
-                            @enderror
-                        </div>
-
-                        <div class="grid gap-5 sm:grid-cols-2">
-                            <div>
-                                <label for="password" class="block text-sm font-bold text-slate-700">Password</label>
-                                <input id="password" name="password" type="password" required class="mt-2 block w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500">
-                                @error('password')
-                                    <p class="mt-1 text-sm text-rose-600">{{ $message }}</p>
-                                @enderror
-                            </div>
-
-                            <div>
-                                <label for="password_confirmation" class="block text-sm font-bold text-slate-700">Confirm Password</label>
-                                <input id="password_confirmation" name="password_confirmation" type="password" required class="mt-2 block w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500">
-                            </div>
-                        </div>
-
-                        <button type="submit" class="flex w-full items-center justify-center rounded-lg bg-emerald-600 px-5 py-3.5 text-sm font-black text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700">
-                            Register Company
-                        </button>
-
-                        <p class="text-center text-sm text-slate-500">
-                            Already registered?
-                            <a href="{{ route('login') }}" class="font-bold text-emerald-600 hover:text-emerald-700">Sign in</a>
-                        </p>
-                    </form>
-                </div>
+        <div class="grid gap-5 sm:grid-cols-2">
+            <div>
+                <label for="password" class="block text-base font-semibold text-slate-800">Password <span aria-hidden="true" class="text-rose-600">*</span></label>
+                <input id="password" name="password" type="password" required autocomplete="new-password" aria-describedby="password-error" class="mt-2 block min-h-12 w-full rounded-xl border-slate-300 bg-white px-4 text-base shadow-sm focus:border-emerald-600 focus:ring-emerald-600">
+                @error('password')<p id="password-error" class="mt-2 text-sm text-rose-700">{{ $message }}</p>@enderror
             </div>
-        </section>
-    </main>
-</body>
-</html>
+            <div>
+                <label for="password_confirmation" class="block text-base font-semibold text-slate-800">Confirm password <span aria-hidden="true" class="text-rose-600">*</span></label>
+                <input id="password_confirmation" name="password_confirmation" type="password" required autocomplete="new-password" class="mt-2 block min-h-12 w-full rounded-xl border-slate-300 bg-white px-4 text-base shadow-sm focus:border-emerald-600 focus:ring-emerald-600">
+            </div>
+        </div>
+
+        <button id="employer-registration-submit" type="submit" class="min-h-12 w-full rounded-xl bg-emerald-600 px-5 py-3 text-base font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2">
+            Register business
+        </button>
+
+        <p class="text-center text-sm text-slate-600">
+            Already registered?
+            <a href="{{ route('login') }}" class="font-semibold text-emerald-700 hover:text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">Sign in</a>
+        </p>
+        <p class="text-center text-sm text-slate-500">Employee accounts are created by their employer.</p>
+    </form>
+
+    @push('scripts')
+        <script>
+            document.getElementById('employer-registration-form')?.addEventListener('submit', function () {
+                const button = document.getElementById('employer-registration-submit');
+                if (!button || !this.reportValidity()) return;
+                button.disabled = true;
+                button.textContent = 'Submitting…';
+                this.setAttribute('aria-busy', 'true');
+            });
+        </script>
+    @endpush
+</x-guest-layout>

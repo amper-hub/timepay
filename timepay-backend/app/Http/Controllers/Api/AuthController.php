@@ -23,13 +23,30 @@ class AuthController extends Controller
             'password' => 'required|string',
         ]);
 
-        if (! Auth::attempt($validated)) {
+        // Email addresses were historically unique only within each company.
+        // Resolve legacy duplicates by the supplied password instead of letting
+        // the auth provider select an unrelated first account globally.
+        $matchingUsers = User::query()
+            ->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($validated['email']))])
+            ->get()
+            ->filter(fn (User $candidate): bool => Hash::check($validated['password'], $candidate->password));
+
+        if ($matchingUsers->count() !== 1) {
             throw ValidationException::withMessages([
                 'email' => ['The email or password you entered is incorrect.'],
             ]);
         }
 
-        $user = Auth::user();
+        $user = $matchingUsers->first();
+
+        if (strtolower((string) $user->status) !== 'active') {
+            return response()->json([
+                'error' => 'account_unavailable',
+                'message' => 'This account is unavailable. Contact your employer for help.',
+            ], 403);
+        }
+
+        Auth::login($user);
 
         if ($user->requires_password_change) {
             Auth::logout();

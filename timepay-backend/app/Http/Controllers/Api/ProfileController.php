@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AttendanceEventResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -76,6 +77,15 @@ class ProfileController extends Controller
             'baseline_photo_path' => null,
             'cloud_face_id' => null,
         ]);
+
+        // An enrollment response is not an attendance punch. If the client lost
+        // that response, it still holds the event ID and will retry it. Remove
+        // only completed enrollment responses so a post-reset retry reaches
+        // fresh liveness and baseline enrollment instead of replaying stale state.
+        AttendanceEventResponse::query()
+            ->where('user_id', $user->id)
+            ->whereJsonContains('response->face_verification->enrolled', true)
+            ->delete();
 
         return response()->json([
             'message' => 'Facial recognition baseline reset. Your next attendance punch will re-enroll your face.',

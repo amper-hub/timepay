@@ -55,6 +55,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [userId, setUserId] = useState<number | null>(null);
@@ -239,10 +240,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View pointerEvents="none" style={styles.topAccent}>
-        <View style={styles.accentArcLarge} />
-        <View style={styles.accentArcSmall} />
-      </View>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.keyboardView}
@@ -267,9 +264,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               </>
             ) : (
               <>
-                <Text style={styles.heading}>Sign in to your workspace</Text>
+                <Text style={styles.heading}>Welcome back</Text>
                 <Text style={styles.subheading}>
-                  Track attendance, verify location, and keep your day moving.
+                  Sign in to continue to TimePay.
                 </Text>
               </>
             )}
@@ -310,19 +307,32 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
                   <View style={styles.fieldGroup}>
                     <Text style={styles.label}>Password</Text>
-                    <TextInput
-                      value={form.password}
-                      onChangeText={(value) => updateField("password", value)}
-                      placeholder="Enter your password"
-                      placeholderTextColor="#94a3b8"
-                      autoComplete="password"
-                      editable={!loading}
-                      secureTextEntry
-                      style={[
-                        styles.input,
-                        fieldErrors.password ? styles.inputInvalid : null,
-                      ]}
-                    />
+                    <View style={styles.passwordInputWrap}>
+                      <TextInput
+                        value={form.password}
+                        onChangeText={(value) => updateField("password", value)}
+                        placeholder="Enter your password"
+                        placeholderTextColor="#94a3b8"
+                        autoComplete="password"
+                        editable={!loading}
+                        secureTextEntry={!isPasswordVisible}
+                        style={[
+                          styles.input,
+                          styles.passwordInput,
+                          fieldErrors.password ? styles.inputInvalid : null,
+                        ]}
+                      />
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={isPasswordVisible ? "Hide password" : "Show password"}
+                        accessibilityState={{ selected: isPasswordVisible }}
+                        disabled={loading}
+                        onPress={() => setIsPasswordVisible((visible) => !visible)}
+                        style={styles.passwordToggle}
+                      >
+                        <Text style={styles.passwordToggleText}>{isPasswordVisible ? "Hide" : "Show"}</Text>
+                      </TouchableOpacity>
+                    </View>
                     {fieldErrors.password ? (
                       <Text style={styles.fieldError}>{fieldErrors.password}</Text>
                     ) : null}
@@ -356,9 +366,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                     >
                       <Text style={styles.secondaryLinkText}>Forgot Password?</Text>
                     </TouchableOpacity>
-                    <Text style={styles.secondaryLinkDivider}>|</Text>
-                    <Text style={styles.secondaryLinkText}>Contact Admin</Text>
                   </View>
+                  <Text style={styles.accountHelpText}>Need an account? Ask your employer to add you.</Text>
                 </>
               ) : (
                 <>
@@ -479,35 +488,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
-    position: "relative",
-  },
-  topAccent: {
-    position: "absolute",
-    top: -120,
-    left: -80,
-    right: -80,
-    height: 260,
-    overflow: "hidden",
-  },
-  accentArcLarge: {
-    position: "absolute",
-    top: 0,
-    left: 20,
-    width: 320,
-    height: 220,
-    borderRadius: 160,
-    backgroundColor: "#D1FAE5",
-  },
-  accentArcSmall: {
-    position: "absolute",
-    top: 72,
-    right: 36,
-    width: 180,
-    height: 128,
-    borderRadius: 90,
-    backgroundColor: "#99F6E4",
-    opacity: 0.72,
+    backgroundColor: "#F5F7FA",
   },
   keyboardView: {
     flex: 1,
@@ -533,8 +514,8 @@ const styles = StyleSheet.create({
     height: 52,
   },
   heading: {
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 30,
+    fontWeight: "800",
     color: "#0F172A",
   },
   subheading: {
@@ -587,13 +568,13 @@ const styles = StyleSheet.create({
   },
   formCard: {
     borderWidth: 1,
-    borderColor: "#D1FAE5",
+    borderColor: "#E2E8F0",
     borderRadius: 20,
     backgroundColor: "#ffffff",
     padding: 20,
     shadowColor: "#0f172a",
     shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.04,
     shadowRadius: 24,
     elevation: 4,
   },
@@ -615,6 +596,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     color: "#0f172a",
     fontSize: 16,
+  },
+  passwordInputWrap: {
+    position: "relative",
+    justifyContent: "center",
+  },
+  passwordInput: {
+    paddingRight: 72,
+  },
+  passwordToggle: {
+    position: "absolute",
+    top: 0,
+    right: 12,
+    bottom: 0,
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  passwordToggleText: {
+    color: "#047857",
+    fontSize: 14,
+    fontWeight: "700",
   },
   inputReadOnly: {
     backgroundColor: "#F8FAFC",
@@ -680,6 +681,13 @@ const styles = StyleSheet.create({
     color: "#CBD5E1",
     marginHorizontal: 10,
     fontWeight: "700",
+  },
+  accountHelpText: {
+    marginTop: 12,
+    color: "#64748b",
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
   },
 });
 

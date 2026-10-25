@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\Employee\LeaveController;
+use App\Http\Controllers\Api\Employee\CompanyGeofenceController;
 use App\Http\Controllers\Api\Employee\PayrollController as EmployeePayrollController;
 use App\Http\Controllers\Api\EmployeeDtrController;
 use App\Http\Controllers\Employer\EmployerPayrollController;
@@ -73,6 +74,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::prefix('employee')->group(function () {
+        Route::get('company-geofence', [CompanyGeofenceController::class, 'show']);
         Route::get('pending-pay', [EmployeePayrollController::class, 'pendingPay']);
         Route::get('payroll/ytd', [PayrollPayslipController::class, 'yearToDate']);
         Route::get('dtr', [EmployeeDtrController::class, 'show']);

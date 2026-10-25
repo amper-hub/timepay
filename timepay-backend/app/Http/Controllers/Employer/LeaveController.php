@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Employer;
 
 use App\Http\Controllers\Controller;
 use App\Models\LeaveRequest;
+use App\Models\User;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -16,13 +19,15 @@ class LeaveController extends Controller
      */
     public function index(Request $request): View
     {
-        $companyId = $request->user()->company_id;
+        $this->authorizeEmployer($request);
+        $companyId = (int) $request->user()->company_id;
+        $validated = $request->validate(['status' => ['nullable', Rule::in(['pending', 'approved', 'rejected'])]]);
 
         $leaveRequests = LeaveRequest::query()
             ->with('user')
             ->where('company_id', $companyId)
-            ->when($request->filled('status'), function ($query) use ($request) {
-                $query->where('status', $request->string('status'));
+            ->when(! empty($validated['status']), function ($query) use ($validated): void {
+                $query->where('status', $validated['status']);
             })
             ->latest('start_date')
             ->latest()
@@ -31,27 +36,71 @@ class LeaveController extends Controller
 
         return view('employer.leaves.index', [
             'leaveRequests' => $leaveRequests,
-            'selectedStatus' => $request->string('status')->toString(),
+            'selectedStatus' => $validated['status'] ?? '',
+            'pendingCount' => LeaveRequest::query()->where('company_id', $companyId)->where('status', 'pending')->count(),
         ]);
     }
 
     /**
      * Approve or decline a company leave request.
      */
-    public function update(Request $request, LeaveRequest $leaveRequest): RedirectResponse
+    public function update(Request $request, LeaveRequest $leaveRequest): RedirectResponse|JsonResponse
     {
-        abort_unless($leaveRequest->company_id === $request->user()->company_id, 403);
+        $this->authorizeEmployer($request);
+        $companyId = (int) $request->user()->company_id;
+        abort_unless((int) $leaveRequest->company_id === $companyId, 404);
 
         $validated = $request->validate([
             'status' => ['required', Rule::in(['approved', 'rejected'])],
             'admin_notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $leaveRequest->update([
-            'status' => $validated['status'],
-            'admin_notes' => $validated['admin_notes'] ?? null,
-        ]);
+        $result = DB::transaction(function () use ($leaveRequest, $companyId, $validated): array {
+            $current = LeaveRequest::query()
+                ->where('company_id', $companyId)
+                ->lockForUpdate()
+                ->findOrFail($leaveRequest->id);
+
+            if ($current->status !== 'pending') {
+                return ['conflict' => true, 'leave' => $current];
+            }
+
+            $current->update([
+                'status' => $validated['status'],
+                'admin_notes' => $validated['admin_notes'] ?? $current->admin_notes,
+            ]);
+
+            return ['conflict' => false, 'leave' => $current->refresh()];
+        });
+
+        /** @var LeaveRequest $current */
+        $current = $result['leave'];
+        $data = [
+            'id' => $current->id,
+            'status' => $current->status,
+            'admin_notes' => $current->admin_notes,
+            'updated_at' => $current->updated_at?->toIso8601String(),
+        ];
+
+        if ($result['conflict']) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'This request has already been reviewed. Refresh to see its current status.', 'data' => $data], 409);
+            }
+
+            return back()->withErrors(['status' => 'This request has already been reviewed. Refresh to see its current status.']);
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Leave request updated successfully.', 'data' => $data]);
+        }
 
         return back()->with('success', 'Leave request updated successfully.');
+    }
+
+    private function authorizeEmployer(Request $request): void
+    {
+        $actor = $request->user();
+        abort_unless($actor && in_array(strtoupper((string) $actor->role), [User::ROLE_EMPLOYER, User::ROLE_ADMIN], true), 403);
+        abort_unless($actor->company_id, 403, 'A company must be assigned to this account.');
     }
 }

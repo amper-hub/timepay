@@ -24,9 +24,15 @@ export const USER_ERROR_MESSAGES = {
   face: "We couldn't verify your face. Please make sure your face is clearly visible and try again.",
   faceUnavailable:
     "Face verification is temporarily unavailable. Please try again later.",
+  faceStorageFailed:
+    "We couldn't save your attendance proof securely. Please try again.",
   attendance: "We couldn't record your attendance. Please try again.",
   location:
     "We couldn't verify your location. Please enable location services and try again.",
+  locationUnclear:
+    "We couldn't confirm your current location accurately. Wait for GPS to improve and try again.",
+  geofenceOutside:
+    "Your current location appears to be outside the work area. Move within the designated area and try again.",
   leave: "We couldn't submit your leave request. Please try again.",
   passwordReset:
     "We couldn't process your password reset request. Please try again.",
@@ -143,10 +149,14 @@ export const getUserFriendlyError = (
   const status = typeof value.response?.status === "number" ? value.response.status : null;
   const code = typeof value.code === "string" ? value.code.toUpperCase() : "";
   const rawMessage = typeof value.message === "string" ? value.message : "";
+  const errorName = typeof value.name === "string" ? value.name : "";
 
   if (/^The (?:production )?TimePay API URL (?:is not configured|is invalid)\./.test(rawMessage)) {
     return rawMessage;
   }
+
+  if (errorName === "GeofenceOutsideError") return USER_ERROR_MESSAGES.geofenceOutside;
+  if (errorName === "LocationAccuracyError") return USER_ERROR_MESSAGES.locationUnclear;
 
   if (value.name === "LocationTimeoutError" || context === "location") {
     return USER_ERROR_MESSAGES.location;
@@ -167,7 +177,11 @@ export const getUserFriendlyError = (
 
   if (status === 503) {
     const payload = value.response?.data as Record<string, unknown> | undefined;
-    if (typeof payload?.error === "string" && payload.error.startsWith("face_")) {
+    if (
+      context !== "profile" &&
+      typeof payload?.error === "string" &&
+      payload.error.startsWith("face_")
+    ) {
       return USER_ERROR_MESSAGES.faceUnavailable;
     }
 
@@ -179,6 +193,11 @@ export const getUserFriendlyError = (
   }
 
   if (status !== null && status >= 500) {
+    const payload = value.response?.data as Record<string, unknown> | undefined;
+    if (context === "face" && payload?.error === "selfie_storage_failed") {
+      return USER_ERROR_MESSAGES.faceStorageFailed;
+    }
+
     return context === "face"
       ? USER_ERROR_MESSAGES.faceUnavailable
       : USER_ERROR_MESSAGES.server;
@@ -189,6 +208,9 @@ export const getUserFriendlyError = (
   }
 
   if (status === 403) {
+    if (context === "login") {
+      return "We couldn't sign you in. Check your details or contact your employer for help.";
+    }
     if (context === "attendance" || context === "face") {
       return safePayloadMessage(value.response?.data) ?? contextFallback(context);
     }

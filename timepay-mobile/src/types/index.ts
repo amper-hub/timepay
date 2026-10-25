@@ -25,6 +25,12 @@ export interface Company {
   address?: string;
 }
 
+export interface CompanyGeofence {
+  latitude: string | number | null;
+  longitude: string | number | null;
+  geofence_radius_meters: string | number | null;
+}
+
 export interface UserSession {
   user: User;
   company: Company;

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -9,8 +9,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { fetchAttendanceHistory } from "../../services/attendanceService";
-import { getApiErrorMessage } from "../../services/api";
+import { apiService, getApiErrorMessage } from "../../services/api";
 
 const formatDate = (value) => {
   if (!value) return "—";
@@ -50,6 +51,10 @@ const AttendanceHistoryScreen = ({ navigation, userSessionData, onLogout }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [clockAction, setClockAction] = useState(null);
   const [screenError, setScreenError] = useState(null);
+  const [attendanceStatus, setAttendanceStatus] = useState(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [statusError, setStatusError] = useState(null);
+  const nextAction = attendanceStatus?.next_expected_punch ?? null;
 
   const summary = useMemo(() => {
     const completed = records.filter((record) => record.total_hours !== null);
@@ -67,28 +72,50 @@ const AttendanceHistoryScreen = ({ navigation, userSessionData, onLogout }) => {
 
   const loadHistory = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
+    setStatusLoading(true);
     setScreenError(null);
 
-    try {
-      const data = await fetchAttendanceHistory();
-      setRecords(data);
-    } catch (error) {
+    const [historyResult, statusResult] = await Promise.allSettled([
+      fetchAttendanceHistory(),
+      apiService.getAttendanceStatus(),
+    ]);
+
+    if (historyResult.status === "fulfilled") {
+      setRecords(historyResult.value);
+    } else {
       setScreenError(
         getApiErrorMessage(
-          error,
+          historyResult.reason,
           "Unable to load attendance history. Please try again.",
           "attendance"
         )
       );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
+
+    if (statusResult.status === "fulfilled") {
+      setAttendanceStatus(statusResult.value);
+      setStatusError(null);
+    } else {
+      setAttendanceStatus(null);
+      setStatusError(
+        getApiErrorMessage(
+          statusResult.reason,
+          "Unable to confirm your current shift. Refresh before starting an attendance action.",
+          "attendance"
+        )
+      );
+    }
+
+    setStatusLoading(false);
+    setLoading(false);
+    setRefreshing(false);
   }, []);
 
-  useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+  useFocusEffect(
+    useCallback(() => {
+      loadHistory();
+    }, [loadHistory])
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -128,6 +155,23 @@ const AttendanceHistoryScreen = ({ navigation, userSessionData, onLogout }) => {
 
   const renderRecord = ({ item }) => {
     const isLate = item.status === "late";
+    const verificationStatus = item.verification_status ?? "verified";
+    const isRejected = verificationStatus === "rejected";
+    const isFlagged = verificationStatus === "flagged";
+    const statusLabel = isRejected
+      ? "Rejected"
+      : isFlagged
+        ? "Flagged for review"
+        : isLate
+          ? "Late"
+          : "On-Time";
+    const statusStyle = isRejected
+      ? [styles.rejectedBadge, styles.rejectedText]
+      : isFlagged
+        ? [styles.flaggedBadge, styles.flaggedText]
+        : isLate
+          ? [styles.lateBadge, styles.lateText]
+          : [styles.onTimeBadge, styles.onTimeText];
 
     return (
       <View style={styles.recordCard}>
@@ -140,16 +184,16 @@ const AttendanceHistoryScreen = ({ navigation, userSessionData, onLogout }) => {
           <View
             style={[
               styles.statusBadge,
-              isLate ? styles.lateBadge : styles.onTimeBadge,
+              statusStyle[0],
             ]}
           >
             <Text
               style={[
                 styles.statusText,
-                isLate ? styles.lateText : styles.onTimeText,
+                statusStyle[1],
               ]}
             >
-              {isLate ? "Late" : "On-Time"}
+              {statusLabel}
             </Text>
           </View>
         </View>
@@ -202,48 +246,58 @@ const AttendanceHistoryScreen = ({ navigation, userSessionData, onLogout }) => {
           Start with geofence validation, then continue to Face ID verification.
         </Text>
 
-        <View style={styles.clockButtonRow}>
-          <TouchableOpacity
-            activeOpacity={0.9}
-            disabled={Boolean(clockAction)}
-            onPress={() => navigateToFaceVerification("clock_in")}
-            style={[
-              styles.clockButton,
-              styles.clockInButton,
-              clockAction && styles.disabledButton,
-            ]}
-          >
-            {clockAction === "clock_in" ? (
-              <ActivityIndicator color="#ffffff" />
-            ) : (
-              <>
-                <Text style={styles.clockButtonText}>Clock In</Text>
-                <Text style={styles.clockButtonSubtext}>Check location</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.9}
-            disabled={Boolean(clockAction)}
-            onPress={() => navigateToFaceVerification("clock_out")}
-            style={[
-              styles.clockButton,
-              styles.clockOutButton,
-              clockAction && styles.disabledButton,
-            ]}
-          >
-            {clockAction === "clock_out" ? (
-              <ActivityIndicator color="#ffffff" />
-            ) : (
-              <>
-                <Text style={styles.clockButtonText}>Clock Out</Text>
-                <Text style={styles.clockButtonSubtext}>Verify Face ID</Text>
-              </>
-            )}
-          </TouchableOpacity>
+        <View style={styles.liveStatus}>
+          <Text style={styles.liveStatusLabel}>Current status</Text>
+          {statusLoading ? (
+            <View style={styles.statusLoading}>
+              <ActivityIndicator color="#059669" />
+              <Text style={styles.liveStatusHint}>Checking your shift...</Text>
+            </View>
+          ) : attendanceStatus ? (
+            <>
+              <Text style={styles.liveStatusValue}>
+                {attendanceStatus.current_state === "clocked_in" ? "Clocked in" : "Clocked out"}
+              </Text>
+              <Text style={styles.liveStatusHint}>
+                {attendanceStatus.current_state === "clocked_in"
+                  ? "Your next action is to clock out."
+                  : "Your next action is to clock in."}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.liveStatusHint}>Shift status is unavailable.</Text>
+          )}
         </View>
+
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={nextAction === "clock_out" ? "Clock out with face verification" : "Clock in with face verification"}
+          activeOpacity={0.9}
+          disabled={!nextAction || statusLoading || Boolean(clockAction)}
+          onPress={() => nextAction && navigateToFaceVerification(nextAction)}
+          style={[styles.clockButton, (!nextAction || statusLoading || clockAction) && styles.disabledButton]}
+        >
+          {clockAction ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <>
+              <Text style={styles.clockButtonText}>
+                {nextAction === "clock_out" ? "Clock Out" : "Clock In"}
+              </Text>
+              <Text style={styles.clockButtonSubtext}>
+                {statusLoading ? "Confirming shift status" : "Continue to location and face verification"}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
       </View>
+
+      {statusError ? (
+        <View style={styles.alert} accessibilityRole="alert">
+          <Text style={styles.alertTitle}>Current shift unavailable</Text>
+          <Text style={styles.alertText}>{statusError}</Text>
+        </View>
+      ) : null}
 
       {screenError ? (
         <View style={styles.alert}>
@@ -298,7 +352,7 @@ const AttendanceHistoryScreen = ({ navigation, userSessionData, onLogout }) => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#F5F7FA",
   },
   listContent: {
     paddingHorizontal: 20,
@@ -362,24 +416,46 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
-  clockButtonRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 15,
-  },
   clockButton: {
-    flex: 1,
-    minHeight: 82,
+    width: "100%",
+    minHeight: 72,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 18,
+    borderRadius: 16,
     paddingHorizontal: 12,
-  },
-  clockInButton: {
+    marginTop: 14,
     backgroundColor: "#059669",
   },
-  clockOutButton: {
-    backgroundColor: "#1f2937",
+  liveStatus: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  liveStatusLabel: {
+    color: "#64748B",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  liveStatusValue: {
+    marginTop: 5,
+    color: "#1F2937",
+    fontSize: 19,
+    fontWeight: "800",
+  },
+  liveStatusHint: {
+    marginTop: 4,
+    color: "#64748B",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  statusLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    marginTop: 8,
   },
   clockButtonText: {
     color: "#ffffff",
@@ -469,6 +545,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#fef2f2",
     borderColor: "#fecaca",
   },
+  flaggedBadge: {
+    backgroundColor: "#fffbeb",
+    borderColor: "#fcd34d",
+  },
+  rejectedBadge: {
+    backgroundColor: "#fef2f2",
+    borderColor: "#fca5a5",
+  },
   statusText: {
     fontSize: 11,
     fontWeight: "900",
@@ -479,6 +563,12 @@ const styles = StyleSheet.create({
   },
   lateText: {
     color: "#b91c1c",
+  },
+  flaggedText: {
+    color: "#92400e",
+  },
+  rejectedText: {
+    color: "#991b1b",
   },
   timeGrid: {
     flexDirection: "row",

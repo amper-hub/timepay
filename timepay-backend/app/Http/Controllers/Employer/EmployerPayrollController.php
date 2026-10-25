@@ -13,6 +13,7 @@ use App\Models\PayrollProfile;
 use App\Models\PayrollProfileItem;
 use App\Models\User;
 use App\Services\PayrollCalculationService;
+use App\Support\PayrollReviewFlags;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
@@ -35,6 +36,7 @@ class EmployerPayrollController extends Controller
             'period_id' => 'nullable|integer', 'period_status' => 'nullable|in:draft,pending_review,approved,partially_paid,paid,voided',
             'from' => 'nullable|date', 'to' => 'nullable|date|after_or_equal:from', 'search' => 'nullable|string|max:100',
             'employee_status' => 'nullable|string|in:active,pending,suspended,inactive',
+            'section' => 'nullable|in:overview,create,periods,details,settings,payments',
         ]);
 
         $periodQuery = PayrollPeriod::query()->where('company_id', $companyId)->withCount('entries')->withSum('payments', 'amount');
@@ -58,7 +60,7 @@ class EmployerPayrollController extends Controller
 
         $entries = null;
         if ($selectedPeriod) {
-            $entryQuery = $selectedPeriod->entries()->with(['employee', 'lines', 'payments'])->orderBy('user_id');
+            $entryQuery = $selectedPeriod->entries()->with(['employee', 'lines', 'payments', 'attendanceLogs'])->orderBy('user_id');
             if (! empty($filters['search'])) {
                 $needle = $filters['search'];
                 $entryQuery->whereHas('employee', fn ($query) => $query->where('name', 'like', '%'.$needle.'%')->orWhere('email', 'like', '%'.$needle.'%'));
@@ -74,13 +76,98 @@ class EmployerPayrollController extends Controller
             $selectedPeriod->setAttribute('employer_cost_total', $this->fromCents(
                 $this->toCents($selectedPeriod->gross_total) + $this->toCents($selectedPeriod->employer_contribution_total),
             ));
+            $selectedPeriod->setAttribute('outstanding_total', $this->fromCents(
+                $selectedPeriod->entries()->get(['net_pay', 'amount_paid'])->sum(
+                    fn (PayrollEntry $entry): int => max(0, $this->toCents($entry->net_pay) - $this->toCents($entry->amount_paid))
+                ),
+            ));
         }
         $hasReviewFlags = $selectedPeriod?->entries()->whereNotNull('review_flags')->where('review_flags', '!=', '[]')->exists() ?? false;
+        $criticalReviewFlagCodes = PayrollReviewFlags::critical();
+        $hasCriticalReviewFlags = $selectedPeriod?->entries()->with('employee:id,status')->get(['id', 'user_id', 'review_flags'])->contains(
+            function (PayrollEntry $entry) use ($criticalReviewFlagCodes, $selectedPeriod): bool {
+                $flags = $entry->review_flags ?? [];
+                $annualFinalPayWasFlagged = $selectedPeriod->frequency === 'yearly'
+                    && in_array('inactive_employee_13th_month_requires_review', $flags, true);
 
-        $statusCounts = PayrollPeriod::query()->where('company_id', $companyId)->select('status', DB::raw('count(*) as total'))
-            ->groupBy('status')->pluck('total', 'status');
+                return count(array_intersect($criticalReviewFlagCodes, $flags)) > 0
+                    || (strtolower((string) $entry->employee?->status) !== 'active' && ! $annualFinalPayWasFlagged);
+            }
+        ) ?? false;
+
         $deadlines = PayrollPeriod::query()->where('company_id', $companyId)->whereIn('status', ['approved', 'partially_paid'])
             ->whereDate('pay_date', '>=', now()->toDateString())->orderBy('pay_date')->limit(5)->get();
+
+        $employees = User::query()->where('company_id', $companyId)->whereRaw('LOWER(role) = ?', ['employee'])
+            ->with(['payrollProfile', 'compensationHistory'])->orderBy('name')
+            ->get(['id', 'name', 'email', 'status', 'hourly_rate', 'daily_rate']);
+        $today = Carbon::today(config('app.timezone'));
+        $employees->each(function (User $employee) use ($today): void {
+            $currentRate = $employee->compensationHistory
+                ->filter(fn ($rate): bool => $rate->effective_from->lte($today)
+                    && (! $rate->effective_to || $rate->effective_to->gte($today)))
+                ->sortByDesc('effective_from')
+                ->first();
+            $employee->setAttribute('payroll_rate_default', $currentRate?->rate);
+        });
+
+        $payrollSetupIssues = collect();
+        $eligibleEmployeeIds = $employees->filter(fn (User $employee): bool =>
+            $employee->status === 'active' && (bool) $employee->payrollProfile?->payroll_eligible
+        )->pluck('id');
+        $eligibleEmployeeCount = $eligibleEmployeeIds->count();
+
+        if ($selectedPeriod?->calculated_at) {
+            $eligibleEmployeeCount = (int) $selectedPeriod->entries_count;
+        }
+
+        if ($selectedPeriod && ! $selectedPeriod->calculated_at) {
+            $approvedBasicPayEmployeeIds = [];
+            if ($selectedPeriod->frequency === 'yearly') {
+                $year = $selectedPeriod->period_start->format('Y');
+                $approvedBasicPayEmployeeIds = DB::table('payroll_entry_lines as lines')
+                    ->join('payroll_entries as entries', 'entries.id', '=', 'lines.payroll_entry_id')
+                    ->join('payroll_periods as source_periods', 'source_periods.id', '=', 'entries.payroll_period_id')
+                    ->where('entries.company_id', $companyId)
+                    ->where('lines.code', 'basic_pay')
+                    ->whereIn('source_periods.status', ['approved', 'partially_paid', 'paid'])
+                    ->whereBetween('source_periods.period_start', ["{$year}-01-01", "{$year}-12-31"])
+                    ->distinct()->pluck('entries.user_id')->map(fn ($id): int => (int) $id)->all();
+            }
+
+            foreach ($employees as $employee) {
+                $profile = $employee->payrollProfile;
+                $reason = null;
+
+                if (! $profile) {
+                    $reason = 'Missing pay profile.';
+                } elseif (! $profile->payroll_eligible) {
+                    $reason = 'Payroll is turned off in this employee\'s settings.';
+                } elseif ($selectedPeriod->frequency === 'yearly' && ! $profile->rank_and_file) {
+                    $reason = 'The employee is not marked as rank-and-file for a 13th-month run.';
+                } elseif ($selectedPeriod->frequency === 'yearly'
+                    && ! in_array((int) $employee->id, $approvedBasicPayEmployeeIds, true)) {
+                    $reason = 'No approved basic pay is recorded for this calendar year.';
+                } elseif ($selectedPeriod->frequency !== 'yearly' && $profile->pay_frequency !== $selectedPeriod->frequency) {
+                    $reason = 'The employee pay frequency does not match this payroll period.';
+                } elseif ($selectedPeriod->frequency !== 'yearly') {
+                    $hasEffectiveRate = $employee->compensationHistory->contains(fn ($rate): bool =>
+                        $rate->basis === $profile->salary_type
+                        && $rate->effective_from->lte($selectedPeriod->period_end)
+                        && (! $rate->effective_to || $rate->effective_to->gte($selectedPeriod->period_start))
+                    );
+                    if (! $hasEffectiveRate) {
+                        $reason = 'No matching pay rate is effective during this period.';
+                    }
+                }
+
+                if ($reason !== null) {
+                    $payrollSetupIssues->push(['user_id' => (int) $employee->id, 'name' => $employee->name, 'reason' => $reason]);
+                }
+            }
+
+            $eligibleEmployeeCount = $eligibleEmployeeIds->diff($payrollSetupIssues->pluck('user_id'))->count();
+        }
 
         return view('employer.payroll', [
             'company' => $request->user()->company,
@@ -88,8 +175,11 @@ class EmployerPayrollController extends Controller
             'selectedPeriod' => $selectedPeriod,
             'entries' => $entries,
             'hasReviewFlags' => $hasReviewFlags,
-            'employees' => User::query()->where('company_id', $companyId)->whereRaw('LOWER(role) = ?', ['employee'])->orderBy('name')->get(['id', 'name', 'status']),
-            'statusCounts' => $statusCounts,
+            'hasCriticalReviewFlags' => $hasCriticalReviewFlags,
+            'employees' => $employees,
+            'payrollSetupIssues' => $payrollSetupIssues,
+            'eligibleEmployeeCount' => $eligibleEmployeeCount,
+            'payrollSection' => $filters['section'] ?? ($selectedPeriod ? 'details' : 'overview'),
             'deadlines' => $deadlines,
             'filters' => $filters,
         ]);
@@ -605,10 +695,14 @@ class EmployerPayrollController extends Controller
         if ($request->expectsJson() || $request->is('api/*')) {
             return response()->json($json);
         }
-        $redirect = redirect()->route('employer.payroll');
-        if ($period) {
-            $redirect = $redirect->with('selected_period_id', $period->id);
+        $section = (string) $request->query('section', $period ? 'details' : 'overview');
+        if (! in_array($section, ['overview', 'create', 'periods', 'details', 'settings', 'payments'], true)) {
+            $section = $period ? 'details' : 'overview';
         }
+        $redirect = redirect()->route('employer.payroll', array_filter([
+            'section' => $section,
+            'period_id' => $period?->id,
+        ], fn ($value) => $value !== null));
         return $redirect->with('success', $message);
     }
 

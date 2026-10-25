@@ -35,12 +35,12 @@ const tabIcon = (
 ) => (
   <View
     style={{
-      minWidth: 50,
-      height: 38,
-      borderRadius: 18,
+      minWidth: 42,
+      height: 30,
+      borderRadius: 15,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: focused ? "#E6F4EA" : "transparent",
+      backgroundColor: focused ? colors.emeraldSurface : "transparent",
     }}
   >
     <Ionicons
@@ -61,12 +61,14 @@ const AppNavigator: React.FC<AppNavigatorProps> = ({
         initialRouteName="Home"
         screenOptions={{
           headerShown: false,
-          tabBarShowLabel: false,
+          tabBarShowLabel: true,
           tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: "#475569",
+          tabBarInactiveTintColor: colors.muted,
           tabBarLabelStyle: {
-            fontSize: 12,
-            fontWeight: "700",
+            fontSize: 11,
+            fontWeight: "600",
+            marginTop: 2,
+            marginBottom: 1,
           },
           tabBarItemStyle: {
             flex: 1,
@@ -74,17 +76,19 @@ const AppNavigator: React.FC<AppNavigatorProps> = ({
           tabBarStyle: {
             flexDirection: "row",
             justifyContent: "space-around",
-            height: 64,
-            paddingTop: 10,
-            paddingBottom: 10,
-            borderTopColor: colors.emeraldSoft,
+            minHeight: 64,
+            paddingTop: 6,
+            paddingBottom: 4,
+            borderTopColor: colors.border,
             backgroundColor: colors.white,
+            elevation: 0,
           },
         }}
       >
         <Tab.Screen
           name="Home"
           options={{
+            tabBarAccessibilityLabel: "Home",
             tabBarIcon: ({ focused }) => tabIcon("home", "home-outline", focused),
           }}
         >
@@ -96,6 +100,7 @@ const AppNavigator: React.FC<AppNavigatorProps> = ({
         <Tab.Screen
           name="Attendance"
           options={{
+            tabBarAccessibilityLabel: "Attendance",
             tabBarIcon: ({ focused }) =>
               tabIcon("calendar", "calendar-outline", focused),
           }}
@@ -122,6 +127,7 @@ const AppNavigator: React.FC<AppNavigatorProps> = ({
         <Tab.Screen
           name="Leave"
           options={{
+            tabBarAccessibilityLabel: "Leave",
             tabBarIcon: ({ focused }) =>
               tabIcon("document-text", "document-text-outline", focused),
           }}
@@ -132,6 +138,7 @@ const AppNavigator: React.FC<AppNavigatorProps> = ({
         <Tab.Screen
           name="Payroll"
           options={{
+            tabBarAccessibilityLabel: "Payroll",
             tabBarIcon: ({ focused }) => tabIcon("wallet", "wallet-outline", focused),
           }}
         >
@@ -141,6 +148,7 @@ const AppNavigator: React.FC<AppNavigatorProps> = ({
         <Tab.Screen
           name="Profile"
           options={{
+            tabBarAccessibilityLabel: "Profile",
             tabBarIcon: ({ focused }) =>
               tabIcon("person", "person-outline", focused),
           }}

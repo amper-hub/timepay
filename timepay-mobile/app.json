@@ -28,6 +28,20 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow TimePay to use your camera to verify attendance.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow TimePay to check whether you are at your workplace."
+        }
+      ],
       "expo-font",
       "expo-secure-store"
     ],

@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Employer;
 
 use App\Http\Controllers\Controller;
 use App\Models\PayrollCompensationHistory;
-use App\Models\PayrollEntry;
+use App\Models\PayrollAudit;
 use App\Models\PayrollProfile;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -14,9 +14,39 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\View\View;
 
 class EmployeeController extends Controller
 {
+    /**
+     * Display employees belonging to the authenticated employer's company.
+     */
+    public function index(Request $request): View
+    {
+        $actor = $request->user();
+        abort_unless($actor && in_array(strtoupper((string) $actor->role), [User::ROLE_EMPLOYER, User::ROLE_ADMIN], true), 403);
+        abort_unless($actor->company_id, 403, 'A company must be assigned to this account.');
+
+        $validated = $request->validate(['search' => ['nullable', 'string', 'max:100']]);
+        $search = trim((string) ($validated['search'] ?? ''));
+
+        $employees = User::query()
+            ->where('company_id', $actor->company_id)
+            ->whereRaw('LOWER(role) = ?', ['employee'])
+            ->when($search !== '', fn ($query) => $query->where(function ($query) use ($search): void {
+                $query->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+            }))
+            ->orderBy('name')
+            ->paginate(20)
+            ->withQueryString();
+
+        return view('employer.employees.index', [
+            'employees' => $employees,
+            'search' => $search,
+        ]);
+    }
+
     /**
      * Create a new employee with a temporary password.
      */
@@ -33,7 +63,7 @@ class EmployeeController extends Controller
                 'required',
                 'email',
                 'max:255',
-                Rule::unique('users', 'email')->where(fn ($query) => $query->where('company_id', $companyId)),
+                Rule::unique('users', 'email'),
             ],
             'hourly_rate' => 'required_without_all:daily_rate,monthly_rate|nullable|numeric|min:0|max:999999.99',
             'salary_type' => 'sometimes|in:hourly,daily,monthly',
@@ -43,7 +73,8 @@ class EmployeeController extends Controller
             'payment_method' => 'nullable|in:manual_cash,manual_bank_deposit,manual_cheque',
         ]);
 
-        $temporaryPassword = Str::password(8);
+        $validated['email'] = mb_strtolower(trim($validated['email']));
+        $temporaryPassword = Str::password(12);
         $salaryType = $validated['salary_type'] ?? 'hourly';
         $rate = match ($salaryType) {
             'daily' => $validated['daily_rate'],
@@ -101,24 +132,40 @@ class EmployeeController extends Controller
     }
 
     /**
-     * Remove an employee from the authenticated employer's company.
+     * Deactivate an employee account without deleting its historical records.
      */
-    public function destroy(Request $request, User $user): RedirectResponse
+    public function deactivate(Request $request, User $user): RedirectResponse
     {
-        abort_unless($request->user() && in_array(strtoupper((string) $request->user()->role), [User::ROLE_EMPLOYER, User::ROLE_ADMIN], true), 403);
+        $actor = $request->user();
+        abort_unless($actor && in_array(strtoupper((string) $actor->role), [User::ROLE_EMPLOYER, User::ROLE_ADMIN], true), 403);
         if (
-            $user->company_id !== $request->user()->company_id
+            (int) $user->company_id !== (int) $actor->company_id
             || strtolower((string) $user->role) !== 'employee'
         ) {
             abort(403, 'Unauthorized');
         }
 
-        if (PayrollEntry::query()->where('company_id', $user->company_id)->where('user_id', $user->id)->exists()) {
-            abort(409, 'This employee has payroll history and cannot be deleted. Deactivate the account to preserve payroll records.');
+        if (strtolower((string) $user->status) === 'inactive') {
+            return redirect()->back()->with('success', 'Employee account is already deactivated.');
         }
 
-        $user->delete();
+        DB::transaction(function () use ($actor, $user): void {
+            $before = ['status' => $user->status ?? 'active'];
+            $user->status = 'inactive';
+            $user->save();
+            $user->tokens()->delete();
 
-        return redirect()->back()->with('success', 'Employee removed successfully.');
+            PayrollAudit::query()->create([
+                'company_id' => $actor->company_id,
+                'actor_id' => $actor->id,
+                'action' => 'employee_account_deactivated',
+                'entity_type' => User::class,
+                'entity_id' => $user->id,
+                'before_data' => $before,
+                'after_data' => ['status' => 'inactive'],
+            ]);
+        });
+
+        return redirect()->back()->with('success', 'Employee account deactivated. Historical records have been retained.');
     }
 }

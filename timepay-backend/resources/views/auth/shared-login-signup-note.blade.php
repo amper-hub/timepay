@@ -1,4 +1,4 @@
-<div class="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/80 p-3 text-sm text-emerald-700">
-    <p class="font-semibold">Shared access</p>
-    <p class="mt-1">Employers and super admins use the same sign-in and sign-up experience, with role-based access enforced on the backend.</p>
+<div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+    <p class="font-semibold text-slate-900">Employer account setup</p>
+    <p class="mt-1">This creates an employer account. Employee accounts are managed by an employer, and Super Admin accounts are provisioned separately.</p>
 </div>

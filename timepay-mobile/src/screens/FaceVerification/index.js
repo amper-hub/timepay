@@ -19,21 +19,33 @@ import {
   getHighAccuracyAttendanceLocation,
   LOCATION_FALLBACK_WARNING,
 } from "../../services/location";
+import { classifyAttendanceLocation } from "../../services/geofence";
 
 const MAX_SELFIE_WIDTH = 1600;
 const SELFIE_JPEG_QUALITY = 0.85;
+const MAX_SELFIE_EDGE = 1600;
 const INITIAL_LIVENESS_INSTRUCTION = "Please blink your eyes to verify.";
 
 const compressSelfie = async (photo) => {
-  const shouldResize = photo?.width && photo.width > MAX_SELFIE_WIDTH;
+  const longestEdge = Math.max(photo?.width || 0, photo?.height || 0);
+  const shouldResize = longestEdge > MAX_SELFIE_EDGE;
   const actions = shouldResize
-    ? [{ resize: { width: MAX_SELFIE_WIDTH } }]
+    ? [{ resize: { width: Math.round((photo.width / longestEdge) * MAX_SELFIE_EDGE), height: Math.round((photo.height / longestEdge) * MAX_SELFIE_EDGE) } }]
     : [];
 
   return ImageManipulator.manipulateAsync(photo.uri, actions, {
     compress: SELFIE_JPEG_QUALITY,
     format: ImageManipulator.SaveFormat.JPEG,
   });
+};
+
+const compressLivenessFrame = async (photo) => {
+  const compressed = await compressSelfie(photo);
+  if (!compressed?.uri) {
+    throw new Error("Unable to prepare a liveness frame. Please try again.");
+  }
+  await FileSystem.deleteAsync(photo.uri, { idempotent: true }).catch(() => undefined);
+  return compressed.uri;
 };
 
 const FaceVerificationScreen = ({ navigation, route }) => {
@@ -116,6 +128,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
     submittingRef.current = true;
     setSubmitting(true);
     setScreenError(null);
+    let errorContext = "face";
 
     try {
       const livenessFrames = { ...livenessFrameUrisRef.current };
@@ -134,21 +147,43 @@ const FaceVerificationScreen = ({ navigation, route }) => {
       }
 
       const compressedPhoto = await compressSelfie(photo);
+      errorContext = "location";
       const locationPermission =
         await Location.requestForegroundPermissionsAsync();
 
       if (locationPermission.status !== Location.PermissionStatus.GRANTED) {
-        throw new Error("Location permission is required to submit attendance.");
+        const error = new Error("Location permission is required.");
+        error.name = "LocationPermissionError";
+        throw error;
       }
 
       const { location, usedLastKnownLocation } =
         await getHighAccuracyAttendanceLocation();
+
+      const companyGeofence = await apiService.getCompanyGeofence();
+      const locationVerdict = classifyAttendanceLocation(
+        location,
+        companyGeofence
+      );
+
+      if (locationVerdict === "outside") {
+        const error = new Error("Location is outside the work area.");
+        error.name = "GeofenceOutsideError";
+        throw error;
+      }
+
+      if (locationVerdict !== "inside") {
+        const error = new Error("Location evidence is not accurate enough.");
+        error.name = "LocationAccuracyError";
+        throw error;
+      }
 
       if (usedLastKnownLocation) {
         setScreenError(LOCATION_FALLBACK_WARNING);
         Alert.alert("Location Warning", LOCATION_FALLBACK_WARNING);
       }
 
+      errorContext = "face";
       const response = await submitSelfie(
         compressedPhoto.uri,
         location.coords.latitude,
@@ -175,7 +210,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
         getApiErrorMessage(
           error,
           "We couldn't verify your face. Please make sure your face is clearly visible and try again.",
-          "face"
+          errorContext
         );
 
       setScreenError(errorMessage);
@@ -247,7 +282,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
 
               if (blinkPhaseRef.current === "waiting_for_open" && eyesOpen) {
                 blinkPhaseRef.current = "waiting_for_close";
-                livenessFrameUrisRef.current.open = previewUri;
+                livenessFrameUrisRef.current.open = await compressLivenessFrame(preview);
                 keepPreviewForVerification = true;
                 setLivenessMessage("Eyes open detected. Now blink once.");
               } else if (
@@ -255,7 +290,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
                 eyesClosed
               ) {
                 blinkPhaseRef.current = "waiting_for_reopen";
-                livenessFrameUrisRef.current.closed = previewUri;
+                livenessFrameUrisRef.current.closed = await compressLivenessFrame(preview);
                 keepPreviewForVerification = true;
                 setLivenessMessage("Blink detected. Open your eyes.");
               } else if (
@@ -263,7 +298,7 @@ const FaceVerificationScreen = ({ navigation, route }) => {
                 eyesOpen
               ) {
                 blinkPhaseRef.current = "complete";
-                livenessFrameUrisRef.current.reopened = previewUri;
+                livenessFrameUrisRef.current.reopened = await compressLivenessFrame(preview);
                 keepPreviewForVerification = true;
                 blinkSequenceComplete = true;
               }

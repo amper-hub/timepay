@@ -1,100 +1,108 @@
 @extends('layouts.employer')
 
-@section('title', 'Dashboard - TimePay Employer Portal')
-@section('header_title', 'Dashboard')
+@section('title', 'Overview - TimePay Employer Portal')
+@section('header_title', 'Overview')
 
 @section('content')
-    <div class="space-y-6">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div class="space-y-7">
+        <header class="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div>
-                <h2 class="text-xl font-semibold text-slate-950">Overview</h2>
-                <p class="mt-1 text-sm text-slate-500">Monitor attendance activity and manage your workforce.</p>
+                <p class="text-sm font-semibold text-emerald-700">{{ $company->name }}</p>
+                <h2 class="employer-page-heading">Business overview</h2>
+                <p class="employer-page-description">A quick look at your team and the items that need attention.</p>
             </div>
-            <button
-                type="button"
-                @click="$dispatch('open-add-employee-modal')"
-                class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
-            >
-                <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-                Add Employee
-            </button>
-        </div>
+            <div class="flex flex-col gap-2 sm:flex-row">
+                <a href="{{ route('employer.employees.index') }}" class="employer-secondary-button">View employees</a>
+                <button type="button" @click="$dispatch('open-add-employee-modal')" class="employer-primary-button">Add Employee</button>
+            </div>
+        </header>
 
-        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <div class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-                <p class="text-sm font-medium text-slate-500">Total Staff</p>
-                <p class="mt-3 text-3xl font-bold text-slate-950">{{ number_format($totalEmployees) }}</p>
-                <p class="mt-2 text-sm text-slate-500">Active employees in your company</p>
+        <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Business summary">
+            <article class="employer-card p-5">
+                <p class="text-sm font-semibold text-slate-600">Active employees</p>
+                <p class="mt-2 text-3xl font-bold tracking-tight text-slate-950">{{ number_format($activeEmployeeCount) }}</p>
+                <a href="{{ route('employer.employees.index') }}" class="mt-3 inline-flex min-h-10 items-center text-sm font-semibold text-emerald-800 underline-offset-2 hover:underline">Open employee directory</a>
+            </article>
+
+            <article class="employer-card p-5">
+                <p class="text-sm font-semibold text-slate-600">Verified attendance today</p>
+                <p class="mt-2 text-3xl font-bold tracking-tight text-slate-950">{{ number_format($verifiedPunchesToday) }}</p>
+                <p class="mt-2 text-sm text-slate-600">Verified clock events</p>
+                @if ($attentionPunchesToday > 0)
+                    <p class="mt-2 text-sm font-medium text-amber-800">{{ number_format($attentionPunchesToday) }} flagged or rejected events to review</p>
+                @endif
+            </article>
+
+            <article class="employer-card p-5">
+                <p class="text-sm font-semibold text-slate-600">Pending leave requests</p>
+                <p class="mt-2 text-3xl font-bold tracking-tight text-slate-950">{{ number_format($pendingLeaveRequests) }}</p>
+                <a href="{{ route('employer.leaves.index', ['status' => 'pending']) }}" class="mt-3 inline-flex min-h-10 items-center text-sm font-semibold text-emerald-800 underline-offset-2 hover:underline">Review requests</a>
+            </article>
+
+            <article class="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+                <p class="text-sm font-semibold text-emerald-900">Latest calculated payroll</p>
+                @if ($latestPayroll)
+                    <p class="mt-2 text-3xl font-bold tracking-tight text-emerald-900">{{ $company->formatMoney($latestPayroll->net_total) }}</p>
+                    <p class="mt-2 text-sm text-emerald-900">{{ $latestPayroll->period_start->format('M d') }}–{{ $latestPayroll->period_end->format('M d, Y') }} · {{ str($latestPayroll->status)->replace('_', ' ')->title() }}</p>
+                    <a href="{{ route('employer.payroll', ['section' => 'details', 'period_id' => $latestPayroll->id]) }}" class="mt-3 inline-flex min-h-10 items-center text-sm font-semibold text-emerald-900 underline-offset-2 hover:underline">View payroll details</a>
+                @else
+                    <p class="mt-2 text-base font-semibold text-emerald-950">No calculated payroll yet</p>
+                    <a href="{{ route('employer.payroll', ['section' => 'overview']) }}" class="mt-3 inline-flex min-h-10 items-center text-sm font-semibold text-emerald-900 underline-offset-2 hover:underline">Open Payroll</a>
+                @endif
+            </article>
+        </section>
+
+        <section class="employer-card overflow-hidden" aria-labelledby="recent-attendance-heading">
+            <div class="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <div>
+                    <h3 id="recent-attendance-heading" class="employer-section-heading">Recent attendance</h3>
+                    <p class="mt-1 text-sm text-slate-600">Latest employee clock events and verification status.</p>
+                </div>
+                <a href="{{ route('employer.attendance') }}" class="employer-secondary-button">View attendance</a>
             </div>
 
-            <div class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-                <p class="text-sm font-medium text-slate-500">Verified Punches</p>
-                <p class="mt-3 text-3xl font-bold text-emerald-600">{{ number_format($verifiedPunchesToday) }}</p>
-                <p class="mt-2 text-sm text-slate-500">Approved attendance events today</p>
-            </div>
-
-            <div class="rounded-lg border border-emerald-100 bg-emerald-50 p-6 shadow-sm">
-                <p class="text-sm font-medium text-emerald-700">Average Hourly Rate</p>
-                <p class="mt-3 text-3xl font-bold text-emerald-700">{{ $company->formatMoney($averageHourlyRate) }}</p>
-                <p class="mt-2 text-sm text-emerald-700/80">Across active employees</p>
-            </div>
-
-            <div class="rounded-lg border border-teal-100 bg-teal-50 p-6 shadow-sm">
-                <p class="text-sm font-medium text-teal-700">Pending Payroll</p>
-                <p class="mt-3 text-3xl font-bold text-teal-700">{{ $company->formatMoney($pendingPayroll) }}</p>
-                <p class="mt-2 text-sm text-teal-700/80">Current month verified work</p>
-            </div>
-
-            <div class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-                <p class="text-sm font-medium text-slate-500">Geofence Violations</p>
-                <p class="mt-3 text-3xl font-bold text-red-600">{{ number_format($rejectedViolationsToday) }}</p>
-                <p class="mt-2 text-sm text-slate-500">Out-of-bounds attempts today</p>
-            </div>
-        </div>
-
-        <section class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div class="border-b border-slate-200 px-6 py-4">
-                <h2 class="text-base font-semibold text-slate-950">Recent Punch Activity</h2>
-                <p class="mt-1 text-sm text-slate-500">The latest verified, flagged, and rejected attendance logs.</p>
-            </div>
-
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-slate-200">
-                    <thead class="bg-emerald-50/60">
+            <div class="hidden overflow-x-auto md:block">
+                <table class="min-w-full divide-y divide-slate-200 text-left">
+                    <thead class="bg-slate-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-800">Employee</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-800">Type</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-800">Timestamp</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-800">Status</th>
+                            <th scope="col" class="px-6 py-3 text-sm font-semibold text-slate-700">Employee</th>
+                            <th scope="col" class="px-6 py-3 text-sm font-semibold text-slate-700">Event</th>
+                            <th scope="col" class="px-6 py-3 text-sm font-semibold text-slate-700">Date and time</th>
+                            <th scope="col" class="px-6 py-3 text-sm font-semibold text-slate-700">Status</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-200 bg-white">
+                    <tbody class="divide-y divide-slate-100">
                         @forelse ($recentPunches as $log)
-                            <tr class="transition hover:bg-emerald-50/50">
-                                <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-slate-950">{{ $log->user?->name ?? 'Unknown Employee' }}</td>
-                                <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600">{{ str($log->type)->replace('_', ' ')->title() }}</td>
-                                <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600">{{ $log->timestamp->format('M d, Y g:i A') }}</td>
-                                <td class="whitespace-nowrap px-6 py-4">
-                                    <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold @if ($log->status === 'verified') bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 @elseif ($log->status === 'flagged') bg-amber-50 text-amber-700 ring-1 ring-amber-200 @else bg-red-50 text-red-700 ring-1 ring-red-200 @endif">
-                                        @if ($log->status === 'verified')
-                                            Verified
-                                        @elseif ($log->status === 'flagged')
-                                            Flagged Review
-                                        @else
-                                            Out of Bounds Alert
-                                        @endif
-                                    </span>
+                            <tr class="hover:bg-slate-50">
+                                <td class="px-6 py-4">
+                                    <p class="font-semibold text-slate-900">{{ $log->user?->name ?? 'Unknown employee' }}</p>
+                                    <p class="text-sm text-slate-600">{{ $log->user?->email }}</p>
+                                </td>
+                                <td class="px-6 py-4 text-base text-slate-700">{{ str($log->type)->replace('_', ' ')->title() }}</td>
+                                <td class="px-6 py-4 text-base text-slate-700">{{ $log->timestamp?->timezone('Asia/Manila')->format('M d, Y g:i A') ?? '—' }}</td>
+                                <td class="px-6 py-4">
+                                    @php($tone = match ($log->status) { 'verified' => 'border-emerald-200 bg-emerald-50 text-emerald-800', 'flagged' => 'border-amber-200 bg-amber-50 text-amber-900', default => 'border-red-200 bg-red-50 text-red-800' })
+                                    <span class="inline-flex rounded-full border px-2.5 py-1 text-sm font-medium {{ $tone }}">{{ str($log->status)->replace('_', ' ')->title() }}</span>
                                 </td>
                             </tr>
                         @empty
-                            <tr>
-                                <td colspan="4" class="px-6 py-10 text-center text-sm text-slate-500">No attendance activity has been recorded yet.</td>
-                            </tr>
+                            <tr><td colspan="4" class="px-6 py-12 text-center text-base text-slate-600">No employee attendance events have been recorded yet.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
+            </div>
+            <div class="divide-y divide-slate-200 md:hidden">
+                @forelse ($recentPunches as $log)
+                    <article class="space-y-2 px-4 py-4">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0"><h4 class="truncate font-semibold text-slate-900">{{ $log->user?->name ?? 'Unknown employee' }}</h4><p class="text-sm text-slate-600">{{ str($log->type)->replace('_', ' ')->title() }} · {{ $log->timestamp?->timezone('Asia/Manila')->format('M d, Y g:i A') ?? '—' }}</p></div>
+                            <span class="shrink-0 rounded-full border px-2.5 py-1 text-sm font-medium {{ match ($log->status) { 'verified' => 'border-emerald-200 bg-emerald-50 text-emerald-800', 'flagged' => 'border-amber-200 bg-amber-50 text-amber-900', default => 'border-red-200 bg-red-50 text-red-800' } }}">{{ str($log->status)->replace('_', ' ')->title() }}</span>
+                        </div>
+                        <p class="break-all text-sm text-slate-600">{{ $log->user?->email }}</p>
+                    </article>
+                @empty
+                    <p class="px-4 py-10 text-center text-base text-slate-600">No employee attendance events have been recorded yet.</p>
+                @endforelse
             </div>
         </section>
     </div>

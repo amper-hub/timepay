@@ -89,7 +89,7 @@
                                 @endif
                             </td>
                             <td class="px-5 py-4 text-right">
-                                <form method="POST" action="{{ route('super-admin.platform.employees.reset-photo', $employee) }}" onsubmit="return confirm('Reset this employee baseline photo?')">
+                                <form method="POST" action="{{ route('super-admin.platform.employees.reset-photo', $employee) }}" onsubmit="return confirm('Reset this employee’s facial baseline? Their next attendance punch will require face re-enrollment.')">
                                     @csrf
                                     @method('PATCH')
                                     <button type="submit" class="rounded-md border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50">

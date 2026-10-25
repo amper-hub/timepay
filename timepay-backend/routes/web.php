@@ -102,7 +102,8 @@ Route::middleware(['auth'])->prefix('employer')->group(function () {
     Route::post('/payroll/{user}/mark-as-paid', [EmployerPayrollController::class, 'markAsPaid'])->name('employer.payroll.mark-as-paid');
 
     Route::post('/employees', [EmployeeController::class, 'store'])->name('employer.employees.store');
-    Route::delete('/employees/{user}', [EmployeeController::class, 'destroy'])->name('employer.employees.destroy');
+    Route::get('/employees', [EmployeeController::class, 'index'])->name('employer.employees.index');
+    Route::patch('/employees/{user}/deactivate', [EmployeeController::class, 'deactivate'])->name('employer.employees.deactivate');
 });
 
 // 4. --- FIX BREEZE REDIRECT TRAP ---

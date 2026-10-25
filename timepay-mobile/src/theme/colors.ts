@@ -10,5 +10,12 @@ export const colors = {
   slate300: "#CBD5E1",
   slate500: "#64748B",
   slate900: "#0F172A",
+  background: "#F5F7FA",
+  card: "#FFFFFF",
+  text: "#1F2937",
+  muted: "#64748B",
+  border: "#E2E8F0",
+  error: "#DC2626",
+  warning: "#D97706",
   white: "#FFFFFF",
 };

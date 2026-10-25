@@ -1,8 +1,8 @@
 <x-guest-layout>
     <div class="mb-8">
-        <p class="text-sm font-bold uppercase tracking-wide text-emerald-600">Admin registration</p>
-        <h1 class="mt-2 text-3xl font-bold tracking-tight text-slate-950">Create your TimePay account</h1>
-        <p class="mt-2 text-sm leading-6 text-slate-500">Join the workspace with a crisp setup built for secure time operations.</p>
+        <p class="text-sm font-semibold text-emerald-700">Employer account</p>
+        <h1 class="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Create your TimePay account</h1>
+        <p class="mt-2 text-base leading-6 text-slate-600">Set up an employer sign-in for your workspace. Employee accounts are created by an employer.</p>
     </div>
 
     <form method="POST" action="{{ route('register') }}">
