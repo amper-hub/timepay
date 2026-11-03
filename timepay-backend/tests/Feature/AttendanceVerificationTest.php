@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AttendanceLog;
+use App\Models\PayrollAudit;
 use App\Models\Company;
 use App\Models\User;
 use App\Services\FacePlusPlusService;
@@ -41,6 +42,7 @@ class AttendanceVerificationTest extends TestCase
             'role' => User::ROLE_EMPLOYEE,
         ]);
 
+        $this->app['auth']->forgetGuards();
         Sanctum::actingAs($this->employee);
     }
 
@@ -120,7 +122,7 @@ class AttendanceVerificationTest extends TestCase
         ]);
         Sanctum::actingAs($other);
 
-        $this->post('/api/attendance/clock-in', [
+        $retry = $this->post('/api/attendance/clock-in', [
             ...$this->validPunchPayload(),
             'event_id' => '10000000-0000-4000-8000-000000000002',
         ], ['Accept' => 'application/json'])
@@ -228,27 +230,44 @@ class AttendanceVerificationTest extends TestCase
         $this->app->instance(FacePlusPlusService::class, $faceService);
 
         $eventId = '10000000-0000-4000-8000-000000000010';
-        $this->post('/api/attendance/clock-in', [
+        $retry = $this->post('/api/attendance/clock-in', [
             ...$this->validPunchPayload(),
             'liveness_mode' => 'blink',
             'event_id' => $eventId,
-        ], ['Accept' => 'application/json'])->assertOk()
+        ], ['Accept' => 'application/json']);
+        $retry->assertOk()
             ->assertJsonPath('face_verification.enrolled', true)
             ->assertJsonPath('attendance_log', null);
         $firstEnrolledPath = $this->employee->fresh()->baseline_photo_path;
         $this->assertNotNull($firstEnrolledPath);
 
         // Simulate an enrollment response that the client did not receive: its event ID remains pending.
-        $this->postJson('/api/profile/reset-face')->assertOk();
+        $employer = User::factory()->create([
+            'company_id' => $this->company->id,
+            'role' => User::ROLE_EMPLOYER,
+        ]);
+        $this->actingAs($employer)
+            ->post(route('employer.employees.reset-baseline', $this->employee))
+            ->assertRedirect();
         $this->assertDatabaseMissing('attendance_event_responses', ['event_id' => $eventId]);
         $this->assertNull($this->employee->fresh()->baseline_photo_path);
         Storage::disk('private')->assertMissing($firstEnrolledPath);
+        $this->assertDatabaseHas('payroll_audits', [
+            'action' => 'employee_face_baseline_reset',
+            'entity_id' => $this->employee->id,
+        ]);
+        $this->get(route('employer.employees.index'))
+            ->assertOk()
+            ->assertSee('Not enrolled');
 
-        $this->post('/api/attendance/clock-in', [
+        $this->app['auth']->forgetGuards();
+        Sanctum::actingAs($this->employee->fresh());
+        $retry = $this->post('/api/attendance/clock-in', [
             ...$this->validPunchPayload(),
             'liveness_mode' => 'blink',
             'event_id' => $eventId,
-        ], ['Accept' => 'application/json'])->assertOk()
+        ], ['Accept' => 'application/json']);
+        $retry->assertOk()
             ->assertJsonPath('face_verification.enrolled', true)
             ->assertJsonPath('attendance_log', null)
             ->assertJsonMissingPath('idempotent_replay');
@@ -273,6 +292,59 @@ class AttendanceVerificationTest extends TestCase
         $this->assertDatabaseCount('attendance_logs', 1);
         $this->assertDatabaseCount('attendance_event_responses', 2);
         $this->assertNotNull($punch->json('attendance_log.id'));
+    }
+
+    public function test_employee_cannot_reset_face_baseline_through_the_employer_route_or_old_api(): void
+    {
+        Storage::disk('private')->put('selfies/reference.jpg', 'baseline');
+        $this->employee->forceFill(['baseline_photo_path' => 'selfies/reference.jpg'])->save();
+
+        $this->post(route('employer.employees.reset-baseline', $this->employee))->assertForbidden();
+        $this->postJson('/api/profile/reset-face')->assertNotFound();
+
+        $this->assertSame('selfies/reference.jpg', $this->employee->fresh()->baseline_photo_path);
+        Storage::disk('private')->assertExists('selfies/reference.jpg');
+    }
+
+    public function test_employer_cannot_reset_a_baseline_owned_by_another_company(): void
+    {
+        $otherCompany = Company::query()->create(['name' => 'Other Company', 'pay_metric' => 'hourly']);
+        $otherEmployee = User::factory()->create([
+            'company_id' => $otherCompany->id,
+            'role' => User::ROLE_EMPLOYEE,
+        ]);
+        Storage::disk('private')->put('selfies/foreign-reference.jpg', 'baseline');
+        $otherEmployee->forceFill(['baseline_photo_path' => 'selfies/foreign-reference.jpg'])->save();
+        $employer = User::factory()->create(['company_id' => $this->company->id, 'role' => User::ROLE_EMPLOYER]);
+
+        $this->actingAs($employer)
+            ->post(route('employer.employees.reset-baseline', $otherEmployee))
+            ->assertNotFound();
+
+        $this->assertSame('selfies/foreign-reference.jpg', $otherEmployee->fresh()->baseline_photo_path);
+        Storage::disk('private')->assertExists('selfies/foreign-reference.jpg');
+    }
+
+    public function test_failed_baseline_reset_restores_the_file_and_keeps_the_database_reference(): void
+    {
+        Storage::disk('private')->put('selfies/reference.jpg', 'baseline');
+        $this->employee->forceFill(['baseline_photo_path' => 'selfies/reference.jpg'])->save();
+        $employer = User::factory()->create(['company_id' => $this->company->id, 'role' => User::ROLE_EMPLOYER]);
+        PayrollAudit::creating(static function (): void {
+            throw new RuntimeException('Synthetic audit persistence failure.');
+        });
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->actingAs($employer)->post(route('employer.employees.reset-baseline', $this->employee));
+            $this->fail('The synthetic audit failure should abort the reset.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Synthetic audit persistence failure.', $exception->getMessage());
+        }
+
+        $this->assertSame('selfies/reference.jpg', $this->employee->fresh()->baseline_photo_path);
+        Storage::disk('private')->assertExists('selfies/reference.jpg');
+        $this->assertSame([], Storage::disk('private')->allFiles('baseline-reset-pending'));
     }
 
     public function test_failed_enrollment_does_not_persist_or_report_a_baseline(): void

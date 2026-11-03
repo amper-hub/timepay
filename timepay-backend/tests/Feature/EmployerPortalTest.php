@@ -86,7 +86,203 @@ class EmployerPortalTest extends TestCase
             ->assertSee('Add Employee');
     }
 
-    public function test_employee_table_renders_role_status_and_actions_under_the_matching_headers(): void
+    public function test_employee_profile_shows_only_the_selected_employees_saved_payroll_settings(): void
+    {
+        $employee = $this->employee('Payroll Profile One');
+        $other = $this->employee('Payroll Profile Two');
+        \App\Models\PayrollProfile::query()->create([
+            'company_id' => $this->company->id, 'user_id' => $employee->id,
+            'salary_type' => 'daily', 'pay_frequency' => 'weekly', 'payroll_eligible' => true,
+            'overtime_eligible' => false, 'rank_and_file' => true, 'sss_enabled' => false,
+            'philhealth_enabled' => false, 'pagibig_enabled' => false, 'withholding_tax_enabled' => false,
+            'standard_hours_per_day' => 7, 'standard_work_days_per_month' => 20,
+        ]);
+        \App\Models\PayrollProfile::query()->create([
+            'company_id' => $this->company->id, 'user_id' => $other->id,
+            'salary_type' => 'hourly', 'pay_frequency' => 'monthly', 'payroll_eligible' => false,
+            'overtime_eligible' => true, 'rank_and_file' => false, 'sss_enabled' => true,
+            'philhealth_enabled' => true, 'pagibig_enabled' => true, 'withholding_tax_enabled' => true,
+            'standard_hours_per_day' => 8, 'standard_work_days_per_month' => 22,
+        ]);
+        \App\Models\PayrollCompensationHistory::query()->create([
+            'company_id' => $this->company->id, 'user_id' => $employee->id, 'basis' => 'daily',
+            'rate' => '850.00', 'effective_from' => now()->subDays(4)->toDateString(), 'changed_by' => $this->employer->id,
+        ]);
+        \App\Models\PayrollCompensationHistory::query()->create([
+            'company_id' => $this->company->id, 'user_id' => $other->id, 'basis' => 'hourly',
+            'rate' => '125.00', 'effective_from' => now()->subDays(4)->toDateString(), 'changed_by' => $this->employer->id,
+        ]);
+        \App\Models\PayrollProfileItem::query()->create([
+            'company_id' => $this->company->id, 'user_id' => $employee->id, 'category' => 'earning',
+            'code' => 'meal_allowance', 'label' => 'Meal allowance', 'amount' => '300.00', 'taxable' => true,
+            'effective_from' => '2026-01-01', 'effective_to' => '2026-12-31', 'created_by' => $this->employer->id,
+        ]);
+
+        $this->actingAs($this->employer)
+            ->get(route('employer.employees.show', $employee))
+            ->assertOk()
+            ->assertSee('Payroll Profile One')
+            ->assertSee('value="850.00"', false)
+            ->assertSee('value="7"', false)
+            ->assertSee('value="20"', false)
+            ->assertSee('value="weekly" selected', false)
+            ->assertSee('meal_allowance')
+            ->assertSee('Meal allowance')
+            ->assertSee('Jan 01, 2026', false)
+            ->assertDontSee('Payroll Profile Two')
+            ->assertDontSee('125.00');
+    }
+
+    public function test_employee_profile_settings_save_and_reopen_without_changing_another_employee(): void
+    {
+        $employee = $this->employee('Payroll Settings Target');
+        $other = $this->employee('Payroll Settings Neighbor');
+        \App\Models\PayrollProfile::query()->create([
+            'company_id' => $this->company->id, 'user_id' => $employee->id,
+            'salary_type' => 'hourly', 'pay_frequency' => 'monthly', 'payroll_eligible' => true,
+            'overtime_eligible' => false, 'rank_and_file' => true, 'sss_enabled' => false,
+            'philhealth_enabled' => false, 'pagibig_enabled' => false, 'withholding_tax_enabled' => false,
+            'standard_hours_per_day' => 8, 'standard_work_days_per_month' => 22,
+        ]);
+        \App\Models\PayrollProfile::query()->create([
+            'company_id' => $this->company->id, 'user_id' => $other->id,
+            'salary_type' => 'hourly', 'pay_frequency' => 'monthly', 'payroll_eligible' => true,
+            'overtime_eligible' => true, 'rank_and_file' => true, 'sss_enabled' => false,
+            'philhealth_enabled' => false, 'pagibig_enabled' => false, 'withholding_tax_enabled' => false,
+            'standard_hours_per_day' => 8, 'standard_work_days_per_month' => 22,
+        ]);
+        $effectiveFrom = now()->toDateString();
+
+        $this->actingAs($this->employer)
+            ->patch(route('employer.payroll.profiles.update', ['return_to' => 'employee_profile', 'employee_id' => $employee->id]), [
+                'user_id' => $employee->id, 'salary_type' => 'daily', 'rate' => '900.00',
+                'pay_frequency' => 'weekly', 'effective_from' => $effectiveFrom,
+                'standard_hours_per_day' => 7, 'standard_work_days_per_month' => 20,
+                'payment_method' => 'manual_bank_deposit',
+            ])
+            ->assertRedirect(route('employer.employees.show', $employee));
+
+        $this->assertDatabaseHas('payroll_profiles', [
+            'user_id' => $employee->id, 'salary_type' => 'daily', 'pay_frequency' => 'weekly',
+            'standard_hours_per_day' => 7, 'standard_work_days_per_month' => 20,
+        ]);
+        $this->assertDatabaseHas('payroll_profiles', [
+            'user_id' => $other->id, 'salary_type' => 'hourly', 'pay_frequency' => 'monthly',
+            'standard_hours_per_day' => 8,
+        ]);
+        $savedRate = \App\Models\PayrollCompensationHistory::query()->where('user_id', $employee->id)->sole();
+        $this->assertSame('daily', $savedRate->basis);
+        $this->assertSame('900.00', $savedRate->rate);
+        $this->assertSame($effectiveFrom, $savedRate->effective_from->toDateString());
+
+        $this->post(route('employer.payroll.profile-items.store', ['return_to' => 'employee_profile', 'employee_id' => $employee->id]), [
+            'user_id' => $employee->id, 'category' => 'earning', 'code' => 'meal_allowance',
+            'label' => 'Meal allowance', 'amount' => '350.00', 'taxable' => '1',
+            'effective_from' => '2026-11-01', 'effective_to' => '2026-12-31',
+        ])->assertRedirect(route('employer.employees.show', $employee));
+
+        $savedItem = \App\Models\PayrollProfileItem::query()->where('user_id', $employee->id)->sole();
+        $this->assertSame('350.00', $savedItem->amount);
+        $this->assertSame('2026-11-01', $savedItem->effective_from->toDateString());
+        $this->assertSame('2026-12-31', $savedItem->effective_to->toDateString());
+        $this->assertTrue($savedItem->taxable);
+        $this->get(route('employer.employees.show', $employee))
+            ->assertOk()->assertSee('value="900.00"', false)->assertSee('Meal allowance')
+            ->assertSee('Nov 01, 2026', false)->assertSee('Dec 31, 2026', false);
+    }
+
+    public function test_employee_profile_route_rejects_an_employee_from_another_company(): void
+    {
+        $otherCompany = Company::query()->create(['name' => 'Other Profile Co', 'pay_metric' => 'hourly', 'currency' => 'PHP']);
+        $foreignEmployee = $this->employee('Foreign Profile Employee', 'active', $otherCompany);
+
+        $this->actingAs($this->employer)
+            ->get(route('employer.employees.show', $foreignEmployee))
+            ->assertNotFound();
+    }
+
+    public function test_employee_directory_shows_scoped_attendance_and_hides_draft_payroll_amounts(): void
+    {
+        $employee = $this->employee('Summary Employee');
+        $employee->forceFill(['baseline_photo_path' => 'selfies/baseline.jpg'])->save();
+        $period = PayrollPeriod::query()->create([
+            'company_id' => $this->company->id,
+            'period_start' => now()->startOfMonth()->toDateString(),
+            'period_end' => now()->endOfMonth()->toDateString(),
+            'frequency' => 'monthly',
+            'status' => 'draft',
+            'created_by' => $this->employer->id,
+        ]);
+        $this->attendance($employee, 'verified', now()->startOfMonth()->addHours(9));
+        $this->attendance($employee, 'flagged', now()->startOfMonth()->addHours(10));
+        \App\Models\PayrollEntry::query()->create([
+            'company_id' => $this->company->id,
+            'payroll_period_id' => $period->id,
+            'user_id' => $employee->id,
+            'gross_pay' => '1200.00',
+            'employee_deductions' => '100.00',
+            'employer_contributions' => '80.00',
+            'net_pay' => '1100.00',
+            'employer_cost' => '1280.00',
+            'calculation_snapshot' => [],
+            'review_flags' => ['missing_statutory_input_requires_review'],
+        ]);
+
+        $this->actingAs($this->employer)
+            ->get(route('employer.employees.index', ['search' => (string) $employee->id]))
+            ->assertOk()
+            ->assertSee('Employee ID #'.$employee->id)
+            ->assertSee('2 recorded clock-ins')
+            ->assertSee('Hours: needs review')
+            ->assertSee('Not final')
+            ->assertDontSee('Gross: <strong>PHP 1,200.00</strong>', false)
+            ->assertSee('Reset baseline photo');
+    }
+
+    public function test_cross_period_attendance_hides_even_an_approved_payroll_summary(): void
+    {
+        $employee = $this->employee('Boundary Summary Employee');
+        $period = PayrollPeriod::query()->create([
+            'company_id' => $this->company->id,
+            'period_start' => '2026-10-01',
+            'period_end' => '2026-10-31',
+            'frequency' => 'monthly',
+            'status' => 'approved',
+            'created_by' => $this->employer->id,
+        ]);
+        $this->attendance($employee, 'verified', '2026-09-30 23:00:00');
+        AttendanceLog::query()->create([
+            'company_id' => $this->company->id,
+            'user_id' => $employee->id,
+            'timestamp' => '2026-10-01 01:00:00',
+            'type' => 'clock_out',
+            'latitude' => '14.59950000',
+            'longitude' => '120.98420000',
+            'distance_meters' => '5.00',
+            'status' => 'verified',
+        ]);
+        \App\Models\PayrollEntry::query()->create([
+            'company_id' => $this->company->id,
+            'payroll_period_id' => $period->id,
+            'user_id' => $employee->id,
+            'gross_pay' => '500.00',
+            'employee_deductions' => '0.00',
+            'employer_contributions' => '0.00',
+            'net_pay' => '500.00',
+            'employer_cost' => '500.00',
+            'calculation_snapshot' => [],
+            'review_flags' => [],
+        ]);
+
+        $this->actingAs($this->employer)
+            ->get(route('employer.employees.index', ['period_id' => $period->id]))
+            ->assertOk()
+            ->assertSee('cross-period shift')
+            ->assertDontSee('Gross: <strong>PHP 500.00</strong>', false)
+            ->assertDontSee('Gross PHP 500.00');
+    }
+
+    public function test_employee_table_renders_status_attendance_payroll_and_actions(): void
     {
         $active = $this->employee('Table Active Employee');
         $inactive = $this->employee('Table Inactive Employee', 'inactive');
@@ -96,29 +292,29 @@ class EmployerPortalTest extends TestCase
             ->assertOk()
             ->getContent();
 
-        $activeRowStart = strpos($html, '<tr class="hover:bg-slate-50">');
+        $activeRowStart = strpos($html, '<tr class="align-top hover:bg-slate-50">');
         $activeRowEnd = strpos($html, '</tr>', $activeRowStart);
         $this->assertNotFalse($activeRowStart);
         $this->assertNotFalse($activeRowEnd);
         $activeRow = substr($html, $activeRowStart, $activeRowEnd - $activeRowStart);
-        $this->assertSame(4, substr_count($activeRow, '<td '));
+        $this->assertSame(7, substr_count($activeRow, '<td '));
         $activeRowText = preg_replace('/\s+/', ' ', strip_tags($activeRow));
-        $rolePosition = strpos($activeRow, '>Employee</td>');
+        $rolePosition = strpos($activeRow, 'Employee ID #'.$active->id);
         $statusPosition = strpos($activeRow, 'border-emerald-200');
-        $actionsPosition = strpos($activeRow, 'Deactivate Employee');
+        $actionsPosition = strpos($activeRow, 'Deactivate Employee</button>');
         $this->assertNotFalse($rolePosition);
         $this->assertNotFalse($statusPosition);
         $this->assertNotFalse($actionsPosition);
         $this->assertTrue($rolePosition < $statusPosition && $statusPosition < $actionsPosition);
         $this->assertStringContainsString($active->name, $activeRowText);
 
-        $inactiveRowStart = strpos($html, '<tr class="hover:bg-slate-50">', $activeRowEnd);
+        $inactiveRowStart = strpos($html, '<tr class="align-top hover:bg-slate-50">', $activeRowEnd);
         $inactiveRowEnd = strpos($html, '</tr>', $inactiveRowStart);
         $inactiveRow = substr($html, $inactiveRowStart, $inactiveRowEnd - $inactiveRowStart);
-        $this->assertSame(4, substr_count($inactiveRow, '<td '));
+        $this->assertSame(7, substr_count($inactiveRow, '<td '));
         $inactiveRowText = preg_replace('/\s+/', ' ', strip_tags($inactiveRow));
-        $this->assertStringContainsString('Deactivated', $inactiveRowText);
-        $this->assertStringNotContainsString('Deactivate Employee', $inactiveRowText);
+        $this->assertStringContainsString('Inactive', $inactiveRowText);
+        $this->assertStringNotContainsString('Deactivate Employee</button>', $inactiveRow);
     }
 
     public function test_leave_page_only_renders_decision_controls_for_pending_requests(): void

@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -15,7 +14,6 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import {
-  resetFaceBaseline,
   updateName,
   updatePassword,
 } from "../../services/profileService";
@@ -49,8 +47,6 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
     password_confirmation: "",
   });
   const [updatingPassword, setUpdatingPassword] = useState(false);
-  const [confirmFaceResetVisible, setConfirmFaceResetVisible] = useState(false);
-  const [resettingFace, setResettingFace] = useState(false);
   const [payslips, setPayslips] = useState([]);
   const [loadingPayslips, setLoadingPayslips] = useState(false);
   const [downloadingPayslipId, setDownloadingPayslipId] = useState(null);
@@ -170,30 +166,6 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
     }
   }, [passwordForm]);
 
-  const handleResetFace = useCallback(async () => {
-    setResettingFace(true);
-
-    try {
-      await resetFaceBaseline();
-      setConfirmFaceResetVisible(false);
-      Alert.alert(
-        "Face ID reset",
-        "Your next attendance punch will re-enroll your facial baseline."
-      );
-    } catch (error) {
-      Alert.alert(
-        "Unable to reset Face ID",
-        getApiErrorMessage(
-          error,
-          "Unable to reset facial recognition right now. Please try again.",
-          "profile"
-        )
-      );
-    } finally {
-      setResettingFace(false);
-    }
-  }, []);
-
   const handleViewPayslip = useCallback(async (payslipId) => {
     setDownloadingPayslipId(payslipId);
 
@@ -239,7 +211,6 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
     editName: "Edit Name",
     accountDetails: "Account Details",
     password: "Update Password",
-    facialRecognition: "Facial Recognition",
     payslips: "My Payslips",
   }[activeSection] ?? "Settings";
 
@@ -302,14 +273,9 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
                 <SettingsRow
                   icon="key-outline"
                   label="Update Password"
-                  onPress={() => setActiveSection("password")}
-                />
-                <SettingsRow
-                  icon="scan-outline"
-                  label="Facial Recognition"
-                  value="Manage your Face ID baseline"
+                  value="Keep your account secure"
                   isLast
-                  onPress={() => setActiveSection("facialRecognition")}
+                  onPress={() => setActiveSection("password")}
                 />
               </View>
 
@@ -439,26 +405,6 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
                   <Text style={styles.primaryButtonText}>Update Password</Text>
                 )}
               </TouchableOpacity>
-            </>
-          ) : null}
-
-          {activeSection === "facialRecognition" ? (
-            <>
-              <SectionHeading title="Security" />
-              <Text style={styles.description}>
-                Reset your baseline photo if verification keeps failing or your
-                appearance has changed. Your next attendance punch will enroll
-                a new baseline.
-              </Text>
-              <View style={styles.group}>
-                <SettingsRow
-                  icon="refresh-outline"
-                  label="Reset Face ID Baseline"
-                  value="Re-enroll on your next attendance punch"
-                  isLast
-                  onPress={() => setConfirmFaceResetVisible(true)}
-                />
-              </View>
             </>
           ) : null}
 
@@ -661,45 +607,6 @@ const ProfileManagementScreen = ({ userSessionData, onLogout }) => {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal
-        visible={confirmFaceResetVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setConfirmFaceResetVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Reset facial baseline?</Text>
-            <Text style={styles.modalText}>
-              This clears your current Face ID baseline. Your next attendance
-              punch will become the new baseline photo.
-            </Text>
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                disabled={resettingFace}
-                onPress={() => setConfirmFaceResetVisible(false)}
-                style={styles.cancelButton}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                disabled={resettingFace}
-                onPress={handleResetFace}
-                style={[
-                  styles.dangerButton,
-                  resettingFace && styles.disabledButton,
-                ]}
-              >
-                {resettingFace ? (
-                  <ActivityIndicator color="#ffffff" />
-                ) : (
-                  <Text style={styles.dangerButtonText}>Reset Face ID</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 };
@@ -1145,60 +1052,6 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.65,
-  },
-  modalOverlay: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(15, 23, 42, 0.48)",
-    padding: 24,
-  },
-  modalCard: {
-    width: "100%",
-    borderRadius: 16,
-    backgroundColor: "#ffffff",
-    padding: 20,
-  },
-  modalTitle: {
-    color: "#111827",
-    fontSize: 20,
-    fontWeight: "800",
-  },
-  modalText: {
-    marginTop: 8,
-    color: "#64748b",
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  modalActions: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 18,
-  },
-  cancelButton: {
-    flex: 1,
-    alignItems: "center",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    paddingVertical: 14,
-  },
-  cancelButtonText: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  dangerButton: {
-    flex: 1,
-    alignItems: "center",
-    borderRadius: 14,
-    backgroundColor: "#dc2626",
-    paddingVertical: 14,
-  },
-  dangerButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "800",
   },
 });
 

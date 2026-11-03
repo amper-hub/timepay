@@ -103,6 +103,8 @@ Route::middleware(['auth'])->prefix('employer')->group(function () {
 
     Route::post('/employees', [EmployeeController::class, 'store'])->name('employer.employees.store');
     Route::get('/employees', [EmployeeController::class, 'index'])->name('employer.employees.index');
+    Route::get('/employees/{user}', [EmployeeController::class, 'show'])->whereNumber('user')->name('employer.employees.show');
+    Route::post('/employees/{user}/reset-baseline', [EmployeeController::class, 'resetBaseline'])->name('employer.employees.reset-baseline');
     Route::patch('/employees/{user}/deactivate', [EmployeeController::class, 'deactivate'])->name('employer.employees.deactivate');
 });
 

@@ -51,7 +51,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::patch('profile/name', [ApiProfileController::class, 'updateName']);
     Route::patch('profile/password', [ApiProfileController::class, 'updatePassword']);
-    Route::post('profile/reset-face', [ApiProfileController::class, 'resetFace']);
 
     Route::get('payroll/payslips', [PayrollPayslipController::class, 'index']);
     Route::get('payroll/payslip/{id}/download', [PayrollPayslipController::class, 'download']);
