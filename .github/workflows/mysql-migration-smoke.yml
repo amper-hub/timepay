@@ -1,4 +1,5 @@
 name: MySQL 8.4 migration smoke test
+# CI-only validation; migrate:fresh runs exclusively against the disposable service database.
 
 on:
   pull_request:
