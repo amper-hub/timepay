@@ -1,9 +1,8 @@
-
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\\Database\\Migrations\\Migration;
+use Illuminate\\Database\\Schema\\Blueprint;
+use Illuminate\\Support\\Facades\\Schema;
 
 return new class extends Migration
 {
@@ -13,13 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         // Create users only if it doesn't already exist.
+        // The company foreign key is added by a later migration because
+        // the companies table is created after this Laravel starter migration.
         if (!Schema::hasTable('users')) {
             Schema::create('users', function (Blueprint $table) {
                 $table->id();
-                $table->foreignId('company_id')
-                    ->nullable()
-                    ->constrained('companies')
-                    ->cascadeOnDelete();
+                $table->foreignId('company_id')->nullable();
                 $table->string('name');
                 $table->string('email');
                 $table->string('password');
@@ -58,7 +56,7 @@ return new class extends Migration
     }
 
     /**
-     * Reverse the migrations.
+     * Reverse the migration.
      *
      * Intentionally non-destructive to protect existing production data.
      */
@@ -67,4 +65,3 @@ return new class extends Migration
         // Do not drop tables that may contain existing production data.
     }
 };
-
