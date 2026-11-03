@@ -63,6 +63,19 @@ jobs:
       - name: Verify migration status
         run: php artisan migrate:status
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: timepay-backend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend assets for Laravel views
+        run: npm run build
+
       - name: Run existing automated test suite
         env:
           DB_CONNECTION: sqlite
