@@ -29,7 +29,7 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class EmployerPayrollController extends Controller
 {
-    public function index(Request $request): View
+    public function index(Request $request): View|RedirectResponse
     {
         $companyId = $this->companyId($request);
         $filters = $request->validate([
@@ -38,6 +38,9 @@ class EmployerPayrollController extends Controller
             'employee_status' => 'nullable|string|in:active,pending,suspended,inactive',
             'section' => 'nullable|in:overview,create,periods,details,settings,payments',
         ]);
+        if (($filters['section'] ?? null) === 'settings') {
+            return redirect()->route('employer.employees.index');
+        }
 
         $periodQuery = PayrollPeriod::query()->where('company_id', $companyId)->withCount('entries')->withSum('payments', 'amount');
         if (! empty($filters['period_status'])) {
@@ -87,11 +90,8 @@ class EmployerPayrollController extends Controller
         $hasCriticalReviewFlags = $selectedPeriod?->entries()->with('employee:id,status')->get(['id', 'user_id', 'review_flags'])->contains(
             function (PayrollEntry $entry) use ($criticalReviewFlagCodes, $selectedPeriod): bool {
                 $flags = $entry->review_flags ?? [];
-                $annualFinalPayWasFlagged = $selectedPeriod->frequency === 'yearly'
-                    && in_array('inactive_employee_13th_month_requires_review', $flags, true);
-
                 return count(array_intersect($criticalReviewFlagCodes, $flags)) > 0
-                    || (strtolower((string) $entry->employee?->status) !== 'active' && ! $annualFinalPayWasFlagged);
+                    || strtolower((string) $entry->employee?->status) !== 'active';
             }
         ) ?? false;
 
@@ -152,8 +152,7 @@ class EmployerPayrollController extends Controller
                     $reason = 'The employee pay frequency does not match this payroll period.';
                 } elseif ($selectedPeriod->frequency !== 'yearly') {
                     $hasEffectiveRate = $employee->compensationHistory->contains(fn ($rate): bool =>
-                        $rate->basis === $profile->salary_type
-                        && $rate->effective_from->lte($selectedPeriod->period_end)
+                        $rate->effective_from->lte($selectedPeriod->period_end)
                         && (! $rate->effective_to || $rate->effective_to->gte($selectedPeriod->period_start))
                     );
                     if (! $hasEffectiveRate) {
@@ -239,6 +238,7 @@ class EmployerPayrollController extends Controller
         ]);
         $start = Carbon::parse($data['period_start'], config('app.timezone'))->startOfDay();
         $end = Carbon::parse($data['period_end'], config('app.timezone'))->startOfDay();
+        $calendarDays = (int) $start->diffInDays($end) + 1;
         if ($data['frequency'] === 'yearly') {
             if (! $start->isSameDay($start->copy()->startOfYear()) || ! $end->isSameDay($end->copy()->endOfYear()) || $start->year !== $end->year) {
                 throw ValidationException::withMessages(['period_start' => 'A yearly run is reserved for a January 1 to December 31 13th-month pay run.']);
@@ -248,14 +248,14 @@ class EmployerPayrollController extends Controller
                 throw ValidationException::withMessages(['period_end' => 'Hourly and daily payroll runs must cover one calendar day.']);
             }
         } elseif ($data['frequency'] === 'weekly') {
-            if ($start->diffInDays($end) !== 6) {
+            if ($calendarDays !== 7) {
                 throw ValidationException::withMessages(['period_end' => 'Weekly payroll periods must cover exactly seven calendar days.']);
             }
         } elseif ($data['frequency'] === 'semimonthly') {
-            if ($start->diffInDays($end) > 15) {
+            if ($calendarDays > 16) {
                 throw ValidationException::withMessages(['period_end' => 'Semimonthly payroll periods may cover no more than sixteen calendar days.']);
             }
-        } elseif ($start->diffInDays($end) > 30) {
+        } elseif ($calendarDays > 31) {
             throw ValidationException::withMessages(['period_end' => 'Monthly payroll periods may cover no more than thirty-one calendar days.']);
         }
 
@@ -674,6 +674,7 @@ class EmployerPayrollController extends Controller
             'employee_deductions' => $entry->employee_deductions, 'employer_contributions' => $entry->employer_contributions,
             'net_pay' => $entry->net_pay, 'amount_paid' => $entry->amount_paid, 'remaining_balance' => $this->fromCents(max(0, $this->toCents($entry->net_pay) - $this->toCents($entry->amount_paid))),
             'payment_status' => $this->paymentStatus($entry),
+            'attendance_allocations' => data_get($entry->calculation_snapshot, 'attendance_allocations', []),
             'review_flags' => $entry->review_flags ?? [], 'lines' => $entry->lines->map(fn ($line): array => ['category' => $line->category, 'code' => $line->code, 'label' => $line->label, 'amount' => $line->amount, 'taxable' => $line->taxable]),
         ])->all()];
     }
@@ -695,7 +696,20 @@ class EmployerPayrollController extends Controller
         if ($request->expectsJson() || $request->is('api/*')) {
             return response()->json($json);
         }
+        if ($request->query('return_to') === 'employee_profile' && $request->filled('employee_id')) {
+            $employee = $this->companyEmployee($request, $request->integer('employee_id'));
+
+            return redirect()->route('employer.employees.show', $employee)->with('success', $message);
+        }
         $section = (string) $request->query('section', $period ? 'details' : 'overview');
+        if ($section === 'settings' && $request->filled('user_id')) {
+            $employee = $this->companyEmployee($request, $request->integer('user_id'));
+
+            return redirect()->route('employer.employees.show', $employee)->with('success', $message);
+        }
+        if ($section === 'settings') {
+            return redirect()->route('employer.employees.index');
+        }
         if (! in_array($section, ['overview', 'create', 'periods', 'details', 'settings', 'payments'], true)) {
             $section = $period ? 'details' : 'overview';
         }

@@ -27,14 +27,20 @@
         $reviewFlagLabels = [
             'employee_status_requires_review' => 'Employee is inactive. Ordinary payroll approval is blocked; review the employee’s outstanding pay separately.',
             'attendance_already_used_or_paid' => 'One or more linked attendance records are already paid or assigned to another payroll. Review the linked attendance and payment history.',
+            'attendance_allocation_overlap_requires_review' => 'This work interval overlaps an existing payroll allocation. Review the prior allocation and ensure the same attendance time is not paid twice before recalculating.',
             'duplicate_attendance_requires_review' => 'Duplicate attendance timestamps were found. Review and correct the attendance records, then recalculate.',
+            'invalid_attendance_requires_review' => 'Attendance contains a rejected, flagged, suspicious, or invalid record. Resolve the attendance issue and recalculate.',
+            'overlapping_attendance_requires_review' => 'Attendance shifts overlap. Correct the source records and recalculate before approval.',
             'incomplete_attendance_requires_review' => 'A verified clock-in is missing its matching clock-out. Correct the affected shift and recalculate.',
+            'invalid_attendance_requires_review' => 'Attendance has a rejected, flagged, suspicious, or invalid timestamp/type record. Resolve the attendance issue and recalculate.',
+            'unsupported_payroll_rule_requires_review' => 'A required statutory rule is missing for this pay period. Configure and verify the effective rule before approval.',
+            'missing_statutory_input_requires_review' => 'Tax eligibility or employee tax classification inputs are not represented in this payroll profile. Complete a qualified payroll review before approval.',
             'missing_effective_pay_rate' => 'No applicable compensation rate covers part of this employee’s payable period. Review the rate and effective dates, then recalculate.',
             'missing_effective_hourly_rate' => 'No hourly rate covers part of a payable shift. Review compensation history and effective dates, then recalculate.',
             'zero_compensation_rate_requires_review' => 'A zero compensation rate applies to payable work. Correct the rate explicitly and recalculate.',
             'long_shift_overtime_requires_approval' => 'A shift exceeds the configured standard hours and overtime is not separately calculated. Verify hours and applicable overtime pay before recalculating.',
             'negative_net_pay_requires_review' => 'Employee deductions exceed gross earnings. Correct the rates, attendance, or deduction entries and recalculate.',
-            'monthly_salary_prorated_by_calendar_day' => 'Monthly pay was prorated by calendar days.',
+            'monthly_salary_prorated_by_calendar_day' => 'Monthly pay was prorated by calendar days. Confirm the partial-period salary policy and resolve before approval.',
             'overtime_eligibility_disabled' => 'The employee is not marked as overtime eligible.',
             'approved_leave_policy_requires_review' => 'Approved leave needs policy review.',
             '13th_month_uses_approved_basic_pay_snapshots' => '13th-month pay uses basic pay from approved payroll runs.',
@@ -43,13 +49,6 @@
             'inactive_employee_13th_month_requires_review' => 'This employee is inactive. Review this separate 13th-month amount as final pay; the account remains deactivated.',
         ];
         $criticalReviewFlags = \App\Support\PayrollReviewFlags::critical();
-        $settingsErrorFields = [
-            'salary_type', 'rate', 'pay_frequency', 'effective_from', 'payment_method',
-            'standard_hours_per_day', 'standard_work_days_per_month', 'payroll_eligible',
-            'overtime_eligible', 'rank_and_file', 'sss_enabled', 'philhealth_enabled',
-            'pagibig_enabled', 'withholding_tax_enabled', 'category', 'code', 'label',
-            'amount', 'taxable', 'authorization_reference', 'effective_to',
-        ];
     @endphp
 
     <style>
@@ -86,7 +85,6 @@
             @foreach ([
                 'overview' => 'Overview',
                 'periods' => 'Payroll periods',
-                'settings' => 'Employee settings',
                 'payments' => 'Payments and history',
             ] as $section => $label)
                 <a href="{{ route('employer.payroll', array_filter(['section' => $section, 'period_id' => in_array($section, ['payments'], true) ? $activePeriod?->id : null])) }}"
@@ -363,7 +361,9 @@
                                     <li><span class="font-semibold">{{ $issue['name'] }}:</span> {{ $issue['reason'] }}</li>
                                 @endforeach
                             </ul>
-                            <a href="{{ route('employer.payroll', ['section' => 'settings']) }}" class="mt-3 inline-flex min-h-11 items-center font-semibold text-amber-950 underline underline-offset-2">Open Employee Payroll Settings</a>
+                            @foreach ($payrollSetupIssues as $issue)
+                                <a href="{{ route('employer.employees.show', ['user' => $issue['user_id']]) }}" class="mt-3 mr-3 inline-flex min-h-11 items-center font-semibold text-amber-950 underline underline-offset-2">Payroll settings for {{ $issue['name'] }}</a>
+                            @endforeach
                         </div>
                     @endif
 
@@ -526,7 +526,7 @@
                                         @if ($entry->attendanceLogs->isNotEmpty() || count(array_intersect(['incomplete_attendance_requires_review', 'duplicate_attendance_requires_review', 'attendance_already_used_or_paid'], $entry->review_flags ?? [])) > 0)
                                             <a href="{{ route('employer.attendance', ['employee_id' => $entry->user_id, 'from' => $activePeriod->period_start->toDateString(), 'to' => $activePeriod->period_end->toDateString()]) }}" class="mt-2 inline-flex min-h-10 items-center font-semibold text-amber-950 underline underline-offset-2">Review this employee’s attendance in the period</a>
                                         @endif
-                                        <a href="{{ route('employer.payroll', ['section' => 'settings']) }}" class="mt-2 ml-4 inline-flex min-h-10 items-center font-semibold text-amber-950 underline underline-offset-2">Review payroll profile and rate history</a>
+                                        <a href="{{ route('employer.employees.show', $entry->employee) }}" class="mt-2 ml-4 inline-flex min-h-10 items-center font-semibold text-amber-950 underline underline-offset-2">Review this employee's payroll settings</a>
                                     </div>
                                 @endif
 
@@ -609,7 +609,7 @@
                             <div class="rounded-xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center">
                                 <p class="font-semibold text-slate-900">No employee entries are available for this payroll period.</p>
                                 <p class="mt-1 text-base text-slate-600">Check payroll eligibility, matching pay frequency, effective rates, and approved basic pay for a 13th-month run.</p>
-                                <a href="{{ route('employer.payroll', ['section' => 'settings']) }}" class="mt-3 inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-4 py-2 text-base font-semibold text-emerald-800 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">Review Employee Payroll Settings</a>
+                                <a href="{{ route('employer.employees.index') }}" class="mt-3 inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-4 py-2 text-base font-semibold text-emerald-800 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">Open Employees to manage payroll settings</a>
                             </div>
                         @endforelse
                         @if ($entries->hasPages())
@@ -627,198 +627,6 @@
         </section>
         @endif
 
-        @if ($payrollSection === 'settings')
-        <section id="employee-settings" class="scroll-mt-24 rounded-xl border border-slate-200 bg-white shadow-sm">
-            <details @if ($errors->hasAny($settingsErrorFields)) open @endif>
-                <summary class="flex min-h-16 cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-5 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-700">
-                    <span>
-                        <span class="block text-[1.375rem] font-semibold text-slate-950">Employee Payroll Settings</span>
-                        <span class="mt-1 block text-base font-normal text-slate-600">Edit compensation, eligibility, and recurring items when needed.</span>
-                    </span>
-                    <span class="text-base font-semibold text-emerald-800">Open settings</span>
-                </summary>
-                <div class="space-y-3 border-t border-slate-200 p-4 sm:p-5">
-                    @if ($employees->isEmpty())
-                        <p class="rounded-lg border border-slate-200 bg-slate-50 p-4 text-base text-slate-700">There are no employees to configure yet. Add an employee before setting up payroll.</p>
-                    @else
-                        <details @if ($errors->hasAny(['salary_type', 'rate', 'pay_frequency', 'effective_from', 'payment_method', 'standard_hours_per_day', 'standard_work_days_per_month'])) open @endif class="rounded-lg border border-slate-200">
-                            <summary class="cursor-pointer px-4 py-4 font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-700">
-                                <span class="block text-[1.375rem] font-semibold">Pay Profile</span>
-                                <span class="mt-1 block text-base font-normal text-slate-600">Set the employee's pay basis, rate, frequency, and effective date.</span>
-                            </summary>
-                            <div class="border-t border-slate-200 p-4">
-                                <form method="POST" action="{{ route('employer.payroll.profiles.update', ['section' => 'settings']) }}" data-submit-once data-pay-profile-form data-restored="{{ session()->hasOldInput('salary_type') || session()->hasOldInput('rate') || session()->hasOldInput('pay_frequency') ? 'true' : 'false' }}" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                                    @csrf
-                                    @method('PATCH')
-                                    <label for="pay_profile_employee" class="text-base font-semibold text-slate-900">Employee
-                                        <select id="pay_profile_employee" name="user_id" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                            @foreach ($employees as $employee)
-                                                <option value="{{ $employee->id }}" data-salary-type="{{ $employee->payrollProfile?->salary_type ?? 'hourly' }}" data-current-rate="{{ $employee->payroll_rate_default ?? '' }}" data-pay-frequency="{{ $employee->payrollProfile?->pay_frequency ?? 'monthly' }}" data-payment-method="{{ $employee->payment_method ?? 'manual_cash' }}" data-standard-hours="{{ $employee->payrollProfile?->standard_hours_per_day ?? 8 }}" data-standard-days="{{ $employee->payrollProfile?->standard_work_days_per_month ?? 22 }}" @selected((string) old('user_id') === (string) $employee->id)>{{ $employee->name }} ({{ str($employee->status)->title() }})</option>
-                                            @endforeach
-                                        </select>
-                                        @error('user_id') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label for="salary_type" class="text-base font-semibold text-slate-900">Salary type
-                                        <select id="salary_type" name="salary_type" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                            @foreach (['hourly' => 'Hourly', 'daily' => 'Daily', 'monthly' => 'Monthly'] as $value => $label)
-                                                <option value="{{ $value }}" @selected(old('salary_type', 'hourly') === $value)>{{ $label }}</option>
-                                            @endforeach
-                                        </select>
-                                        @error('salary_type') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label for="rate" class="text-base font-semibold text-slate-900">Rate per selected salary type
-                                        <input id="rate" name="rate" type="number" inputmode="decimal" step="0.01" min="0" max="99999999.99" value="{{ old('rate') }}" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                        @error('rate') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label for="pay_frequency" class="text-base font-semibold text-slate-900">Pay frequency
-                                        <select id="pay_frequency" name="pay_frequency" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                            @foreach ($frequencyLabels as $value => $label)
-                                                <option value="{{ $value }}" @selected(old('pay_frequency', 'monthly') === $value)>{{ $label }}</option>
-                                            @endforeach
-                                        </select>
-                                        @error('pay_frequency') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label for="effective_from" class="text-base font-semibold text-slate-900">Effective from
-                                        <input id="effective_from" name="effective_from" type="date" value="{{ old('effective_from', now()->toDateString()) }}" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                        @error('effective_from') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <div class="flex items-end">
-                                        <button type="submit" data-loading-label="Saving profile..." class="min-h-11 w-full rounded-lg bg-emerald-700 px-4 py-2.5 text-base font-semibold text-white hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2">Save pay profile</button>
-                                    </div>
-                                    <details class="rounded-lg border border-slate-200 p-3 sm:col-span-2 xl:col-span-3">
-                                        <summary class="cursor-pointer text-base font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">Advanced work and payment settings</summary>
-                                        <div class="mt-3 grid gap-4 sm:grid-cols-3">
-                                            <label for="standard_hours_per_day" class="text-base font-semibold text-slate-900">Standard hours per workday
-                                                <input id="standard_hours_per_day" name="standard_hours_per_day" type="number" min="1" max="24" value="{{ old('standard_hours_per_day', 8) }}" class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                                @error('standard_hours_per_day') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                            </label>
-                                            <label for="standard_work_days_per_month" class="text-base font-semibold text-slate-900">Standard workdays per month
-                                                <input id="standard_work_days_per_month" name="standard_work_days_per_month" type="number" min="1" max="31" value="{{ old('standard_work_days_per_month', 22) }}" class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                                @error('standard_work_days_per_month') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                            </label>
-                                            <label for="payment_method" class="text-base font-semibold text-slate-900">Preferred manual payment method
-                                                <select id="payment_method" name="payment_method" class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                                    <option value="manual_cash" @selected(old('payment_method', 'manual_cash') === 'manual_cash')>Cash</option>
-                                                    <option value="manual_bank_deposit" @selected(old('payment_method') === 'manual_bank_deposit')>Bank deposit</option>
-                                                    <option value="manual_cheque" @selected(old('payment_method') === 'manual_cheque')>Cheque</option>
-                                                </select>
-                                                @error('payment_method') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                            </label>
-                                        </div>
-                                    </details>
-                                </form>
-                                <p class="mt-3 text-sm text-slate-600">A rate change takes effect on the date you choose. Finalized payroll snapshots keep their original rates.</p>
-                            </div>
-                        </details>
-
-                        <details @if ($errors->hasAny(['payroll_eligible', 'overtime_eligible', 'rank_and_file', 'sss_enabled', 'philhealth_enabled', 'pagibig_enabled', 'withholding_tax_enabled'])) open @endif class="rounded-lg border border-slate-200">
-                            <summary class="cursor-pointer px-4 py-4 font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-700">
-                                <span class="block text-[1.375rem] font-semibold">Eligibility and Contributions</span>
-                                <span class="mt-1 block text-base font-normal text-slate-600">Choose whether payroll and statutory contribution rules apply.</span>
-                            </summary>
-                            <div class="border-t border-slate-200 p-4">
-                                <form method="POST" action="{{ route('employer.payroll.profiles.update', ['section' => 'settings']) }}" data-submit-once data-eligibility-form data-restored="{{ session()->hasOldInput('payroll_eligible') || session()->hasOldInput('sss_enabled') || session()->hasOldInput('withholding_tax_enabled') ? 'true' : 'false' }}" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                                    @csrf
-                                    @method('PATCH')
-                                    <label for="eligibility_employee" class="text-base font-semibold text-slate-900 sm:col-span-2 xl:col-span-3">Employee
-                                        <select id="eligibility_employee" name="user_id" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700 sm:max-w-xl">
-                                            @foreach ($employees as $employee)
-                                                <option value="{{ $employee->id }}" data-payroll-eligible="{{ $employee->payrollProfile ? (int) $employee->payrollProfile->payroll_eligible : '' }}" data-overtime-eligible="{{ $employee->payrollProfile ? (int) $employee->payrollProfile->overtime_eligible : '' }}" data-rank-and-file="{{ $employee->payrollProfile ? (int) $employee->payrollProfile->rank_and_file : '' }}" data-sss-enabled="{{ $employee->payrollProfile ? (int) $employee->payrollProfile->sss_enabled : '' }}" data-philhealth-enabled="{{ $employee->payrollProfile ? (int) $employee->payrollProfile->philhealth_enabled : '' }}" data-pagibig-enabled="{{ $employee->payrollProfile ? (int) $employee->payrollProfile->pagibig_enabled : '' }}" data-withholding-tax-enabled="{{ $employee->payrollProfile ? (int) $employee->payrollProfile->withholding_tax_enabled : '' }}" @selected((string) old('user_id') === (string) $employee->id)>{{ $employee->name }} ({{ str($employee->status)->title() }})</option>
-                                            @endforeach
-                                        </select>
-                                        @error('user_id') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    @foreach ([
-                                        'payroll_eligible' => ['Include in payroll', 'Employees turned off here are excluded from payroll runs.'],
-                                        'overtime_eligible' => ['Overtime eligible', 'Long shifts are still flagged for employer review; overtime calculations use backend-approved inputs.'],
-                                        'rank_and_file' => ['Rank-and-file employee', 'This setting determines inclusion in the 13th-month calculation.'],
-                                        'sss_enabled' => ['SSS contribution', 'Applies the configured SSS employee and employer shares.'],
-                                        'philhealth_enabled' => ['PhilHealth contribution', 'Applies the configured PhilHealth contribution share.'],
-                                        'pagibig_enabled' => ['Pag-IBIG contribution', 'Applies the configured Pag-IBIG contribution share.'],
-                                        'withholding_tax_enabled' => ['Withholding tax', 'Applies the configured BIR withholding tax rules.'],
-                                    ] as $field => [$label, $description])
-                                        <label for="{{ $field }}" class="block rounded-lg border border-slate-200 p-3 text-base font-semibold text-slate-900">{{ $label }}
-                                            <select id="{{ $field }}" name="{{ $field }}" class="mt-2 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                                <option value="" @selected(old($field, '') === '')>Keep current setting</option>
-                                                <option value="1" @selected((string) old($field, '') === '1')>Enabled</option>
-                                                <option value="0" @selected((string) old($field, '') === '0')>Disabled</option>
-                                            </select>
-                                            <span class="mt-2 block text-sm font-normal leading-5 text-slate-600">{{ $description }}</span>
-                                            @error($field) <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                        </label>
-                                    @endforeach
-                                    <p class="text-base text-slate-600 sm:col-span-2 xl:col-span-3">Approved leave is read from existing leave records. There is no separate leave-eligibility setting in the current payroll profile.</p>
-                                    <div class="sm:col-span-2 xl:col-span-3">
-                                        <button type="submit" data-loading-label="Saving settings..." class="min-h-11 rounded-lg border border-emerald-700 px-4 py-2.5 text-base font-semibold text-emerald-900 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">Save eligibility and contribution settings</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </details>
-
-                        <details @if ($errors->hasAny(['category', 'code', 'label', 'amount', 'taxable', 'authorization_reference', 'effective_to'])) open @endif class="rounded-lg border border-slate-200">
-                            <summary class="cursor-pointer px-4 py-4 font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-700">
-                                <span class="block text-[1.375rem] font-semibold">Recurring Earnings and Deductions</span>
-                                <span class="mt-1 block text-base font-normal text-slate-600">Add an item that applies to payroll periods within its effective dates.</span>
-                            </summary>
-                            <div class="border-t border-slate-200 p-4">
-                                <form method="POST" action="{{ route('employer.payroll.profile-items.store', ['section' => 'settings']) }}" data-submit-once data-recurring-item-form class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                                    @csrf
-                                    <label for="item_employee" class="text-base font-semibold text-slate-900">Employee
-                                        <select id="item_employee" name="user_id" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                            @foreach ($employees as $employee)
-                                                <option value="{{ $employee->id }}" @selected((string) old('user_id') === (string) $employee->id)>{{ $employee->name }}</option>
-                                            @endforeach
-                                        </select>
-                                        @error('user_id') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label for="category" class="text-base font-semibold text-slate-900">Item type
-                                        <select id="category" name="category" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                            <option value="earning" @selected(old('category', 'earning') === 'earning')>Earning</option>
-                                            <option value="deduction" @selected(old('category') === 'deduction')>Authorized deduction</option>
-                                        </select>
-                                        @error('category') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label for="item_code" class="text-base font-semibold text-slate-900">Item reference
-                                        <input id="item_code" name="code" pattern="[A-Za-z0-9_-]+" maxlength="60" value="{{ old('code') }}" required placeholder="For example, meal_allowance" class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base placeholder:text-slate-600 focus:border-emerald-700 focus:ring-emerald-700">
-                                        @error('code') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label for="item_label" class="text-base font-semibold text-slate-900">Payslip description
-                                        <input id="item_label" name="label" maxlength="120" value="{{ old('label') }}" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                        @error('label') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label for="item_amount" class="text-base font-semibold text-slate-900">Amount per payroll period
-                                        <input id="item_amount" name="amount" type="number" inputmode="decimal" min="0.01" max="99999999.99" step="0.01" value="{{ old('amount') }}" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                        @error('amount') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label for="item_effective_from" class="text-base font-semibold text-slate-900">Effective from
-                                        <input id="item_effective_from" name="effective_from" type="date" value="{{ old('effective_from', now()->toDateString()) }}" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                        @error('effective_from') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label for="item_effective_to" class="text-base font-semibold text-slate-900">Effective through <span class="font-normal text-slate-600">(optional)</span>
-                                        <input id="item_effective_to" name="effective_to" type="date" value="{{ old('effective_to') }}" class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                                        @error('effective_to') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label for="authorization_reference" class="text-base font-semibold text-slate-900">Deduction authorization reference
-                                        <input id="authorization_reference" name="authorization_reference" maxlength="120" value="{{ old('authorization_reference') }}" placeholder="Required for deductions" class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base placeholder:text-slate-600 focus:border-emerald-700 focus:ring-emerald-700">
-                                        @error('authorization_reference') <span class="mt-1 block text-sm text-red-700">{{ $message }}</span> @enderror
-                                    </label>
-                                    <label id="taxable-earning-label" class="flex min-h-11 items-center gap-3 rounded-lg border border-slate-200 px-3 text-base font-semibold text-slate-900">
-                                        <input id="item_taxable" name="taxable" value="1" type="checkbox" @checked(old('taxable', '1') === '1') class="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-700">
-                                        Taxable earning
-                                    </label>
-                                    @error('taxable') <span class="text-sm text-red-700">{{ $message }}</span> @enderror
-                                    <div class="sm:col-span-2 xl:col-span-3">
-                                        <button type="submit" data-loading-label="Saving item..." class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2.5 text-base font-semibold text-white hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2">Save recurring item</button>
-                                    </div>
-                                </form>
-                                <p class="mt-3 text-sm text-slate-600">Deductions need an authorization reference. Tax treatment and effective dates are saved with the item and applied by the backend.</p>
-                            </div>
-                        </details>
-                    @endif
-                </div>
-            </details>
-        </section>
-        @endif
 
         @if ($payrollSection === 'overview')
         @if ($deadlines->isNotEmpty())
@@ -868,69 +676,48 @@
             if (periodForm) {
                 const start = periodForm.elements.namedItem('period_start');
                 const end = periodForm.elements.namedItem('period_end');
+                const frequency = periodForm.elements.namedItem('frequency');
+                const dayNumber = (value) => {
+                    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+                    if (!match) return null;
+                    const [, year, month, day] = match.map(Number);
+                    const timestamp = Date.UTC(year, month - 1, day);
+                    const parsed = new Date(timestamp);
+                    if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return null;
+                    return timestamp / 86400000;
+                };
                 const validatePeriodDates = () => {
                     end.min = start.value || '';
-                    end.setCustomValidity(start.value && end.value && end.value < start.value
-                        ? 'Period end cannot be before period start.'
-                        : '');
+                    let message = '';
+                    if (start.value && end.value && end.value < start.value) {
+                        message = 'Period end cannot be before period start.';
+                    } else if (start.value && end.value) {
+                        const startDay = dayNumber(start.value);
+                        const endDay = dayNumber(end.value);
+                        if (startDay !== null && endDay !== null) {
+                            const calendarDays = endDay - startDay + 1;
+                            if ((frequency.value === 'hourly' || frequency.value === 'daily') && calendarDays !== 1) {
+                                message = 'Hourly and daily payroll runs must cover one calendar day.';
+                            } else if (frequency.value === 'weekly' && calendarDays !== 7) {
+                                message = 'Weekly payroll periods must cover exactly seven calendar days.';
+                            } else if (frequency.value === 'semimonthly' && calendarDays > 16) {
+                                message = 'Semimonthly payroll periods may cover no more than sixteen calendar days.';
+                            } else if (frequency.value === 'monthly' && calendarDays > 31) {
+                                message = 'Monthly payroll periods may cover no more than thirty-one calendar days.';
+                            } else if (frequency.value === 'yearly'
+                                && (start.value.slice(5) !== '01-01' || end.value.slice(5) !== '12-31' || start.value.slice(0, 4) !== end.value.slice(0, 4))) {
+                                message = 'A yearly run is reserved for a January 1 to December 31 13th-month pay run.';
+                            }
+                        }
+                    }
+                    end.setCustomValidity(message);
                 };
                 start.addEventListener('change', validatePeriodDates);
                 end.addEventListener('change', validatePeriodDates);
+                frequency.addEventListener('change', validatePeriodDates);
                 validatePeriodDates();
             }
 
-            const profileDefaults = {
-                salary_type: 'salaryType',
-                rate: 'currentRate',
-                pay_frequency: 'payFrequency',
-                payment_method: 'paymentMethod',
-                standard_hours_per_day: 'standardHours',
-                standard_work_days_per_month: 'standardDays',
-            };
-            document.querySelectorAll('form[data-pay-profile-form], form[data-eligibility-form]').forEach((form) => {
-                const employeeSelect = form.elements.namedItem('user_id');
-                const applyEmployeeDefaults = (force = false) => {
-                    const option = employeeSelect?.selectedOptions?.[0];
-                    if (!option || (form.dataset.restored === 'true' && !force)) return;
-
-                    const fields = form.matches('[data-pay-profile-form]')
-                        ? profileDefaults
-                        : {
-                            payroll_eligible: 'payrollEligible',
-                            overtime_eligible: 'overtimeEligible',
-                            rank_and_file: 'rankAndFile',
-                            sss_enabled: 'sssEnabled',
-                            philhealth_enabled: 'philhealthEnabled',
-                            pagibig_enabled: 'pagibigEnabled',
-                            withholding_tax_enabled: 'withholdingTaxEnabled',
-                        };
-
-                    Object.entries(fields).forEach(([fieldName, datasetName]) => {
-                        const field = form.elements.namedItem(fieldName);
-                        if (field && option.dataset[datasetName] !== undefined) field.value = option.dataset[datasetName];
-                    });
-                };
-
-                employeeSelect?.addEventListener('change', () => applyEmployeeDefaults(true));
-                applyEmployeeDefaults();
-            });
-
-            const recurringForm = document.querySelector('[data-recurring-item-form]');
-            if (recurringForm) {
-                const category = recurringForm.elements.namedItem('category');
-                const authorizationReference = recurringForm.elements.namedItem('authorization_reference');
-                const taxableEarning = recurringForm.elements.namedItem('taxable');
-                const taxableEarningLabel = document.getElementById('taxable-earning-label');
-                const updateAuthorizationRequirement = () => {
-                    const isDeduction = category.value === 'deduction';
-                    authorizationReference.required = isDeduction;
-                    taxableEarningLabel.hidden = isDeduction;
-                    taxableEarning.disabled = isDeduction;
-                    if (isDeduction) taxableEarning.checked = false;
-                };
-                category.addEventListener('change', updateAuthorizationRequirement);
-                updateAuthorizationRequirement();
-            }
         });
     </script>
 @endsection

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AttendanceLog;
 use App\Models\PayrollAudit;
+use App\Models\PayrollAttendanceAllocation;
 use App\Models\PayrollCompensationHistory;
 use App\Models\PayrollEntry;
 use App\Models\PayrollEntryLine;
@@ -33,6 +34,42 @@ class PayrollCalculationService
             }
 
             $this->assertNoFinalizedOverlap($lockedPeriod);
+
+            // Pivot rows are derived from this period's replaceable entries.
+            // MyISAM does not run the pivot FK cascade, and legacy rows may
+            // point at an entry that no longer exists. Capture the period's
+            // allocated source logs before deleting allocations so only
+            // dangling links proven to belong to this period are removed.
+            $periodEntryIds = $lockedPeriod->entries()->where('company_id', $lockedPeriod->company_id)
+                ->pluck('id')->map(fn ($id): int => (int) $id)->all();
+            $periodAllocationLogIds = PayrollAttendanceAllocation::query()
+                ->where('company_id', $lockedPeriod->company_id)
+                ->where('payroll_period_id', $lockedPeriod->id)
+                ->get(['clock_in_log_id', 'clock_out_log_id'])
+                ->flatMap(fn (PayrollAttendanceAllocation $allocation): array => [
+                    (int) $allocation->clock_in_log_id, (int) $allocation->clock_out_log_id,
+                ])->unique()->values()->all();
+
+            if ($periodEntryIds !== []) {
+                DB::table('payroll_entry_attendance_logs')->whereIn('payroll_entry_id', $periodEntryIds)->delete();
+            }
+            if ($periodAllocationLogIds !== []) {
+                $orphanedPeriodLinks = DB::table('payroll_entry_attendance_logs as links')
+                    ->leftJoin('payroll_entries as entries', 'entries.id', '=', 'links.payroll_entry_id')
+                    ->whereNull('entries.id')->whereIn('links.attendance_log_id', $periodAllocationLogIds)
+                    ->get(['links.payroll_entry_id', 'links.attendance_log_id']);
+                foreach ($orphanedPeriodLinks as $link) {
+                    DB::table('payroll_entry_attendance_logs')
+                        ->where('payroll_entry_id', $link->payroll_entry_id)
+                        ->where('attendance_log_id', $link->attendance_log_id)
+                        ->delete();
+                }
+            }
+
+            PayrollAttendanceAllocation::query()
+                ->where('company_id', $lockedPeriod->company_id)
+                ->where('payroll_period_id', $lockedPeriod->id)
+                ->delete();
             $lockedPeriod->entries()->delete();
 
             if ($lockedPeriod->frequency === 'yearly') {
@@ -49,12 +86,29 @@ class PayrollCalculationService
                 ->get();
 
             $periodStart = Carbon::parse($lockedPeriod->period_start, config('app.timezone'))->startOfDay();
-            $periodEnd = Carbon::parse($lockedPeriod->period_end, config('app.timezone'))->endOfDay();
+            // Payroll date ranges are inclusive local dates represented internally as
+            // a half-open interval [start midnight, day-after-end midnight).
+            $periodEndExclusive = Carbon::parse($lockedPeriod->period_end, config('app.timezone'))->startOfDay()->addDay();
+            foreach ($employees as $employee) {
+                $profile = $employee->payrollProfile;
+                if ($profile->sss_enabled) $this->rule('sss', $lockedPeriod->period_end);
+                if ($profile->philhealth_enabled) $this->rule('philhealth', $lockedPeriod->period_end);
+                if ($profile->pagibig_enabled) $this->rule('pagibig', $lockedPeriod->period_end);
+                if ($profile->withholding_tax_enabled) $this->rule('bir_compensation_tax', $lockedPeriod->period_end);
+            }
             $logsByEmployee = AttendanceLog::query()
                 ->where('company_id', $lockedPeriod->company_id)
                 ->whereIn('user_id', $employees->pluck('id'))
-                ->whereBetween('timestamp', [$periodStart->copy()->subDay(), $periodEnd->copy()->addDay()])
-                ->orderBy('timestamp')->orderBy('id')->get()->groupBy('user_id');
+                ->where('timestamp', '>=', $periodStart->copy()->subDay())
+                ->where('timestamp', '<', $periodEndExclusive->copy()->addDay())
+                ->orderBy('timestamp')->orderBy('id')->lockForUpdate()->get()->groupBy('user_id');
+
+            $sourceLogIds = $logsByEmployee->flatten()->pluck('id')->map(fn ($id): int => (int) $id)->all();
+            $allocationHistory = $sourceLogIds === [] ? collect() : PayrollAttendanceAllocation::query()
+                ->where('company_id', $lockedPeriod->company_id)
+                ->where(fn ($query) => $query->whereIn('clock_in_log_id', $sourceLogIds)->orWhereIn('clock_out_log_id', $sourceLogIds))
+                ->lockForUpdate()->get()
+                ->groupBy(fn (PayrollAttendanceAllocation $allocation): string => $allocation->clock_in_log_id.'|'.$allocation->clock_out_log_id);
 
             $alreadyUsedLogIds = DB::table('payroll_entry_attendance_logs as sources')
                 ->join('payroll_entries as entries', 'entries.id', '=', 'sources.payroll_entry_id')
@@ -74,26 +128,84 @@ class PayrollCalculationService
                     $flags[] = 'duplicate_attendance_requires_review';
                 }
                 $intervals = $this->verifiedIntervals($sourceLogs);
+                if (collect($intervals)->contains(fn (array $interval): bool => (bool) ($interval['incomplete'] ?? false)
+                    && $interval['clock_in']->greaterThanOrEqualTo($periodStart) && $interval['clock_in']->lt($periodEndExclusive))) {
+                    $flags[] = 'incomplete_attendance_requires_review';
+                }
+                if ($sourceLogs->contains(fn (AttendanceLog $log): bool => $log->status === 'flagged' || $log->status === 'rejected' || $log->is_suspicious)) {
+                    $flags[] = 'invalid_attendance_requires_review';
+                }
+                $previousEnd = null;
+                foreach ($intervals as $interval) {
+                    if ($interval['incomplete'] ?? false) {
+                        continue;
+                    }
+                    if ($previousEnd && $interval['clock_in']->lt($previousEnd)) {
+                        $flags[] = 'overlapping_attendance_requires_review';
+                    }
+                    if (! $previousEnd || $interval['clock_out']->gt($previousEnd)) {
+                        $previousEnd = $interval['clock_out'];
+                    }
+                }
                 if (strtolower((string) $employee->status) !== 'active') {
                     $flags[] = 'employee_status_requires_review';
                 }
                 $intervalsForPeriod = [];
 
                 foreach ($intervals as $interval) {
-                    if ($interval['clock_in']->lt($periodStart) || $interval['clock_in']->gt($periodEnd)) {
+                    if ($interval['incomplete'] ?? false) {
                         continue;
                     }
-                    if (in_array($interval['clock_in_id'], $alreadyUsedLogIds, true)
-                        || in_array($interval['clock_out_id'], $alreadyUsedLogIds, true)
-                        || $interval['clock_in_paid'] || $interval['clock_out_paid']) {
-                        $flags[] = 'attendance_already_used_or_paid';
+                    // Payroll periods are inclusive local calendar dates. Allocate only
+                    // the part of a completed shift that overlaps this period.
+                    $overlapStart = $interval['clock_in']->greaterThan($periodStart) ? $interval['clock_in']->copy() : $periodStart->copy();
+                    $overlapEnd = $interval['clock_out']->lessThan($periodEndExclusive) ? $interval['clock_out']->copy() : $periodEndExclusive->copy();
+                    if (! $overlapStart->lt($overlapEnd)) {
                         continue;
                     }
-                    $intervalsForPeriod[] = $interval;
+
+                    $shiftKey = $interval['clock_in_id'].'|'.$interval['clock_out_id'];
+                    $history = $allocationHistory->get($shiftKey, collect());
+                    $historyIsValid = $history->every(fn (PayrollAttendanceAllocation $allocation): bool =>
+                        $this->allocationMatchesSourceInterval($allocation, $interval)
+                    );
+                    $hasPriorPunchOwnership = in_array($interval['clock_in_id'], $alreadyUsedLogIds, true)
+                        || in_array($interval['clock_out_id'], $alreadyUsedLogIds, true);
+                    if (! $historyIsValid || (($hasPriorPunchOwnership || $interval['clock_in_paid'] || $interval['clock_out_paid']) && $history->isEmpty())) {
+                        $flags[] = 'attendance_allocation_history_requires_review';
+                        continue;
+                    }
+
+                    $overlapsExistingAllocation = $history->contains(fn (PayrollAttendanceAllocation $allocation): bool =>
+                        $allocation->segment_start_at->lt($overlapEnd) && $allocation->segment_end_at->gt($overlapStart)
+                    );
+                    if ($overlapsExistingAllocation) {
+                        $flags[] = 'attendance_allocation_overlap_requires_review';
+                        continue;
+                    }
+                    $intervalsForPeriod[] = [
+                        ...$interval,
+                        'clock_in' => $overlapStart,
+                        'clock_out' => $overlapEnd,
+                        'source_clock_in' => $interval['clock_in'],
+                        'source_clock_out' => $interval['clock_out'],
+                        'allocated_elapsed_seconds' => $overlapStart->diffInSeconds($overlapEnd),
+                        'allocation_key' => $this->allocationKey(
+                            (int) $lockedPeriod->company_id,
+                            (int) $employee->id,
+                            (int) $interval['clock_in_id'],
+                            (int) $interval['clock_out_id'],
+                            $overlapStart,
+                            $overlapEnd,
+                        ),
+                    ];
                 }
 
-                if ($this->hasIncompleteVerifiedClockIn($sourceLogs, $periodStart, $periodEnd)) {
+                if ($this->hasIncompleteVerifiedClockIn($sourceLogs, $periodStart, $periodEndExclusive)) {
                     $flags[] = 'incomplete_attendance_requires_review';
+                }
+                if ($this->hasInvalidAttendanceTimestamps($sourceLogs)) {
+                    $flags[] = 'invalid_attendance_requires_review';
                 }
 
                 $work = $this->calculateBaseEarnings($employee, $profile, $lockedPeriod, $intervalsForPeriod, $flags);
@@ -124,6 +236,33 @@ class PayrollCalculationService
                 }
 
                 $statutory = $this->statutoryForPeriod($profile, $work['monthly_bases'], $lockedPeriod);
+                $statutory['rules']['verification'] = [
+                    'sss' => 'schedule source verified for effective 2025-01-01; monthly base and MPF allocation require payroll review',
+                    'philhealth' => 'only CY 2025 advisory verified; 2026 schedule applicability is unresolved',
+                    'pagibig' => 'current applicable 2026 circular/effective schedule not independently verified',
+                    'bir_compensation_tax' => 'employee tax classifications and exclusions are incomplete',
+                ];
+                if ($profile->sss_enabled) $statutory['rules']['sss_verification'] = $statutory['rules']['verification']['sss'];
+                if ($profile->philhealth_enabled) $statutory['rules']['philhealth_verification'] = $statutory['rules']['verification']['philhealth'];
+                if ($profile->pagibig_enabled) $statutory['rules']['pagibig_verification'] = $statutory['rules']['verification']['pagibig'];
+                if ($profile->sss_enabled) {
+                    $rule = $this->rule('sss', $lockedPeriod->period_end);
+                    $statutory['rules']['sss'] ??= ['name' => $rule['name'], 'effective_from' => $rule['effective_from'], 'configuration' => $rule['configuration']];
+                }
+                if ($profile->philhealth_enabled) {
+                    $rule = $this->rule('philhealth', $lockedPeriod->period_end);
+                    $statutory['rules']['philhealth'] ??= ['name' => $rule['name'], 'effective_from' => $rule['effective_from'], 'configuration' => $rule['configuration']];
+                }
+                if ($profile->pagibig_enabled) {
+                    $rule = $this->rule('pagibig', $lockedPeriod->period_end);
+                    $statutory['rules']['pagibig'] ??= ['name' => $rule['name'], 'effective_from' => $rule['effective_from'], 'configuration' => $rule['configuration']];
+                }
+                if ($profile->sss_enabled || $profile->philhealth_enabled || $profile->pagibig_enabled) {
+                    $flags[] = 'unsupported_payroll_rule_requires_review';
+                }
+                if ($profile->withholding_tax_enabled && ! $this->taxInputsAreComplete($employee)) {
+                    $flags[] = 'missing_statutory_input_requires_review';
+                }
                 foreach ($statutory['lines'] as $line) {
                     $lineData[] = $line;
                 }
@@ -141,6 +280,7 @@ class PayrollCalculationService
                         'name' => $taxRule['name'], 'effective_from' => $taxRule['effective_from'],
                         'configuration' => $taxRule['configuration'],
                     ];
+                    $statutory['rules']['bir_compensation_tax_verification'] = 'Annex E schedule configured; employee tax classifications and exclusions are incomplete';
                     $taxableAfterStatutory = max(0, $taxableCents - $statutory['employee_statutory_cents']);
                     $withholdingCents = $this->withholdingTax($employee, $lockedPeriod, $taxableAfterStatutory, $lineData);
                     if ($withholdingCents !== 0) {
@@ -184,6 +324,7 @@ class PayrollCalculationService
                         'period_start' => $lockedPeriod->period_start->toDateString(),
                         'period_end' => $lockedPeriod->period_end->toDateString(),
                         'company_timezone' => config('app.timezone'),
+                        'attendance_duration_policy' => 'Payroll local dates are inclusive and map to [start midnight, midnight after period end); elapsed seconds are summed and rounded to the nearest whole minute once per period, half up.',
                         'employee_snapshot' => ['id' => (int) $employee->id, 'name' => $employee->name],
                         'company_snapshot' => ['name' => $employee->company?->name, 'currency' => $employee->company?->currency],
                         'employee_status_snapshot' => $employee->status,
@@ -199,9 +340,26 @@ class PayrollCalculationService
                             'pagibig_enabled' => $profile->pagibig_enabled,
                             'withholding_tax_enabled' => $profile->withholding_tax_enabled,
                         ],
-                        'attendance_snapshot' => collect($intervalsForPeriod)->flatMap(fn (array $interval): array => [
-                            ['id' => $interval['clock_in_id'], 'timestamp' => $interval['clock_in']->toDateTimeString(), 'type' => 'clock_in'],
-                            ['id' => $interval['clock_out_id'], 'timestamp' => $interval['clock_out']->toDateTimeString(), 'type' => 'clock_out'],
+                        'attendance_snapshot' => collect($intervalsForPeriod)->flatMap(function (array $interval) use ($periodStart, $periodEndExclusive): array {
+                            $sources = [];
+                            if ($interval['source_clock_in']->greaterThanOrEqualTo($periodStart) && $interval['source_clock_in']->lt($periodEndExclusive)) {
+                                $sources[] = ['id' => $interval['clock_in_id'], 'timestamp' => $interval['source_clock_in']->toDateTimeString(), 'type' => 'clock_in'];
+                            }
+                            if ($interval['source_clock_out']->greaterThanOrEqualTo($periodStart) && $interval['source_clock_out']->lt($periodEndExclusive)) {
+                                $sources[] = ['id' => $interval['clock_out_id'], 'timestamp' => $interval['source_clock_out']->toDateTimeString(), 'type' => 'clock_out'];
+                            }
+
+                            return $sources;
+                        })->values()->all(),
+                        'attendance_allocations' => collect($intervalsForPeriod)->map(fn (array $interval): array => [
+                            'clock_in_log_id' => $interval['clock_in_id'],
+                            'clock_out_log_id' => $interval['clock_out_id'],
+                            'original_clock_in_at' => $interval['source_clock_in']->format('Y-m-d H:i:s.u'),
+                            'original_clock_out_at' => $interval['source_clock_out']->format('Y-m-d H:i:s.u'),
+                            'segment_start_at' => $interval['clock_in']->format('Y-m-d H:i:s.u'),
+                            'segment_end_at' => $interval['clock_out']->format('Y-m-d H:i:s.u'),
+                            'elapsed_seconds' => $interval['allocated_elapsed_seconds'],
+                            'allocation_key' => $interval['allocation_key'],
                         ])->values()->all(),
                         'worked_minutes' => $work['worked_minutes'],
                         'payable_days' => $work['payable_days'],
@@ -215,9 +373,35 @@ class PayrollCalculationService
                 foreach ($lineData as $line) {
                     $this->createLine($entry, $line);
                 }
-                $sourceIds = collect($intervalsForPeriod)->flatMap(fn (array $interval): array => [$interval['clock_in_id'], $interval['clock_out_id']])->unique()->values();
+                foreach ($intervalsForPeriod as $interval) {
+                    PayrollAttendanceAllocation::query()->create([
+                        'company_id' => $lockedPeriod->company_id,
+                        'user_id' => $employee->id,
+                        'payroll_period_id' => $lockedPeriod->id,
+                        'payroll_entry_id' => $entry->id,
+                        'clock_in_log_id' => $interval['clock_in_id'],
+                        'clock_out_log_id' => $interval['clock_out_id'],
+                        'original_clock_in_at' => $interval['source_clock_in']->format('Y-m-d H:i:s.u'),
+                        'original_clock_out_at' => $interval['source_clock_out']->format('Y-m-d H:i:s.u'),
+                        'segment_start_at' => $interval['clock_in']->format('Y-m-d H:i:s.u'),
+                        'segment_end_at' => $interval['clock_out']->format('Y-m-d H:i:s.u'),
+                        'elapsed_seconds' => $interval['allocated_elapsed_seconds'],
+                        'allocation_key' => $interval['allocation_key'],
+                    ]);
+                }
+                $sourceIds = collect($intervalsForPeriod)->flatMap(function (array $interval) use ($periodStart, $periodEndExclusive): array {
+                    $ids = [];
+                    if ($interval['source_clock_in']->greaterThanOrEqualTo($periodStart) && $interval['source_clock_in']->lt($periodEndExclusive)) {
+                        $ids[] = $interval['clock_in_id'];
+                    }
+                    if ($interval['source_clock_out']->greaterThanOrEqualTo($periodStart) && $interval['source_clock_out']->lt($periodEndExclusive)) {
+                        $ids[] = $interval['clock_out_id'];
+                    }
+
+                    return $ids;
+                })->unique()->values();
                 if ($sourceIds->isNotEmpty()) {
-                    $entry->attendanceLogs()->sync($sourceIds->all());
+                $entry->attendanceLogs()->sync($sourceIds->all());
                 }
 
                 $totals['gross'] += $grossCents;
@@ -253,15 +437,17 @@ class PayrollCalculationService
                 throw ValidationException::withMessages(['period' => 'Calculate payroll before approving it.']);
             }
             $flaggedEntries = $locked->entries->filter(fn (PayrollEntry $entry): bool => ! empty($entry->review_flags));
-            if ($flaggedEntries->isNotEmpty() && mb_strlen(trim((string) $reviewNote)) < 10) {
-                throw ValidationException::withMessages(['review_note' => 'Add a review note of at least 10 characters to approve payroll with calculation flags.']);
-            }
-
             $criticalFlags = PayrollReviewFlags::critical();
+            $reviewableEntries = $flaggedEntries->filter(fn (PayrollEntry $entry): bool => array_diff($entry->review_flags ?? [], $criticalFlags) !== []);
+            if ($reviewableEntries->isNotEmpty() && mb_strlen(trim((string) $reviewNote)) < 10) {
+                throw ValidationException::withMessages(['review_note' => 'Add a review note of at least 10 characters for warning-level calculation flags.']);
+            }
             $issues = [];
             $periodTotals = ['gross' => 0, 'deductions' => 0, 'employer' => 0, 'net' => 0];
             $linkedLogIds = [];
             $attendanceSnapshotsByEntry = [];
+            $allocationSnapshotsByEntry = [];
+            $allocationLogIds = [];
 
             foreach ($locked->entries as $entry) {
                 $employeeName = $entry->employee?->name ?? 'Unknown employee';
@@ -278,13 +464,57 @@ class PayrollCalculationService
                     $issues[] = "{$employeeLabel}: employee is missing or belongs to a different company.";
                     continue;
                 }
-                $inactiveAnnualPayWasExplicitlyReviewed = $locked->frequency === 'yearly'
-                    && in_array('inactive_employee_13th_month_requires_review', $entry->review_flags ?? [], true);
-                if (strtolower((string) $entry->employee->status) !== 'active' && ! $inactiveAnnualPayWasExplicitlyReviewed) {
+                if (strtolower((string) $entry->employee->status) !== 'active') {
                     $issues[] = "{$employeeLabel}: employee is inactive; ordinary payroll cannot be approved for this account.";
                 }
 
                 $snapshot = $entry->calculation_snapshot ?? [];
+                $allocationRows = PayrollAttendanceAllocation::query()->where('payroll_entry_id', $entry->id)
+                    ->lockForUpdate()->get();
+                $allocationSnapshot = collect(data_get($snapshot, 'attendance_allocations', []));
+                if ($locked->frequency !== 'yearly') {
+                    $expectedAllocations = $allocationSnapshot->keyBy('allocation_key');
+                    $actualAllocations = $allocationRows->keyBy('allocation_key');
+                    if ($allocationSnapshot->count() !== $expectedAllocations->count()
+                        || $expectedAllocations->keys()->sort()->values()->all() !== $actualAllocations->keys()->sort()->values()->all()) {
+                        $issues[] = "{$employeeLabel}: persisted attendance allocations do not match the calculation snapshot.";
+                    }
+                    $allocationSeconds = 0;
+                    foreach ($allocationRows as $allocation) {
+                        $allocationLogIds[] = (int) $allocation->clock_in_log_id;
+                        $allocationLogIds[] = (int) $allocation->clock_out_log_id;
+                        $expected = $expectedAllocations->get($allocation->allocation_key);
+                        if (! $expected || $this->normalizeSnapshotForComparison($this->allocationSnapshotRow($allocation))
+                            !== $this->normalizeSnapshotForComparison($expected)) {
+                            $issues[] = "{$employeeLabel}: an attendance allocation changed after calculation; recalculate before approval.";
+                        }
+                        $interval = [
+                            'clock_in_id' => (int) $allocation->clock_in_log_id,
+                            'clock_out_id' => (int) $allocation->clock_out_log_id,
+                            'clock_in' => $allocation->original_clock_in_at,
+                            'clock_out' => $allocation->original_clock_out_at,
+                        ];
+                        if ((int) $allocation->company_id !== (int) $locked->company_id
+                            || (int) $allocation->user_id !== (int) $entry->user_id
+                            || (int) $allocation->payroll_period_id !== (int) $locked->id
+                            || (int) $allocation->payroll_entry_id !== (int) $entry->id
+                            || ! $this->allocationMatchesSourceInterval($allocation, $interval)) {
+                            $issues[] = "{$employeeLabel}: attendance allocation bounds, tenant, or elapsed time are invalid.";
+                        }
+                        if ($allocation->segment_start_at->lessThan(Carbon::parse($locked->period_start, config('app.timezone'))->startOfDay())
+                            || $allocation->segment_end_at->greaterThan(Carbon::parse($locked->period_end, config('app.timezone'))->startOfDay()->addDay())) {
+                            $issues[] = "{$employeeLabel}: attendance allocation falls outside the payroll period.";
+                        }
+                        $allocationSeconds += (int) $allocation->elapsed_seconds;
+                    }
+                    if ((int) $entry->worked_minutes !== intdiv($allocationSeconds + 30, 60)) {
+                        $issues[] = "{$employeeLabel}: worked minutes do not reconcile to the persisted elapsed-time allocations.";
+                    }
+                    $allocationSnapshotsByEntry[(int) $entry->id] = $allocationRows;
+                } elseif ($allocationRows->isNotEmpty() || $allocationSnapshot->isNotEmpty()) {
+                    $issues[] = "{$employeeLabel}: annual payroll must not contain attendance allocations.";
+                }
+
                 if ($locked->frequency !== 'yearly') {
                     $currentProfile = PayrollProfile::query()->where('company_id', $locked->company_id)
                         ->where('user_id', $entry->user_id)->first();
@@ -305,7 +535,8 @@ class PayrollCalculationService
                         'basis' => $rate->basis, 'rate' => $rate->rate,
                         'effective_from' => $rate->effective_from->toDateString(), 'effective_to' => $rate->effective_to?->toDateString(),
                     ])->values()->all();
-                    if ($currentRates !== data_get($snapshot, 'hourly_daily_monthly_rates', [])) {
+                    if ($this->normalizeSnapshotForComparison($currentRates)
+                        !== $this->normalizeSnapshotForComparison(data_get($snapshot, 'hourly_daily_monthly_rates', []))) {
                         $issues[] = "{$employeeLabel}: compensation history changed after calculation; recalculate before approval.";
                     }
 
@@ -330,6 +561,9 @@ class PayrollCalculationService
                     }
 
                     foreach (data_get($snapshot, 'statutory_rules', []) as $code => $ruleSnapshot) {
+                        if (str_ends_with($code, '_verification') || $code === 'verification') {
+                            continue;
+                        }
                         $currentRule = PayrollStatutoryRule::query()->where('code', $code)
                             ->whereDate('effective_from', $ruleSnapshot['effective_from'])
                             ->whereDate('effective_from', '<=', $locked->period_end->toDateString())
@@ -394,6 +628,42 @@ class PayrollCalculationService
                         $issues[] = "{$employeeLabel}: attendance record {$sourceId} is duplicated in this payroll run.";
                     }
                     $linkedLogIds[$sourceId] = (int) $entry->id;
+                }
+            }
+
+            if ($allocationLogIds !== []) {
+                $allocationLogs = AttendanceLog::query()->whereIn('id', array_values(array_unique($allocationLogIds)))
+                    ->lockForUpdate()->get()->keyBy('id');
+                foreach ($allocationSnapshotsByEntry as $entryId => $allocations) {
+                    $entry = $locked->entries->firstWhere('id', $entryId);
+                    $employeeName = $entry?->employee?->name ?? 'Unknown employee';
+                    foreach ($allocations as $allocation) {
+                        $clockIn = $allocationLogs->get($allocation->clock_in_log_id);
+                        $clockOut = $allocationLogs->get($allocation->clock_out_log_id);
+                        if (! $clockIn || ! $clockOut
+                            || (int) $clockIn->company_id !== (int) $locked->company_id
+                            || (int) $clockOut->company_id !== (int) $locked->company_id
+                            || (int) $clockIn->user_id !== (int) $entry?->user_id
+                            || (int) $clockOut->user_id !== (int) $entry?->user_id
+                            || $clockIn->status !== 'verified' || $clockOut->status !== 'verified'
+                            || $clockIn->type !== 'clock_in' || $clockOut->type !== 'clock_out'
+                            || $clockIn->timestamp->format('Y-m-d H:i:s.u') !== $allocation->original_clock_in_at->format('Y-m-d H:i:s.u')
+                            || $clockOut->timestamp->format('Y-m-d H:i:s.u') !== $allocation->original_clock_out_at->format('Y-m-d H:i:s.u')) {
+                            $issues[] = "{$employeeName} (ID {$entry?->user_id}): allocation source punches are missing, changed, unverified, or outside this employee/company.";
+                            continue;
+                        }
+
+                        $overlappingAllocationExists = PayrollAttendanceAllocation::query()
+                            ->where('clock_in_log_id', $allocation->clock_in_log_id)
+                            ->where('clock_out_log_id', $allocation->clock_out_log_id)
+                            ->where('id', '!=', $allocation->id)
+                            ->where('segment_start_at', '<', $allocation->segment_end_at)
+                            ->where('segment_end_at', '>', $allocation->segment_start_at)
+                            ->exists();
+                        if ($overlappingAllocationExists) {
+                            $issues[] = "{$employeeName} (ID {$entry?->user_id}): this elapsed-time segment overlaps another persisted payroll allocation.";
+                        }
+                    }
                 }
             }
 
@@ -480,6 +750,13 @@ class PayrollCalculationService
             }
 
             $thirteenthCents = intdiv($basicCents + 6, 12);
+            $supportedTaxableBenefitCents = PayrollEntryLine::query()->whereHas('entry', fn ($query) => $query
+                ->where('company_id', $period->company_id)->where('user_id', $employee->id)
+                ->whereHas('period', fn ($periodQuery) => $periodQuery->whereIn('status', ['approved', 'partially_paid', 'paid'])
+                    ->whereBetween('period_start', ["{$year}-01-01", "{$year}-12-31"])))
+                ->where('category', 'earning')->where('taxable', false)
+                ->where('code', '!=', 'thirteenth_month_pay')->get(['amount'])
+                ->sum(fn (PayrollEntryLine $line): int => $this->toCents($line->amount));
             $taxableBenefit = max(0, $thirteenthCents - 9000000);
             $priorTaxableCents = $this->priorYearTaxableCents($employee, $year, (int) $period->id);
             $priorTaxCents = $this->priorYearTaxCents($employee, $year, (int) $period->id);
@@ -487,6 +764,11 @@ class PayrollCalculationService
             $taxCents = $annualTaxCents - $priorTaxCents;
 
             $flags = ['13th_month_uses_approved_basic_pay_snapshots'];
+            // The current profile lacks cumulative non-taxable benefit data, so the
+            // remaining 13th-month exemption and year-end tax cannot be validated.
+            if ($supportedTaxableBenefitCents > 0 || $thirteenthCents > 0) {
+                $flags[] = 'missing_statutory_input_requires_review';
+            }
             if (strtolower((string) $employee->status) !== 'active') {
                 $flags[] = 'inactive_employee_13th_month_requires_review';
             }
@@ -529,94 +811,125 @@ class PayrollCalculationService
     private function calculateBaseEarnings(User $employee, PayrollProfile $profile, PayrollPeriod $period, array $intervals, array &$flags): array
     {
         $start = $period->period_start->copy()->startOfDay();
-        $end = $period->period_end->copy()->endOfDay();
+        $end = $period->period_end->copy()->startOfDay()->addDay()->subSecond();
         $rates = $this->ratesFor((int) $employee->id, $period);
         $lineData = [];
         $gross = 0;
         $taxable = 0;
-        $minutes = 0;
+        $workedSeconds = 0;
         $days = [];
         $monthlyBases = [];
 
-        $matchingRates = $rates->where('basis', $profile->salary_type);
-        $rateIsRequired = $profile->salary_type === 'monthly' || $intervals !== [];
-        if ($matchingRates->isEmpty() && $rateIsRequired) {
-            $flags[] = 'missing_effective_pay_rate';
-        } elseif ($rateIsRequired && $matchingRates->contains(fn (PayrollCompensationHistory $rate): bool => $this->toCents($rate->rate) <= 0)) {
-            $flags[] = 'zero_compensation_rate_requires_review';
+        $hourlySeconds = 0;
+        $hourlyGross = 0;
+        $dailyDates = [];
+        $monthlyRateDays = [];
+        $monthlySegments = [];
+        $coveredDays = [];
+        foreach ($intervals as $interval) {
+            $spanSeconds = $interval['clock_in']->diffInSeconds($interval['clock_out']);
+            $workedSeconds += $spanSeconds;
+            $startDate = $interval['clock_in']->toDateString();
+            $days[$startDate] = true;
+            if ($spanSeconds > ((int) $profile->standard_hours_per_day * 3600)) {
+                $flags[] = 'long_shift_overtime_requires_approval';
+            }
+
+            $cursor = $interval['clock_in']->copy();
+            while ($cursor->lt($interval['clock_out'])) {
+                $nextDay = $cursor->copy()->startOfDay()->addDay();
+                $segmentEnd = $nextDay->lt($interval['clock_out']) ? $nextDay : $interval['clock_out'];
+                $rate = $this->rateAt($rates, $cursor);
+                if (! $rate) {
+                    $flags[] = 'missing_effective_pay_rate';
+                    if ($profile->salary_type === 'hourly') {
+                        $flags[] = 'missing_effective_hourly_rate';
+                    }
+                } elseif ($this->toCents($rate->rate) <= 0) {
+                    $flags[] = 'zero_compensation_rate_requires_review';
+                } elseif ($rate->basis === 'hourly') {
+                    $seconds = $cursor->diffInSeconds($segmentEnd);
+                    $hourlySeconds += $seconds;
+                    $segmentCents = $this->roundRatio($this->toCents($rate->rate) * $seconds, 3600);
+                    $hourlyGross += $segmentCents;
+                    $gross += $segmentCents;
+                } elseif ($rate->basis === 'daily') {
+                    if ($cursor->toDateString() === $startDate) {
+                        $dailyDates[$startDate] = $rate;
+                    }
+                }
+                $cursor = $segmentEnd;
+            }
         }
 
-        if ($profile->salary_type === 'hourly') {
-            foreach ($intervals as $interval) {
-                $span = $interval['clock_in']->diffInMinutes($interval['clock_out']);
-                $minutes += $span;
-                $days[$interval['clock_in']->toDateString()] = true;
-                if ($span > ((int) $profile->standard_hours_per_day * 60)) {
-                    $flags[] = 'long_shift_overtime_requires_approval';
-                }
-                $gross += $this->hourlyIntervalCents($interval['clock_in'], $interval['clock_out'], $rates, $flags);
-            }
-            $taxable = $gross;
-            if ($gross > 0) {
-                $lineData[] = $this->line('earning', 'basic_pay', 'Verified regular hours', $gross, $minutes / 60, null, true,
-                    ['overtime_not_split_without_approved_overtime_data' => true]);
-            }
-        } elseif ($profile->salary_type === 'daily') {
-            foreach ($intervals as $interval) {
-                $minutes += $interval['clock_in']->diffInMinutes($interval['clock_out']);
-                $dateKey = $interval['clock_in']->toDateString();
-                $days[$dateKey] = true;
-            }
-            foreach (array_keys($days) as $dateKey) {
-                $rate = $this->rateAt($rates, Carbon::parse($dateKey, config('app.timezone')));
-                if (! $rate || $rate->basis !== 'daily') {
+        foreach ($dailyDates as $rate) {
+            $gross += $this->toCents($rate->rate);
+        }
+
+        // Monthly rates accrue by covered local calendar date, independently of
+        // whether attendance was recorded, matching the existing monthly policy.
+        $month = $start->copy()->startOfMonth();
+        while ($month->lte($end)) {
+            $monthDays = $month->daysInMonth;
+            $coveredStart = $start->greaterThan($month->copy()->startOfMonth()) ? $start->copy() : $month->copy()->startOfMonth();
+            $coveredEnd = $end->lessThan($month->copy()->endOfMonth()) ? $end->copy() : $month->copy()->endOfMonth();
+            for ($date = $coveredStart->copy()->startOfDay(); $date->lte($coveredEnd->copy()->startOfDay()); $date->addDay()) {
+                $rate = $this->rateAt($rates, $date);
+                if (! $rate && $profile->salary_type === 'monthly') {
                     $flags[] = 'missing_effective_pay_rate';
+                }
+                if ($rate?->basis !== 'monthly') {
                     continue;
                 }
-                $gross += $this->toCents($rate->rate);
-            }
-            $taxable = $gross;
-            if ($gross > 0) {
-                $lineData[] = $this->line('earning', 'basic_pay', 'Verified payable days', $gross, count($days), null, true,
-                    ['one_completed_verified_interval_per_local_start_date' => true]);
-            }
-        } else {
-            $coveredDays = [];
-            $month = $start->copy()->startOfMonth();
-            while ($month->lte($end)) {
-                $monthStart = $month->copy()->startOfMonth();
-                $monthEnd = $month->copy()->endOfMonth();
-                $coveredStart = $start->greaterThan($monthStart) ? $start->copy() : $monthStart;
-                $coveredEnd = $end->lessThan($monthEnd) ? $end->copy() : $monthEnd;
-                $monthDays = $month->daysInMonth;
-                $rateSegments = [];
-                for ($date = $coveredStart->copy()->startOfDay(); $date->lte($coveredEnd->copy()->startOfDay()); $date->addDay()) {
-                    $coveredDays[$date->toDateString()] = true;
-                    $rate = $this->rateAt($rates, $date);
-                    if (! $rate || $rate->basis !== 'monthly') {
-                        $flags[] = 'missing_effective_pay_rate';
-                        continue;
-                    }
-                    $rateSegments[$rate->id] ??= ['rate_cents' => $this->toCents($rate->rate), 'days' => 0];
-                    $rateSegments[$rate->id]['days']++;
+                if ($this->toCents($rate->rate) <= 0) {
+                    $flags[] = 'zero_compensation_rate_requires_review';
+                    continue;
                 }
-                foreach ($rateSegments as $segment) {
-                    $gross += $this->roundRatio($segment['rate_cents'] * $segment['days'], $monthDays);
-                }
-                $month->addMonth();
+                $key = $date->toDateString();
+                $monthlyRateDays[$key] = $rate;
+                $coveredDays[$key] = true;
+                $monthKey = $date->format('Y-m');
+                $monthlySegments[$monthKey][$rate->id] ??= ['rate_cents' => $this->toCents($rate->rate), 'days' => 0, 'month_days' => $monthDays];
+                $monthlySegments[$monthKey][$rate->id]['days']++;
             }
-            $days = $coveredDays;
-            $minutes = collect($intervals)->sum(fn (array $interval): int => $interval['clock_in']->diffInMinutes($interval['clock_out']));
-            $taxable = $gross;
-            if ($gross > 0) {
-                $lineData[] = $this->line('earning', 'basic_pay', 'Monthly salary (calendar-day prorated)', $gross, count($coveredDays), null, true,
-                    ['basis' => 'monthly rate divided by actual calendar days in each month']);
+            $month->addMonth();
+        }
+
+        foreach ($monthlyRateDays as $dateKey => $rate) {
+            $days[$dateKey] = true;
+        }
+        $monthlyGross = 0;
+        foreach ($monthlySegments as $segments) {
+            foreach ($segments as $segment) {
+                $monthlyGross += $this->roundRatio($segment['rate_cents'] * $segment['days'], $segment['month_days']);
             }
         }
+        $gross += $monthlyGross;
+
+        $taxable = $gross;
+        if ($hourlySeconds > 0) {
+            $lineData[] = $this->line('earning', 'basic_pay', 'Verified regular hours', $hourlyGross, $hourlySeconds / 3600, null, true,
+                ['overtime_not_split_without_approved_overtime_data' => true, 'duration_unit' => 'seconds', 'display_rounding' => 'nearest whole minute, half up']);
+        }
+        if ($dailyDates !== []) {
+            $dailyCents = array_sum(array_map(fn (PayrollCompensationHistory $rate): int => $this->toCents($rate->rate), $dailyDates));
+            $lineData[] = $this->line('earning', 'basic_pay', 'Verified payable days', $dailyCents, count($dailyDates), null, true,
+                ['one_completed_verified_interval_per_local_start_date' => true]);
+        }
+        if ($monthlyRateDays !== []) {
+            $lineData[] = $this->line('earning', 'basic_pay', 'Monthly salary (calendar-day prorated)', $monthlyGross, count($monthlyRateDays), null, true,
+                ['basis' => 'monthly rate divided by actual calendar days in each month']);
+        }
+        if ($profile->salary_type === 'monthly' && $monthlyRateDays === [] && $intervals === []) {
+            $flags[] = 'missing_effective_pay_rate';
+        }
+        $days = $profile->salary_type === 'monthly' && $monthlyRateDays !== [] ? array_fill_keys(array_keys($coveredDays), true) : $days;
 
         $monthlyBases = $this->monthlyBasicBases($profile, $rates, $intervals, $start, $end);
 
-        return ['lines' => $lineData, 'gross_cents' => $gross, 'taxable_cents' => $taxable, 'worked_minutes' => $minutes,
+        $workedMinutes = intdiv($workedSeconds + 30, 60);
+
+        return ['lines' => $lineData, 'gross_cents' => $gross, 'taxable_cents' => $taxable, 'worked_minutes' => $workedMinutes,
             'payable_days' => count($days), 'monthly_bases' => $monthlyBases,
             'rates' => $rates->map(fn (PayrollCompensationHistory $rate): array => ['basis' => $rate->basis, 'rate' => $rate->rate,
                 'effective_from' => $rate->effective_from->toDateString(), 'effective_to' => $rate->effective_to?->toDateString()])->all()];
@@ -633,11 +946,11 @@ class PayrollCalculationService
             for ($day = 1; $day <= $daysInMonth; $day++) {
                 $date = $month->copy()->day($day);
                 $rate = $this->rateAt($rates, $date);
-                if (! $rate || $rate->basis !== $profile->salary_type) {
+                if (! $rate) {
                     continue;
                 }
                 $rateCents = $this->toCents($rate->rate);
-                $monthlyRateCents = match ($profile->salary_type) {
+                $monthlyRateCents = match ($rate->basis) {
                     'monthly' => $rateCents,
                     'daily' => $rateCents * (int) $profile->standard_work_days_per_month,
                     default => $rateCents * (int) $profile->standard_hours_per_day * (int) $profile->standard_work_days_per_month,
@@ -841,26 +1154,12 @@ class PayrollCalculationService
 
     private function rateAt(Collection $rates, Carbon $date): ?PayrollCompensationHistory
     {
-        return $rates->filter(fn (PayrollCompensationHistory $rate): bool => $rate->effective_from->lte($date)
-            && (! $rate->effective_to || $rate->effective_to->gte($date)))->sortByDesc('effective_from')->first();
-    }
+        // Compensation history dates are inclusive calendar dates; compare dates
+        // so an effective_to row remains valid through the whole final day.
+        $dateKey = $date->toDateString();
 
-    private function hourlyIntervalCents(Carbon $start, Carbon $end, Collection $rates, array &$flags): int
-    {
-        $total = 0;
-        $cursor = $start->copy();
-        while ($cursor->lt($end)) {
-            $nextDay = $cursor->copy()->startOfDay()->addDay();
-            $segmentEnd = $nextDay->lt($end) ? $nextDay : $end;
-            $rate = $this->rateAt($rates, $cursor);
-            if (! $rate || $rate->basis !== 'hourly') {
-                $flags[] = 'missing_effective_hourly_rate';
-            } else {
-                $total += $this->roundRatio($this->toCents($rate->rate) * $cursor->diffInMinutes($segmentEnd), 60);
-            }
-            $cursor = $segmentEnd;
-        }
-        return $total;
+        return $rates->filter(fn (PayrollCompensationHistory $rate): bool => $rate->effective_from->toDateString() <= $dateKey
+            && (! $rate->effective_to || $rate->effective_to->toDateString() >= $dateKey))->sortByDesc('effective_from')->first();
     }
 
     private function activeProfileItems(int $userId, PayrollPeriod $period): EloquentCollection
@@ -875,6 +1174,101 @@ class PayrollCalculationService
     {
         return DB::table('leave_requests')->where('company_id', $period->company_id)->where('user_id', $userId)->where('status', 'approved')
             ->whereDate('start_date', '<=', $period->period_end->toDateString())->whereDate('end_date', '>=', $period->period_start->toDateString())->exists();
+    }
+
+    private function allocationMatchesSourceInterval(PayrollAttendanceAllocation $allocation, array $interval): bool
+    {
+        return (int) $allocation->clock_in_log_id === (int) $interval['clock_in_id']
+            && (int) $allocation->clock_out_log_id === (int) $interval['clock_out_id']
+            && $allocation->original_clock_in_at->format('Y-m-d H:i:s.u') === $interval['clock_in']->format('Y-m-d H:i:s.u')
+            && $allocation->original_clock_out_at->format('Y-m-d H:i:s.u') === $interval['clock_out']->format('Y-m-d H:i:s.u')
+            && $allocation->segment_start_at->lt($allocation->segment_end_at)
+            && $allocation->segment_start_at->greaterThanOrEqualTo($allocation->original_clock_in_at)
+            && $allocation->segment_end_at->lessThanOrEqualTo($allocation->original_clock_out_at)
+            && (int) $allocation->elapsed_seconds === (int) $allocation->segment_start_at->diffInSeconds($allocation->segment_end_at)
+            && $allocation->allocation_key === $this->allocationKey(
+                (int) $allocation->company_id,
+                (int) $allocation->user_id,
+                (int) $allocation->clock_in_log_id,
+                (int) $allocation->clock_out_log_id,
+                $allocation->segment_start_at,
+                $allocation->segment_end_at,
+            );
+    }
+
+    private function allocationSnapshotRow(PayrollAttendanceAllocation $allocation): array
+    {
+        return [
+            'clock_in_log_id' => (int) $allocation->clock_in_log_id,
+            'clock_out_log_id' => (int) $allocation->clock_out_log_id,
+            'original_clock_in_at' => $allocation->original_clock_in_at->format('Y-m-d H:i:s.u'),
+            'original_clock_out_at' => $allocation->original_clock_out_at->format('Y-m-d H:i:s.u'),
+            'segment_start_at' => $allocation->segment_start_at->format('Y-m-d H:i:s.u'),
+            'segment_end_at' => $allocation->segment_end_at->format('Y-m-d H:i:s.u'),
+            'elapsed_seconds' => (int) $allocation->elapsed_seconds,
+            'allocation_key' => $allocation->allocation_key,
+        ];
+    }
+
+    /**
+     * MySQL's native JSON type may reorder object keys on read. Compare JSON
+     * objects independent of key order while keeping list order and data values
+     * strict. Normalize only equivalent persisted representations: timestamp
+     * strings with omitted trailing fractional zeroes and DECIMAL rate strings
+     * with a different but centavo-equivalent scale.
+     */
+    private function normalizeSnapshotForComparison(mixed $value, ?string $key = null): mixed
+    {
+        if (is_array($value)) {
+            $normalized = [];
+            foreach ($value as $childKey => $childValue) {
+                $normalized[$childKey] = $this->normalizeSnapshotForComparison($childValue, (string) $childKey);
+            }
+
+            if (! array_is_list($normalized)) {
+                ksort($normalized, SORT_STRING);
+            }
+
+            return $normalized;
+        }
+
+        if (is_string($value) && $key !== null && str_ends_with($key, '_at')
+            && preg_match('/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?$/', $value, $matches)) {
+            return $matches[1].'.'.str_pad($matches[2] ?? '', 6, '0');
+        }
+
+        if ($key === 'rate' && (is_string($value) || is_int($value) || is_float($value))) {
+            $decimal = is_float($value) ? json_encode($value, JSON_PRESERVE_ZERO_FRACTION) : (string) $value;
+            if (is_string($decimal) && preg_match('/^([+-]?)(\d+)(?:\.(\d*))?$/', $decimal, $matches)) {
+                $fraction = $matches[3] ?? '';
+                if (strlen($fraction) <= 2 || trim(substr($fraction, 2), '0') === '') {
+                    $whole = ltrim($matches[2], '0') ?: '0';
+                    $fraction = substr(str_pad($fraction, 2, '0'), 0, 2);
+
+                    return ($matches[1] === '-' && ($whole !== '0' || $fraction !== '00') ? '-' : '').$whole.'.'.$fraction;
+                }
+            }
+        }
+
+        return $value;
+    }
+
+    private function allocationKey(
+        int $companyId,
+        int $userId,
+        int $clockInLogId,
+        int $clockOutLogId,
+        Carbon $segmentStart,
+        Carbon $segmentEnd,
+    ): string {
+        return hash('sha256', implode('|', [
+            $companyId,
+            $userId,
+            $clockInLogId,
+            $clockOutLogId,
+            $segmentStart->format('Y-m-d H:i:s.u'),
+            $segmentEnd->format('Y-m-d H:i:s.u'),
+        ]));
     }
 
     private function assertNoFinalizedOverlap(PayrollPeriod $period): void
@@ -902,31 +1296,70 @@ class PayrollCalculationService
                 continue;
             }
             if ($log->type === 'clock_in') {
+                // A second clock-in cannot close or overwrite the prior shift.
+                // Preserve it for the incomplete-attendance review path.
+                if ($open instanceof AttendanceLog) {
+                    $intervals[] = ['incomplete' => true, 'clock_in' => $open->timestamp->copy()->timezone(config('app.timezone')),
+                        'clock_out' => null, 'clock_in_id' => (int) $open->id, 'clock_out_id' => null,
+                        'clock_in_paid' => (bool) $open->is_paid, 'clock_out_paid' => false];
+                }
                 $open = $log;
                 continue;
             }
             if ($log->type === 'clock_out' && $open instanceof AttendanceLog && $log->timestamp->gt($open->timestamp)) {
-                $intervals[] = ['clock_in' => $open->timestamp->copy()->timezone(config('app.timezone')), 'clock_out' => $log->timestamp->copy()->timezone(config('app.timezone')),
+                $intervals[] = ['incomplete' => false, 'clock_in' => $open->timestamp->copy()->timezone(config('app.timezone')), 'clock_out' => $log->timestamp->copy()->timezone(config('app.timezone')),
                     'clock_in_id' => (int) $open->id, 'clock_out_id' => (int) $log->id, 'clock_in_paid' => (bool) $open->is_paid, 'clock_out_paid' => (bool) $log->is_paid];
                 $open = null;
             }
         }
+        if ($open instanceof AttendanceLog) {
+            $intervals[] = ['incomplete' => true, 'clock_in' => $open->timestamp->copy()->timezone(config('app.timezone')),
+                'clock_out' => null, 'clock_in_id' => (int) $open->id, 'clock_out_id' => null,
+                'clock_in_paid' => (bool) $open->is_paid, 'clock_out_paid' => false];
+        }
         return $intervals;
     }
 
-    private function hasIncompleteVerifiedClockIn(Collection $logs, Carbon $start, Carbon $end): bool
+    private function hasIncompleteVerifiedClockIn(Collection $logs, Carbon $start, Carbon $endExclusive): bool
     {
         $open = null;
         foreach ($logs as $log) {
             if ($log->status !== 'verified') {
                 $open = null;
             } elseif ($log->type === 'clock_in') {
+                if ($open instanceof AttendanceLog && $open->timestamp->greaterThanOrEqualTo($start) && $open->timestamp->lt($endExclusive)) {
+                    return true;
+                }
                 $open = $log;
             } elseif ($log->type === 'clock_out') {
                 $open = null;
             }
         }
-        return $open instanceof AttendanceLog && $open->timestamp->between($start, $end);
+
+        return $open instanceof AttendanceLog && $open->timestamp->greaterThanOrEqualTo($start) && $open->timestamp->lt($endExclusive);
+    }
+
+    private function hasInvalidAttendanceTimestamps(Collection $logs): bool
+    {
+        $lastTimestamp = null;
+        foreach ($logs as $log) {
+            if (! $log->timestamp || ! in_array($log->type, ['clock_in', 'clock_out'], true)) {
+                return true;
+            }
+            if ($lastTimestamp && $log->timestamp->lt($lastTimestamp)) {
+                return true;
+            }
+            $lastTimestamp = $log->timestamp;
+        }
+
+        return false;
+    }
+
+    private function taxInputsAreComplete(User $employee): bool
+    {
+        // The current payroll profile has no employee tax classification, MWE,
+        // de minimis, or cumulative 13th-month/benefit fields.
+        return false;
     }
 
     private function createLine(PayrollEntry $entry, array $line): void

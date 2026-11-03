@@ -48,6 +48,11 @@ class PayrollEntry extends Model
         return $this->belongsToMany(AttendanceLog::class, 'payroll_entry_attendance_logs');
     }
 
+    public function attendanceAllocations(): HasMany
+    {
+        return $this->hasMany(PayrollAttendanceAllocation::class);
+    }
+
     public function payments(): HasMany
     {
         return $this->hasMany(PayrollPayment::class);
