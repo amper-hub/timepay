@@ -1,13 +1,13 @@
 <?php
 
-namespace App\\Mail\\Transport;
+namespace App\Mail\Transport;
 
-use Illuminate\\Support\\Facades\\Http;
-use Symfony\\Component\\Mailer\\Exception\\TransportException;
-use Symfony\\Component\\Mailer\\SentMessage;
-use Symfony\\Component\\Mailer\\Transport\\AbstractTransport;
-use Symfony\\Component\\Mime\\Address;
-use Symfony\\Component\\Mime\\Email;
+use Illuminate\Support\Facades\Http;
+use Symfony\Component\Mailer\Exception\TransportException;
+use Symfony\Component\Mailer\SentMessage;
+use Symfony\Component\Mailer\Transport\AbstractTransport;
+use Symfony\Component\Mime\Address;
+use Symfony\Component\Mime\Email;
 use Throwable;
 
 class ResendApiTransport extends AbstractTransport
