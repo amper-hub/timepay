@@ -87,7 +87,7 @@ class SuperAdminRoleTest extends TestCase
             ->assertSee('Employee accounts are created by an employer.');
     }
 
-    public function test_business_registration_keeps_its_company_and_verification_flow(): void
+    public function test_business_registration_creates_the_company_and_user_without_dispatching_verification_event(): void
     {
         Event::fake();
 
@@ -107,7 +107,7 @@ class SuperAdminRoleTest extends TestCase
             'role' => User::ROLE_EMPLOYER,
             'status' => 'active',
         ]);
-        Event::assertDispatched(Registered::class, fn (Registered $event) => $event->user->email === 'taylor@northwind.test');
+        Event::assertNotDispatched(Registered::class);
     }
 
     public function test_business_registration_keeps_input_validation_and_does_not_create_partial_records(): void
