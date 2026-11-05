@@ -20,8 +20,9 @@ class StorageHealthController extends Controller
 
         try {
             $disk = Storage::disk('private');
-            $written = $disk->put($probePath, 'timepay-storage-health-check');
-            $readable = $written && $disk->exists($probePath);
+            $expectedContents = 'timepay-storage-health-check';
+            $written = $disk->put($probePath, $expectedContents);
+            $readable = $written && $disk->get($probePath) === $expectedContents;
             $removed = $disk->delete($probePath);
 
             if (! $written || ! $readable || ! $removed) {
