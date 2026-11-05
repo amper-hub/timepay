@@ -2,3 +2,22 @@
 timepay-mobile/TimePay.apk
 timepay-mobile/release/
 timepay-mobile/timepay-build.tar.gz
+# Environment secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local backups
+*.sql
+*.sql.gz
+*.dump
+*.bak
