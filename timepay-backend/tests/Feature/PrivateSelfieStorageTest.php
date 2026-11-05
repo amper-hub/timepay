@@ -50,7 +50,7 @@ class PrivateSelfieStorageTest extends TestCase
     public function test_first_face_enrollment_keeps_the_selfies_path_on_the_private_disk(): void
     {
         $faceService = Mockery::mock(FacePlusPlusService::class);
-        $faceService->shouldReceive('verifyBlinkSequence')->once()->andReturn(true);
+        $faceService->shouldReceive('verifyHeadTurnSequence')->once()->andReturn(true);
         $faceService->shouldReceive('compare')->once()->andReturn([
             'confidence' => 99.0,
             'threshold' => 80.0,
@@ -63,6 +63,7 @@ class PrivateSelfieStorageTest extends TestCase
         $response = $this->post('/api/attendance/clock-in', [
             'latitude' => 14.5995,
             'longitude' => 120.9842,
+            'liveness_mode' => 'head_turn',
             'selfie' => UploadedFile::fake()->image('enrollment.jpg'),
             'liveness_open' => UploadedFile::fake()->image('open.jpg'),
             'liveness_closed' => UploadedFile::fake()->image('closed.jpg'),

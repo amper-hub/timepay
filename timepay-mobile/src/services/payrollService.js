@@ -7,6 +7,11 @@ export const getPayslips = async () => {
   return response.data.data ?? [];
 };
 
+export const getYearToDatePayroll = async () => {
+  const response = await apiClient.get("/employee/payroll/ytd");
+  return response.data.data;
+};
+
 export const getDtr = async (startDate, endDate) => {
   const response = await apiClient.get("/employee/dtr", {
     params: { start_date: startDate, end_date: endDate },
@@ -95,4 +100,5 @@ export default {
   downloadAndSharePayslip,
   getDtr,
   getPayslips,
+  getYearToDatePayroll,
 };

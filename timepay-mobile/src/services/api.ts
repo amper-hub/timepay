@@ -9,8 +9,13 @@ import axios, {
   AxiosError,
   InternalAxiosRequestConfig,
 } from "axios";
+import * as Network from "expo-network";
 import { Alert } from "react-native";
-import { ErrorContext, getUserFriendlyError } from "./errorMessages";
+import {
+  ErrorContext,
+  getUserFriendlyError,
+  isSafeUserMessage,
+} from "./errorMessages";
 import {
   ApiErrorResponse,
   LoginCredentials,
@@ -26,7 +31,16 @@ import {
   AttendancePunchType,
   AttendanceStatusResponse,
   PendingPayResponse,
+  CompanyGeofence,
 } from "../types";
+import { completeAttendanceEvent, getOrCreateAttendanceEvent } from "./attendanceEvent";
+import {
+  getAttendanceFailureDiagnostics,
+  sanitizeDiagnosticRequestUrl,
+} from "./attendanceDiagnostics";
+import type { AttendanceFailurePhase } from "./attendanceDiagnostics";
+import type { AttendanceEventMetadata } from "./attendanceEvent";
+export type { AttendanceEventMetadata } from "./attendanceEvent";
 
 const isDevelopment = __DEV__;
 
@@ -121,6 +135,8 @@ export interface AttendanceLivenessFrames {
   reopened: string;
 }
 
+export type AttendanceLivenessMode = "blink" | "head_turn";
+
 /**
  * Display comprehensive network troubleshooting alert
  */
@@ -171,7 +187,7 @@ const redactSensitivePayload = (payload: unknown): unknown => {
     return Object.fromEntries(
   Object.entries(payload as Record<string, unknown>).map(([key, value]) => [
         key,
-        /password|otp|token|secret|photo|selfie|image|latitude|longitude/i.test(key)
+        /password|otp|token|secret|email|phone|photo|selfie|image|latitude|longitude/i.test(key)
           ? "[REDACTED]"
           : redactSensitivePayload(value),
       ])
@@ -180,6 +196,74 @@ const redactSensitivePayload = (payload: unknown): unknown => {
 
   return payload;
 };
+
+const requestSensitiveValues = (payload: unknown): string[] => {
+  let value = payload;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+
+  if (!value || typeof value !== "object") return [];
+
+  const sensitiveValues: string[] = [];
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (/password|otp|token|secret|email|phone/i.test(key) && typeof item === "string" && item) {
+      sensitiveValues.push(item);
+    }
+  }
+  return sensitiveValues;
+};
+
+const safeDiagnosticMessage = (message: unknown, requestData: unknown): string | undefined => {
+  if (typeof message !== "string") return undefined;
+
+  let sanitized = message;
+  for (const sensitiveValue of requestSensitiveValues(requestData)) {
+    sanitized = sanitized.split(sensitiveValue).join("[REDACTED]");
+  }
+  return isSafeUserMessage(sanitized) ? sanitized : undefined;
+};
+
+const safeValidationDiagnostics = (error: AxiosError<ApiErrorResponse>) => {
+  const body = error.response?.data;
+  if (!body || typeof body !== "object") return {};
+
+  const safeErrors: Record<string, string[]> = {};
+  for (const [field, messages] of Object.entries(body.errors ?? {})) {
+    if (!/^[a-z][a-z0-9_.]{0,63}$/i.test(field)) continue;
+
+    const candidates = Array.isArray(messages) ? messages : [messages];
+    const safeMessages = candidates
+      .map((message) => safeDiagnosticMessage(message, error.config?.data))
+      .filter((message): message is string => Boolean(message));
+    if (safeMessages.length) safeErrors[field] = safeMessages;
+  }
+
+  return {
+    message: safeDiagnosticMessage(body.message, error.config?.data),
+    validationFields: Object.keys(safeErrors),
+    validationMessages: safeErrors,
+  };
+};
+
+const requestUrlForDiagnostics = (config: InternalAxiosRequestConfig): string => {
+  return sanitizeDiagnosticRequestUrl(config.baseURL || BASE_URL, config.url);
+};
+
+const diagnosticsContextForConfig = (config?: {
+  baseURL?: string;
+  url?: string;
+  method?: string;
+}) => ({
+  apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || config?.baseURL || BASE_URL,
+  endpoint: config?.url,
+  method: config?.method,
+  phase: "axios_interceptor" as const,
+});
 
 /**
  * Extract the best user-facing message from Laravel's standard error payload.
@@ -209,8 +293,8 @@ apiClient.interceptors.request.use(
 
     // Log request details for debugging (dev only)
     if (isDevelopment) {
-      console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`);
-      if (config.data) {
+      console.log(`[API Request] ${config.method?.toUpperCase()} ${requestUrlForDiagnostics(config)}`);
+      if (config.data && !(typeof FormData !== "undefined" && config.data instanceof FormData)) {
         console.log(`[API Payload]`, redactSensitivePayload(config.data));
       }
     }
@@ -218,7 +302,12 @@ apiClient.interceptors.request.use(
     return config;
   },
   (error: AxiosError) => {
-    if (__DEV__) console.warn("[API Request Error]", error.message);
+    if (__DEV__) {
+      console.warn(
+        "[API Request Error]",
+        getAttendanceFailureDiagnostics(error, null, diagnosticsContextForConfig(error.config))
+      );
+    }
     return Promise.reject(error);
   }
 );
@@ -232,19 +321,21 @@ apiClient.interceptors.response.use(
   (response) => {
     // Log successful responses (dev only)
     if (isDevelopment) {
-      console.log(`[API Response] ${response.status} ${response.config.url}`);
+      console.log(
+        `[API Response] ${response.status} ${sanitizeDiagnosticRequestUrl(
+          response.config.baseURL || BASE_URL,
+          response.config.url
+        )}`
+      );
     }
     return response;
   },
   (error: AxiosError<ApiErrorResponse>) => {
-    // Network error diagnostics
-    const isNetworkError = !error.response && error.request;
-    const isTimeoutError =
-      error.code === "ECONNABORTED" ||
-      error.code === "ETIMEDOUT" ||
-      error.code === "ECONNTIMEDOUT";
-    const isConnectionRefused = error.code === "ECONNREFUSED";
-    const isZeroStatus = error.response?.status === 0;
+    const diagnostics = getAttendanceFailureDiagnostics(
+      error,
+      null,
+      diagnosticsContextForConfig(error.config)
+    );
 
     // Comprehensive error logging
     if (error.response) {
@@ -254,28 +345,18 @@ apiClient.interceptors.response.use(
 
       if (__DEV__) {
         logResponseError("[API Error Response]", {
-          status: error.response.status,
-          code: error.code,
+          ...diagnostics,
+          ...(error.response.status === 422
+            ? safeValidationDiagnostics(error)
+            : {}),
         });
       }
     } else if (error.request) {
       // Request made but no response received
-      if (__DEV__) console.warn("[API Network Error]", {
-        code: error.code,
-        message: error.message,
-        url: error.config?.url,
-        timeout: error.config?.timeout,
-        isNetworkError,
-        isTimeoutError,
-        isConnectionRefused,
-        isZeroStatus,
-      });
+      if (__DEV__) console.warn("[API Network Error]", diagnostics);
     } else {
       // Error in request setup
-      if (__DEV__) console.warn("[API Client Error]", {
-        message: error.message,
-        code: error.code,
-      });
+      if (__DEV__) console.warn("[API Client Error]", diagnostics);
     }
 
     return Promise.reject(error);
@@ -543,6 +624,14 @@ export const apiService = {
     }
   },
 
+  /** GET /employee/company-geofence: fetch current settings for this employee's company. */
+  getCompanyGeofence: async (): Promise<CompanyGeofence> => {
+    const response = await apiClient.get<CompanyGeofence>(
+      "/employee/company-geofence"
+    );
+    return response.data;
+  },
+
   /**
    * POST /attendance/store
    * Submit attendance punch with biometric face capture and GPS coordinates
@@ -553,16 +642,42 @@ export const apiService = {
     latitude: number,
     longitude: number,
     photoUri: string,
-    livenessFrames?: AttendanceLivenessFrames
+    livenessFrames?: AttendanceLivenessFrames,
+    eventMetadata?: AttendanceEventMetadata,
+    livenessMode: AttendanceLivenessMode = "blink"
   ): Promise<AttendancePunchResponse> => {
+    let completedResponseStatus: number | null = null;
+    let failurePhase: AttendanceFailurePhase = "event_metadata";
+    const endpoint = type === "clock_in"
+      ? "/attendance/clock-in"
+      : "/attendance/store";
+
     try {
       if (__DEV__) console.log("[API] Submitting attendance punch", type);
+      failurePhase = "connectivity_check";
+      try {
+        const networkState = await Network.getNetworkStateAsync();
+        if (networkState.isConnected === false || networkState.isInternetReachable === false) {
+          throw new Error("An internet connection is required to record attendance.");
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message === "An internet connection is required to record attendance.") {
+          throw error;
+        }
+        // Connectivity hints can be unavailable; let Axios produce the authoritative result.
+      }
+      const event = eventMetadata ?? await getOrCreateAttendanceEvent(type);
 
       // Build FormData payload
+      failurePhase = "form_data";
       const formData = new FormData();
       formData.append('type', type);
       formData.append('latitude', latitude.toString());
       formData.append('longitude', longitude.toString());
+      formData.append('liveness_mode', livenessMode);
+      formData.append('event_id', event.eventId);
+      formData.append('captured_at', event.capturedAt);
+      formData.append('occurred_at', event.capturedAt);
 
       // Convert photoUri to file object
       const filename = `selfie_${Date.now()}.jpg`;
@@ -579,7 +694,7 @@ export const apiService = {
         (['open', 'closed', 'reopened'] as const).forEach((phase) => {
           formData.append(`liveness_${phase}`, {
             uri: livenessFrames[phase],
-            name: `blink_${phase}_${Date.now()}.jpg`,
+            name: `${livenessMode}_${phase}_${Date.now()}.jpg`,
             type: 'image/jpeg',
           } as any);
         });
@@ -589,28 +704,35 @@ export const apiService = {
       const config = {
         timeout: 120000,
         headers: {
-          'Content-Type': 'multipart/form-data',
+          "Content-Type": undefined,
+          Accept: "application/json",
         },
       };
 
       // Make the request with FormData
-      const endpoint = type === 'clock_in'
-        ? '/attendance/clock-in'
-        : '/attendance/store';
-
+      failurePhase = "http_request";
       const response = await apiClient.post<AttendancePunchResponse>(
         endpoint,
         formData,
         config
       );
+      completedResponseStatus = response.status;
 
+      failurePhase = "event_completion";
+      await completeAttendanceEvent(type, event.eventId);
       return response.data;
     } catch (error) {
-      const axiosError = error as AxiosError<ApiErrorResponse>;
-
-      if (__DEV__) console.warn("[API] Attendance punch failed:", {
-        status: axiosError.response?.status,
-      });
+      if (__DEV__) {
+        console.warn(
+          "[API] Attendance punch failed:",
+          getAttendanceFailureDiagnostics(error, completedResponseStatus, {
+            apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || BASE_URL,
+            endpoint,
+            method: "POST",
+            phase: failurePhase,
+          })
+        );
+      }
 
       throw error;
     }

@@ -7,4 +7,5 @@ export { default as DashboardScreen } from "./DashboardScreen";
 export { default as HomeScreen } from "./HomeScreen";
 export { default as AttendanceScreen } from "./Attendance";
 export { default as LeaveScreen } from "./Leaves";
+export { default as PayrollScreen } from "./PayrollScreen";
 export { default as ProfileScreen } from "./Profile";

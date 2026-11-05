@@ -68,11 +68,11 @@
                                 <a href="{{ route('super-admin.employers.show', $employer) }}" class="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">View</a>
                                 <a href="{{ route('super-admin.employers.edit', $employer) }}" class="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</a>
                                 @if ($hasStatusColumn)
-                                    <form method="POST" action="{{ route('super-admin.employers.approve', $employer) }}">
+                                    <form method="POST" action="{{ route('super-admin.employers.approve', $employer) }}" onsubmit="return confirm('Approve this employer account and allow it to use the platform?')">
                                         @csrf
                                         <button type="submit" class="rounded-md border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">Approve</button>
                                     </form>
-                                    <form method="POST" action="{{ route('super-admin.employers.suspend', $employer) }}">
+                                    <form method="POST" action="{{ route('super-admin.employers.suspend', $employer) }}" onsubmit="return confirm('Suspend this employer account? Its users may lose access to platform services.')">
                                         @csrf
                                         <button type="submit" class="rounded-md border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50">Suspend</button>
                                     </form>

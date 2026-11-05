@@ -52,6 +52,21 @@ test("maps timeouts and service errors without showing response details", () => 
   );
 });
 
+test("keeps uncertain and outside GPS results out of the face-failure category", () => {
+  assert.equal(
+    getUserFriendlyError({ name: "LocationAccuracyError" }, undefined, "face"),
+    USER_ERROR_MESSAGES.locationUnclear
+  );
+  assert.equal(
+    getUserFriendlyError({ name: "GeofenceOutsideError" }, undefined, "face"),
+    USER_ERROR_MESSAGES.geofenceOutside
+  );
+  assert.equal(
+    getUserFriendlyError(new Error("Location permission was not granted."), undefined, "location"),
+    USER_ERROR_MESSAGES.location
+  );
+});
+
 test("maps common HTTP statuses to friendly messages", () => {
   assert.equal(getUserFriendlyError({ response: { status: 401 } }), USER_ERROR_MESSAGES.unauthorized);
   assert.equal(getUserFriendlyError({ response: { status: 403 } }), USER_ERROR_MESSAGES.forbidden);
@@ -88,6 +103,13 @@ test("uses the login-specific message for failed credentials", () => {
   );
 });
 
+test("uses safe sign-in guidance when the account is unavailable", () => {
+  assert.equal(
+    getUserFriendlyError({ response: { status: 403 } }, undefined, "login"),
+    "We couldn't sign you in. Check your details or contact your employer for help."
+  );
+});
+
 test("maps face verification, location, leave, and password-reset errors", () => {
   assert.equal(
     getUserFriendlyError({ response: { status: 422, data: { error: "face_mismatch" } } }, undefined, "face"),
@@ -108,6 +130,101 @@ test("maps face verification, location, leave, and password-reset errors", () =>
   assert.equal(
     getUserFriendlyError({ response: { status: 503 } }, undefined, "passwordReset"),
     USER_ERROR_MESSAGES.emailDelivery
+  );
+});
+
+test("distinguishes attendance selfie storage failures from provider outages", () => {
+  assert.equal(
+    getUserFriendlyError({
+      response: {
+        status: 500,
+        data: {
+          error: "selfie_storage_failed",
+          message: "Internal path C:\\private\\selfie.jpg and exception details",
+        },
+      },
+    }, undefined, "face"),
+    USER_ERROR_MESSAGES.faceStorageFailed
+  );
+  assert.notEqual(
+    USER_ERROR_MESSAGES.faceStorageFailed,
+    USER_ERROR_MESSAGES.faceUnavailable
+  );
+});
+
+test("maps provider unavailability to the existing safe provider message", () => {
+  assert.equal(
+    getUserFriendlyError({
+      response: {
+        status: 503,
+        data: {
+          error: "face_verification_unavailable",
+          message: "Provider secret and internal URL",
+        },
+      },
+    }, undefined, "face"),
+    USER_ERROR_MESSAGES.faceUnavailable
+  );
+});
+
+test("does not report profile reset server failures as Face verification outages", () => {
+  const serverFailure = getUserFriendlyError({
+    response: {
+      status: 500,
+      data: { message: "SQLSTATE details and private storage path" },
+    },
+  }, "Unable to reset facial recognition right now. Please try again.", "profile");
+  const unavailable = getUserFriendlyError({
+    response: {
+      status: 503,
+      data: {
+        error: "face_verification_unavailable",
+        message: "Provider details and internal URL",
+      },
+    },
+  }, "Unable to reset facial recognition right now. Please try again.", "profile");
+
+  assert.equal(serverFailure, USER_ERROR_MESSAGES.server);
+  assert.equal(unavailable, USER_ERROR_MESSAGES.unavailable);
+  assert.notEqual(serverFailure, USER_ERROR_MESSAGES.faceUnavailable);
+  assert.notEqual(unavailable, USER_ERROR_MESSAGES.faceUnavailable);
+});
+
+test("preserves the safe server blink rejection message", () => {
+  const message = "The blink verification did not pass. Please follow the on-screen instructions and try again.";
+  assert.equal(
+    getUserFriendlyError({
+      response: {
+        status: 422,
+        data: { error: "face_liveness_failed", message },
+      },
+    }, undefined, "face"),
+    message
+  );
+});
+
+test("preserves the safe missing-baseline guidance", () => {
+  const message = "Your saved face reference is unavailable. Please reset and enroll it again.";
+  assert.equal(
+    getUserFriendlyError({
+      response: {
+        status: 422,
+        data: { error: "face_reference_unavailable", message },
+      },
+    }, undefined, "face"),
+    message
+  );
+});
+
+test("uses a generic safe message for unknown face server errors", () => {
+  assert.equal(
+    getUserFriendlyError({
+      response: {
+        status: 500,
+        data: { error: "unexpected_internal_error", message: "SQLSTATE and private path" },
+      },
+    }, undefined, "face"),
+    USER_ERROR_MESSAGES.faceUnavailable
   );
 });
 

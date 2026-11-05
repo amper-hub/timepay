@@ -4,60 +4,56 @@ namespace App\Http\Controllers\Employer;
 
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceLog;
+use App\Models\LeaveRequest;
+use App\Models\PayrollPeriod;
 use App\Models\User;
-use Carbon\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 class EmployerDashboardController extends Controller
 {
     /**
-     * Display employer overview analytics.
+     * Display company-scoped employer overview information.
      */
     public function index(): View
     {
         $company = auth()->user()->company;
         abort_unless($company, 404);
 
-        $companyId = $company->id;
-        $periodStart = now()->startOfMonth();
-        $periodEnd = now()->endOfMonth();
+        $companyId = (int) $company->id;
+        $employeeIds = User::query()
+            ->where('company_id', $companyId)
+            ->whereRaw('LOWER(role) = ?', ['employee'])
+            ->where('status', 'active')
+            ->pluck('id');
 
-        $employees = User::where('company_id', $companyId)
-            ->where('role', 'employee')
-            ->get();
-
-        $totalEmployees = $employees->count();
-
-        $logsByUser = AttendanceLog::where('company_id', $companyId)
-            ->where('status', 'verified')
-            ->whereBetween('timestamp', [$periodStart, $periodEnd])
-            ->whereIn('user_id', $employees->pluck('id'))
-            ->orderBy('timestamp')
-            ->get()
-            ->groupBy('user_id');
-
-        $pendingPayroll = $employees->sum(function (User $employee) use ($logsByUser) {
-            $hoursWorked = $this->calculateVerifiedHours($logsByUser->get($employee->id, collect()));
-
-            return $hoursWorked * (float) $employee->hourly_rate;
-        });
-
-        $averageHourlyRate = $employees
-            ->filter(fn (User $employee) => $employee->hourly_rate !== null)
-            ->avg(fn (User $employee) => (float) $employee->hourly_rate) ?? 0;
-
-        $verifiedPunchesToday = AttendanceLog::where('company_id', $companyId)
+        $verifiedPunchesToday = AttendanceLog::query()
+            ->where('company_id', $companyId)
+            ->whereIn('user_id', $employeeIds)
             ->where('status', 'verified')
             ->whereDate('timestamp', today())
             ->count();
 
-        $rejectedViolationsToday = AttendanceLog::where('company_id', $companyId)
-            ->where('status', 'rejected')
+        $rejectedPunchesToday = AttendanceLog::query()
+            ->where('company_id', $companyId)
+            ->whereIn('user_id', $employeeIds)
+            ->whereIn('status', ['rejected', 'flagged'])
             ->whereDate('timestamp', today())
             ->count();
 
-        $recentPunches = AttendanceLog::where('company_id', $companyId)
+        $pendingLeaveRequests = LeaveRequest::query()
+            ->where('company_id', $companyId)
+            ->where('status', 'pending')
+            ->count();
+
+        $latestPayroll = PayrollPeriod::query()
+            ->where('company_id', $companyId)
+            ->whereNotNull('calculated_at')
+            ->orderByDesc('period_start')
+            ->first();
+
+        $recentPunches = AttendanceLog::query()
+            ->where('company_id', $companyId)
+            ->whereIn('user_id', $employeeIds)
             ->with('user')
             ->latest('timestamp')
             ->limit(5)
@@ -65,37 +61,12 @@ class EmployerDashboardController extends Controller
 
         return view('employer.dashboard', [
             'company' => $company,
-            'totalEmployees' => $totalEmployees,
-            'averageHourlyRate' => $averageHourlyRate,
-            'pendingPayroll' => $pendingPayroll,
+            'activeEmployeeCount' => $employeeIds->count(),
             'verifiedPunchesToday' => $verifiedPunchesToday,
-            'rejectedViolationsToday' => $rejectedViolationsToday,
+            'attentionPunchesToday' => $rejectedPunchesToday,
+            'pendingLeaveRequests' => $pendingLeaveRequests,
+            'latestPayroll' => $latestPayroll,
             'recentPunches' => $recentPunches,
         ]);
-    }
-
-    /**
-     * Pair verified clock-in and clock-out logs in chronological order.
-     *
-     * @param Collection<int, AttendanceLog> $logs
-     */
-    private function calculateVerifiedHours(Collection $logs): float
-    {
-        $openClockIn = null;
-        $minutes = 0;
-
-        foreach ($logs as $log) {
-            if ($log->type === 'clock_in') {
-                $openClockIn = $log->timestamp;
-                continue;
-            }
-
-            if ($log->type === 'clock_out' && $openClockIn instanceof Carbon && $log->timestamp->greaterThan($openClockIn)) {
-                $minutes += $openClockIn->diffInMinutes($log->timestamp);
-                $openClockIn = null;
-            }
-        }
-
-        return round($minutes / 60, 2);
     }
 }

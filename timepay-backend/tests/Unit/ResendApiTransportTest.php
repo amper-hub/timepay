@@ -27,7 +27,7 @@ class ResendApiTransportTest extends TestCase
         Http::assertSent(function (Request $request): bool {
             return $request->url() === 'https://api.resend.com/emails'
                 && $request->hasHeader('Authorization', 'Bearer re_test_key')
-                && $request['from'] === 'TimePay <onboarding@resend.dev>'
+                && $request['from'] === '"TimePay" <onboarding@resend.dev>'
                 && $request['to'] === ['amperaxell@gmail.com']
                 && $request['subject'] === 'Verify your TimePay account';
         });

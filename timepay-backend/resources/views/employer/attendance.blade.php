@@ -5,27 +5,68 @@
 
 @section('content')
     <div class="space-y-6">
-        <section class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div class="flex flex-col gap-2 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                    <h2 class="text-base font-semibold text-slate-950">Live Logs Matrix</h2>
-                    <p class="mt-1 text-sm text-slate-500">Showing {{ $attendanceLogs->count() }} of {{ $attendanceLogs->total() }} attendance events.</p>
+        <header class="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+                <p class="text-sm font-semibold text-emerald-700">People</p>
+                <h2 class="employer-page-heading">Attendance</h2>
+                <p class="employer-page-description">Review employee clock events, verification results, and daily time records.</p>
+            </div>
+            <button type="button" data-dtr-open-all class="employer-primary-button">Export All Employees</button>
+        </header>
+
+        <details class="employer-card">
+            <summary class="cursor-pointer px-5 py-4 text-base font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-600">Filter attendance</summary>
+            <form method="GET" action="{{ route('employer.attendance') }}" class="grid gap-4 border-t border-slate-200 p-5 sm:grid-cols-2 xl:grid-cols-5" aria-label="Filter attendance logs">
+                <label for="attendance-employee" class="employer-field-label">Employee
+                    <select id="attendance-employee" name="employee_id" class="employer-field-control">
+                        <option value="">All employees</option>
+                        @foreach ($employees as $employee)
+                            <option value="{{ $employee->id }}" @selected((string) $filters['employee_id'] === (string) $employee->id)>{{ $employee->name }}</option>
+                        @endforeach
+                    </select>
+                </label>
+                <label for="attendance-status" class="employer-field-label">Verification status
+                    <select id="attendance-status" name="status" class="employer-field-control">
+                        <option value="">All statuses</option>
+                        @foreach (['verified' => 'Verified', 'flagged' => 'Flagged for review', 'rejected' => 'Rejected'] as $value => $label)
+                            <option value="{{ $value }}" @selected($filters['status'] === $value)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </label>
+                <label for="attendance-from" class="employer-field-label">From date
+                    <input id="attendance-from" name="from" type="date" value="{{ $filters['from'] }}" class="employer-field-control">
+                </label>
+                <label for="attendance-to" class="employer-field-label">To date
+                    <input id="attendance-to" name="to" type="date" value="{{ $filters['to'] }}" class="employer-field-control">
+                </label>
+                <div class="flex items-end gap-2">
+                    <button type="submit" class="employer-primary-button flex-1">Apply filters</button>
+                    <a href="{{ route('employer.attendance') }}" class="employer-secondary-button">Clear</a>
                 </div>
-                <button type="button" data-dtr-open-all class="inline-flex items-center justify-center rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800">
-                    Export All Employees
-                </button>
+                @error('employee_id')<p class="text-sm font-medium text-red-700 sm:col-span-2 xl:col-span-5">{{ $message }}</p>@enderror
+                @error('from')<p class="text-sm font-medium text-red-700 sm:col-span-2 xl:col-span-5">{{ $message }}</p>@enderror
+                @error('to')<p class="text-sm font-medium text-red-700 sm:col-span-2 xl:col-span-5">{{ $message }}</p>@enderror
+            </form>
+        </details>
+
+        <section class="employer-card overflow-hidden">
+            <div class="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <div>
+                    <h2 class="employer-section-heading">Attendance records</h2>
+                    <p class="mt-1 text-sm text-slate-600">Showing {{ $attendanceLogs->count() }} of {{ $attendanceLogs->total() }} events.</p>
+                </div>
             </div>
 
-            <div class="overflow-x-auto">
+            <div class="hidden overflow-x-auto md:block">
                 <table class="min-w-full divide-y divide-slate-200">
                     <thead class="bg-slate-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Employee</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Punch Type</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Timestamp</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Distance</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
-                            <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">DTR</th>
+                            <th scope="col" class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Employee</th>
+                            <th scope="col" class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Event</th>
+                            <th scope="col" class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Date and time</th>
+                            <th scope="col" class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Distance</th>
+                            <th scope="col" class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Status</th>
+                            <th scope="col" class="px-5 py-3 text-right text-sm font-semibold text-slate-700">DTR</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-200 bg-white">
@@ -37,24 +78,24 @@
                                             {{ strtoupper(substr($log->user?->name ?? '?', 0, 1)) }}
                                         </div>
                                         <div>
-                                            <p class="text-sm font-semibold text-slate-950">{{ $log->user?->name ?? 'Unknown Employee' }}</p>
-                                            <p class="text-xs text-slate-500">{{ $log->user?->email }}</p>
+                                            <p class="text-base font-semibold text-slate-950">{{ $log->user?->name ?? 'Unknown employee' }}</p>
+                                            <p class="text-sm text-slate-600">{{ $log->user?->email }}</p>
                                         </div>
                                     </div>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4">
-                                    <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold {{ $log->type === 'clock_in' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-teal-50 text-teal-700 ring-1 ring-teal-200' }}">
+                                    <span class="inline-flex rounded-full border px-2.5 py-1 text-sm font-semibold {{ $log->type === 'clock_in' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-50 text-slate-700' }}">
                                         {{ $log->type === 'clock_in' ? 'Clock In' : 'Clock Out' }}
                                     </span>
                                 </td>
-                                <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600">
+                                <td class="whitespace-nowrap px-5 py-4 text-base text-slate-700">
                                     {{ $log->timestamp?->timezone('Asia/Manila')->format('M d, Y g:i A') ?? '-' }}
                                 </td>
-                                <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600">
+                                <td class="whitespace-nowrap px-5 py-4 text-base text-slate-700">
                                     {{ number_format((float) $log->distance_meters, 1) }} meters away
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4">
-                                    <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold @if ($log->status === 'verified') bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 @elseif ($log->status === 'flagged') bg-amber-50 text-amber-700 ring-1 ring-amber-200 @elseif ($log->status === 'rejected') bg-red-50 text-red-700 ring-1 ring-red-200 @else bg-red-50 text-red-700 ring-1 ring-red-200 @endif">
+                                    <span class="inline-flex rounded-full border px-2.5 py-1 text-sm font-semibold @if ($log->status === 'verified') border-emerald-200 bg-emerald-50 text-emerald-800 @elseif ($log->status === 'flagged') border-amber-200 bg-amber-50 text-amber-900 @elseif ($log->status === 'rejected') border-red-200 bg-red-50 text-red-800 @else border-slate-200 bg-slate-100 text-slate-700 @endif">
                                         @if ($log->status === 'verified')
                                             Verified
                                         @elseif ($log->status === 'flagged')
@@ -65,6 +106,9 @@
                                             Out of Bounds Alert
                                         @endif
                                     </span>
+                                    @if ($log->is_suspicious)
+                                        <p class="mt-2 max-w-56 whitespace-normal text-sm font-medium text-amber-900">Exception: {{ $log->suspicion_reason ?: 'This punch was flagged for review.' }}</p>
+                                    @endif
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-right">
                                     @if ($log->user && $log->user->role === \App\Models\User::ROLE_EMPLOYEE)
@@ -72,7 +116,7 @@
                                             type="button"
                                             data-dtr-open
                                             data-employee-id="{{ $log->user->id }}"
-                                            class="rounded-md border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                                            class="min-h-10 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
                                         >
                                             Download DTR
                                         </button>
@@ -83,11 +127,38 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="px-6 py-10 text-center text-sm text-slate-500">No attendance logs found.</td>
+                                <td colspan="6" class="px-6 py-10 text-center text-base text-slate-600">No attendance records match these filters.</td>
                             </tr>
                         @endforelse
                     </tbody>
                 </table>
+            </div>
+
+            <div class="divide-y divide-slate-200 md:hidden">
+                @forelse ($attendanceLogs as $log)
+                    <article class="space-y-3 px-4 py-4 {{ $log->is_suspicious ? 'bg-amber-50/50' : '' }}">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <h3 class="truncate font-semibold text-slate-900">{{ $log->user?->name ?? 'Unknown employee' }}</h3>
+                                <p class="break-all text-sm text-slate-600">{{ $log->user?->email }}</p>
+                            </div>
+                            <span class="shrink-0 rounded-full border px-2.5 py-1 text-sm font-semibold {{ $log->status === 'verified' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : ($log->status === 'flagged' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-red-200 bg-red-50 text-red-800') }}">{{ str($log->status)->replace('_', ' ')->title() }}</span>
+                        </div>
+                        <dl class="grid grid-cols-2 gap-3 border-t border-slate-200 pt-3 text-sm">
+                            <div><dt class="text-slate-600">Event</dt><dd class="mt-0.5 font-medium text-slate-900">{{ str($log->type)->replace('_', ' ')->title() }}</dd></div>
+                            <div><dt class="text-slate-600">Distance</dt><dd class="mt-0.5 font-medium text-slate-900">{{ number_format((float) $log->distance_meters, 1) }} meters</dd></div>
+                            <div class="col-span-2"><dt class="text-slate-600">Date and time</dt><dd class="mt-0.5 font-medium text-slate-900">{{ $log->timestamp?->timezone('Asia/Manila')->format('M d, Y g:i A') ?? '-' }}</dd></div>
+                        </dl>
+                        @if ($log->is_suspicious)
+                            <p class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">Exception: {{ $log->suspicion_reason ?: 'This punch was flagged for review.' }}</p>
+                        @endif
+                        @if ($log->user && strtolower((string) $log->user->role) === 'employee')
+                            <button type="button" data-dtr-open data-employee-id="{{ $log->user->id }}" class="employer-secondary-button w-full">View employee DTR</button>
+                        @endif
+                    </article>
+                @empty
+                    <p class="px-4 py-10 text-center text-base text-slate-600">No attendance records match these filters.</p>
+                @endforelse
             </div>
 
             @if ($attendanceLogs->hasPages())
@@ -120,7 +191,7 @@
                 <div class="grid gap-4 sm:grid-cols-3">
                     <label class="text-sm font-medium text-slate-700">
                         Employee
-                        <select id="dtr-employee" class="mt-1 block w-full rounded-md border-slate-300 text-sm shadow-sm focus:border-emerald-600 focus:ring-emerald-600">
+                        <select id="dtr-employee" class="employer-field-control">
                             <option value="">All employees</option>
                             @foreach ($employees as $employee)
                                 <option value="{{ $employee->id }}">{{ $employee->name }} (ID {{ $employee->id }})</option>
@@ -129,21 +200,21 @@
                     </label>
                     <label class="text-sm font-medium text-slate-700">
                         Start date
-                        <input id="dtr-start-date" type="date" required class="mt-1 block w-full rounded-md border-slate-300 text-sm shadow-sm focus:border-emerald-600 focus:ring-emerald-600">
+                        <input id="dtr-start-date" type="date" required class="employer-field-control">
                     </label>
                     <label class="text-sm font-medium text-slate-700">
                         End date
-                        <input id="dtr-end-date" type="date" required class="mt-1 block w-full rounded-md border-slate-300 text-sm shadow-sm focus:border-emerald-600 focus:ring-emerald-600">
+                        <input id="dtr-end-date" type="date" required class="employer-field-control">
                     </label>
                 </div>
 
                 <div class="flex flex-wrap items-center gap-3">
-                    <button id="dtr-preview-button" type="button" class="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">Preview records</button>
-                    <button id="dtr-pdf-button" type="button" class="rounded-md border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">Download PDF</button>
-                    <button id="dtr-xlsx-button" type="button" class="rounded-md border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">Export Excel</button>
-                    <button id="dtr-all-button" type="button" class="hidden rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800">Export All Employees (.xlsx)</button>
+                    <button id="dtr-preview-button" type="button" class="employer-primary-button bg-slate-900 hover:bg-slate-800 focus-visible:ring-slate-700">Preview records</button>
+                    <button id="dtr-pdf-button" type="button" class="employer-secondary-button border-emerald-300 text-emerald-800 hover:bg-emerald-50">Download PDF</button>
+                    <button id="dtr-xlsx-button" type="button" class="employer-secondary-button border-emerald-300 text-emerald-800 hover:bg-emerald-50">Export Excel</button>
+                    <button id="dtr-all-button" type="button" class="hidden min-h-11 rounded-lg bg-emerald-700 px-4 py-2.5 text-base font-semibold text-white hover:bg-emerald-800">Export all employees (.xlsx)</button>
                 </div>
-                <p class="text-xs text-slate-500">Consolidated exports support up to 200 employees and 93 days per file.</p>
+                <p class="text-sm text-slate-600">Consolidated exports support up to 200 employees and 93 days per file.</p>
                 <p id="dtr-feedback" class="min-h-5 text-sm text-slate-600" role="status" aria-live="polite"></p>
 
                 <div id="dtr-preview" class="hidden space-y-3">
@@ -155,8 +226,8 @@
                         <p class="text-sm font-semibold text-emerald-800">Total: <span id="dtr-preview-total"></span> hours</p>
                     </div>
                     <div class="overflow-x-auto rounded-lg border border-slate-200">
-                        <table class="min-w-full divide-y divide-slate-200 text-sm">
-                            <thead class="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <table class="min-w-full divide-y divide-slate-200 text-base">
+                            <thead class="bg-slate-50 text-left text-sm font-semibold text-slate-700">
                                 <tr>
                                     <th class="px-4 py-3">Date</th>
                                     <th class="px-4 py-3">Company schedule</th>
@@ -170,7 +241,7 @@
                             <tbody id="dtr-preview-rows" class="divide-y divide-slate-100 bg-white"></tbody>
                         </table>
                     </div>
-                    <p class="text-xs text-slate-500">Break times are not recorded and are not deducted. Only complete verified punch pairs count toward hours.</p>
+                    <p class="text-sm text-slate-600">Break times are not recorded and are not deducted. Only complete verified punch pairs count toward hours.</p>
                 </div>
             </div>
         </section>

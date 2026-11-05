@@ -17,17 +17,24 @@ import { apiService, getApiErrorMessage } from "../services/api";
 import {
   AttendanceState,
   AttendanceStatusResponse,
+  CompanyGeofence,
   PendingPayResponse,
   UserSession,
 } from "../types";
+import {
+  classifyGeofence,
+  getDistanceMeters,
+  isLocationFresh,
+} from "../services/geofence";
 import { EmployeeTabParamList } from "../navigation/AppNavigator";
 import TimePayLogo from "../components/TimePayLogo";
+import { colors } from "../theme/colors";
 
 type HomeScreenProps = BottomTabScreenProps<EmployeeTabParamList, "Home"> & {
   userSessionData: UserSession | null;
 };
 
-type GeofenceState = "checking" | "inside" | "outside" | "unavailable";
+type GeofenceState = "checking" | "inside" | "outside" | "unavailable" | "permission_required";
 
 const formatElapsedTime = (startedAt: string | null): string => {
   if (!startedAt) {
@@ -50,6 +57,20 @@ const formatElapsedTime = (startedAt: string | null): string => {
   return `${hours}:${minutes}:${seconds}`;
 };
 
+const formatLastPunch = (status: AttendanceStatusResponse | null): string => {
+  const punch = status?.last_punch;
+  if (!punch?.timestamp) return "No attendance activity yet";
+
+  const date = new Date(punch.timestamp);
+  if (Number.isNaN(date.getTime())) return "Latest punch recorded";
+
+  const action = punch.type === "clock_in" ? "Clocked in" : "Clocked out";
+  return `${action} · ${date.toLocaleDateString()} ${date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
+};
+
 const formatPendingAmount = (
   currencySymbol: string | undefined,
   amount: number | undefined
@@ -61,27 +82,6 @@ const formatPendingAmount = (
   }).format(Number.isFinite(safeAmount) ? safeAmount : 0);
 
   return `${currencySymbol ?? ""} ${formattedAmount}`.trim();
-};
-
-const getDistanceMeters = (
-  first: { latitude: number; longitude: number },
-  second: { latitude: number; longitude: number }
-) => {
-  const earthRadiusMeters = 6371000;
-  const toRadians = (value: number) => (value * Math.PI) / 180;
-  const latitudeDelta = toRadians(second.latitude - first.latitude);
-  const longitudeDelta = toRadians(second.longitude - first.longitude);
-  const firstLatitude = toRadians(first.latitude);
-  const secondLatitude = toRadians(second.latitude);
-
-  const a =
-    Math.sin(latitudeDelta / 2) * Math.sin(latitudeDelta / 2) +
-    Math.cos(firstLatitude) *
-      Math.cos(secondLatitude) *
-      Math.sin(longitudeDelta / 2) *
-      Math.sin(longitudeDelta / 2);
-
-  return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
 const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -97,6 +97,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const [geofenceState, setGeofenceState] =
     useState<GeofenceState>("checking");
   const [distanceMeters, setDistanceMeters] = useState<number | null>(null);
+  const [companyGeofence, setCompanyGeofence] = useState<CompanyGeofence | null>(null);
   const [elapsedTime, setElapsedTime] = useState("00:00:00");
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -109,6 +110,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const firstName = useMemo(() => {
     return userSessionData?.user.name.split(" ")[0] ?? "there";
   }, [userSessionData?.user.name]);
+  const todayLabel = useMemo(
+    () => new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(new Date()),
+    []
+  );
 
   const stopShiftTimer = useCallback(() => {
     if (shiftTimerRef.current) {
@@ -154,11 +159,14 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const loadDashboard = useCallback(async () => {
     setErrorMessage(null);
     setLoading(true);
+    setGeofenceState("checking");
+    setDistanceMeters(null);
 
     try {
-      const [status, pendingPayData, permission] = await Promise.all([
+      const [status, pendingPayData, geofence, permission] = await Promise.all([
         apiService.getAttendanceStatus(),
         apiService.getPendingPay(),
+        apiService.getCompanyGeofence().catch(() => null),
         Location.requestForegroundPermissionsAsync(),
       ]);
 
@@ -169,17 +177,23 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       }
 
       setPendingPay(pendingPayData);
+      setCompanyGeofence(geofence);
 
-      const companyLatitude = Number(userSessionData?.company.latitude);
-      const companyLongitude = Number(userSessionData?.company.longitude);
-      const radius = userSessionData?.company.geofence_radius_meters;
+      const rawLatitude = geofence?.latitude;
+      const rawLongitude = geofence?.longitude;
+      const companyLatitude = rawLatitude == null || rawLatitude === "" ? NaN : Number(rawLatitude);
+      const companyLongitude = rawLongitude == null || rawLongitude === "" ? NaN : Number(rawLongitude);
+      const radius = Number(geofence?.geofence_radius_meters);
 
-      if (
-        permission.status !== Location.PermissionStatus.GRANTED ||
-        !Number.isFinite(companyLatitude) ||
-        !Number.isFinite(companyLongitude) ||
-        !radius
-      ) {
+      if (permission.status !== Location.PermissionStatus.GRANTED) {
+        setGeofenceState("permission_required");
+        setDistanceMeters(null);
+        return;
+      }
+
+      if (!Number.isFinite(companyLatitude) || companyLatitude < -90 || companyLatitude > 90 ||
+        !Number.isFinite(companyLongitude) || companyLongitude < -180 || companyLongitude > 180 ||
+        !Number.isFinite(radius) || radius <= 0) {
         setGeofenceState("unavailable");
         setDistanceMeters(null);
         return;
@@ -188,13 +202,23 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       setGeofenceState("checking");
 
       const currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
+        accuracy: Location.Accuracy.High,
       });
+
+      const { latitude, longitude, accuracy } = currentLocation.coords;
+      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+        !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
+        accuracy == null || !Number.isFinite(accuracy) || accuracy < 0 ||
+        !isLocationFresh(currentLocation.timestamp)) {
+        setGeofenceState("unavailable");
+        setDistanceMeters(null);
+        return;
+      }
 
       const distance = getDistanceMeters(
         {
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
+          latitude,
+          longitude,
         },
         {
           latitude: companyLatitude,
@@ -203,8 +227,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       );
 
       setDistanceMeters(distance);
-      setGeofenceState(distance <= radius ? "inside" : "outside");
+      // Account for GPS uncertainty: show a definite result only when the
+      // complete accuracy circle falls on one side of the company boundary.
+      setGeofenceState(classifyGeofence(distance, accuracy, radius));
     } catch (error) {
+      setCompanyGeofence(null);
+      setDistanceMeters(null);
       setErrorMessage(
         getApiErrorMessage(
           error,
@@ -218,9 +246,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   }, [
     handleShiftTerminated,
-    userSessionData?.company.geofence_radius_meters,
-    userSessionData?.company.latitude,
-    userSessionData?.company.longitude,
   ]);
 
   useFocusEffect(
@@ -296,12 +321,14 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     attendanceStatus?.current_state === ("clocked_in" as AttendanceState);
   const geofenceLabel =
     geofenceState === "inside"
-      ? "Inside geofence"
+      ? "Inside Workplace"
       : geofenceState === "outside"
-        ? "Outside geofence"
+        ? "Outside Workplace"
         : geofenceState === "checking"
           ? "Checking location"
-          : "Location unavailable";
+          : geofenceState === "permission_required"
+            ? "Location permission required"
+            : "Location unavailable";
 
   const geofenceTone =
     geofenceState === "inside"
@@ -329,8 +356,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
         <View style={styles.hero}>
           <Text style={styles.eyebrow}>Employee Portal</Text>
           <Text style={styles.title}>Hi, {firstName}</Text>
+          <Text style={styles.todayLabel}>{todayLabel}</Text>
           <Text style={styles.subtitle}>
-            Here is your live shift snapshot for today.
+            Here is your live attendance and shift snapshot.
           </Text>
         </View>
 
@@ -394,7 +422,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 
         <View style={styles.metricsRow}>
           <View style={styles.metricCard}>
-            <Text style={styles.cardLabel}>Geofence</Text>
+            <Text style={styles.cardLabel}>Location</Text>
             {loading && geofenceState === "checking" ? (
               <ActivityIndicator color="#059669" style={styles.metricSpinner} />
             ) : (
@@ -404,8 +432,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                 </Text>
                 <Text style={styles.metricSubtext}>
                   {distanceMeters !== null
-                    ? `${Math.round(distanceMeters)}m from office`
-                    : "Enable location and company coordinates"}
+                    ? `${Math.round(distanceMeters)}m from workplace`
+                    : geofenceState === "permission_required"
+                      ? "Allow location access to check workplace status"
+                      : "Workplace location or an accurate GPS fix is unavailable"}
                 </Text>
               </>
             )}
@@ -433,14 +463,18 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
           <View style={styles.quickRow}>
             <Text style={styles.quickLabel}>Office radius</Text>
             <Text style={styles.quickValue}>
-              {userSessionData.company.geofence_radius_meters
-                ? `${userSessionData.company.geofence_radius_meters}m`
+              {companyGeofence?.geofence_radius_meters
+                ? `${companyGeofence.geofence_radius_meters}m`
                 : "Not set"}
             </Text>
           </View>
           <View style={styles.quickRow}>
             <Text style={styles.quickLabel}>Employee ID</Text>
             <Text style={styles.quickValue}>{userSessionData.user.id}</Text>
+          </View>
+          <View style={styles.quickRow}>
+            <Text style={styles.quickLabel}>Recent activity</Text>
+            <Text style={styles.quickValue}>{formatLastPunch(attendanceStatus)}</Text>
           </View>
         </View>
       </ScrollView>
@@ -451,7 +485,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: colors.background,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -491,6 +525,12 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     fontSize: 32,
     fontWeight: "900",
+  },
+  todayLabel: {
+    marginTop: 4,
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
   },
   subtitle: {
     marginTop: 8,
@@ -680,9 +720,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   quickValue: {
+    flexShrink: 1,
+    maxWidth: "65%",
     color: "#0f172a",
     fontSize: 14,
     fontWeight: "900",
+    textAlign: "right",
   },
   centeredState: {
     flex: 1,

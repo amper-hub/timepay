@@ -3,12 +3,15 @@
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\Employee\LeaveController;
+use App\Http\Controllers\Api\Employee\CompanyGeofenceController;
 use App\Http\Controllers\Api\Employee\PayrollController as EmployeePayrollController;
 use App\Http\Controllers\Api\EmployeeDtrController;
+use App\Http\Controllers\Employer\EmployerPayrollController;
 use App\Http\Controllers\Api\MobilePasswordResetController;
 use App\Http\Controllers\Api\PayrollPayslipController;
 use App\Http\Controllers\Api\StorageHealthController;
 use App\Http\Controllers\Api\ProfileController as ApiProfileController;
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -49,13 +52,31 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::patch('profile/name', [ApiProfileController::class, 'updateName']);
     Route::patch('profile/password', [ApiProfileController::class, 'updatePassword']);
-    Route::post('profile/reset-face', [ApiProfileController::class, 'resetFace']);
 
     Route::get('payroll/payslips', [PayrollPayslipController::class, 'index']);
     Route::get('payroll/payslip/{id}/download', [PayrollPayslipController::class, 'download']);
 
+    Route::prefix('employer/payroll')->group(function () {
+        Route::get('dashboard', [EmployerPayrollController::class, 'dashboardApi']);
+        Route::get('reports', [EmployerPayrollController::class, 'report']);
+        Route::get('periods', [EmployerPayrollController::class, 'periodsApi']);
+        Route::post('periods', [EmployerPayrollController::class, 'storePeriod']);
+        Route::get('periods/{payrollPeriod}', [EmployerPayrollController::class, 'periodApi']);
+        Route::post('periods/{payrollPeriod}/calculate', [EmployerPayrollController::class, 'calculatePeriod']);
+        Route::post('periods/{payrollPeriod}/approve', [EmployerPayrollController::class, 'approvePeriod']);
+        Route::post('periods/{payrollPeriod}/void', [EmployerPayrollController::class, 'voidPeriod']);
+        Route::get('periods/{payrollPeriod}/audit', [EmployerPayrollController::class, 'auditHistory']);
+        Route::get('periods/{payrollPeriod}/export.xlsx', [EmployerPayrollController::class, 'exportPeriodXlsx']);
+        Route::get('periods/{payrollPeriod}/register.pdf', [EmployerPayrollController::class, 'exportPeriodPdf']);
+        Route::post('entries/{payrollEntry}/payments', [EmployerPayrollController::class, 'recordPayment']);
+        Route::patch('profiles/{user}', [EmployerPayrollController::class, 'updateEmployeeRate']);
+        Route::post('profiles/{user}/items', [EmployerPayrollController::class, 'storeProfileItem']);
+    });
+
     Route::prefix('employee')->group(function () {
+        Route::get('company-geofence', [CompanyGeofenceController::class, 'show']);
         Route::get('pending-pay', [EmployeePayrollController::class, 'pendingPay']);
+        Route::get('payroll/ytd', [PayrollPayslipController::class, 'yearToDate']);
         Route::get('dtr', [EmployeeDtrController::class, 'show']);
         Route::get('dtr/pdf', [EmployeeDtrController::class, 'downloadPdf']);
         Route::get('leave-balance', [LeaveController::class, 'balance']);

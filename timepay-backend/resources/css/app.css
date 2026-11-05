@@ -6,6 +6,12 @@
     body {
         @apply bg-slate-50 text-slate-900;
     }
+
+    .employer-shell {
+        color: #1f2937;
+        background: #f5f7fa;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
 }
 
 @layer components {
@@ -23,5 +29,138 @@
 
     .timepay-table-head {
         @apply bg-emerald-50/60 text-xs font-semibold uppercase tracking-wide text-emerald-800;
+    }
+
+    .employer-card {
+        @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+    }
+
+    .employer-section-heading {
+        @apply text-xl font-semibold tracking-tight text-slate-900;
+    }
+
+    .employer-page-heading {
+        @apply text-3xl font-bold tracking-tight text-slate-950;
+    }
+
+    .employer-page-description {
+        @apply mt-1 text-base leading-6 text-slate-600;
+    }
+
+    .employer-primary-button {
+        @apply inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-600 px-4 py-2.5 text-base font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60;
+    }
+
+    .employer-secondary-button {
+        @apply inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60;
+    }
+
+    .employer-field-label {
+        @apply block text-base font-semibold text-slate-800;
+    }
+
+    .employer-field-control {
+        @apply mt-1.5 block min-h-11 w-full rounded-xl border-slate-300 bg-white text-base text-slate-900 shadow-sm focus:border-emerald-600 focus:ring-emerald-600;
+    }
+
+    .super-admin-shell {
+        color: #1f2937;
+        background: #f5f7fa;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .super-admin-shell aside {
+        box-shadow: 1px 0 16px rgb(15 23 42 / 3%);
+    }
+
+    .super-admin-shell main .rounded-lg.border.bg-white,
+    .super-admin-shell main .rounded-2xl.border.bg-white {
+        border-radius: 1rem;
+        border-color: #e2e8f0;
+        box-shadow: 0 1px 3px rgb(15 23 42 / 4%);
+    }
+
+    .super-admin-shell main .grid > *,
+    .super-admin-shell main section {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .super-admin-shell main .overflow-x-auto {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .super-admin-shell main input:not([type="checkbox"]),
+    .super-admin-shell main select,
+    .super-admin-shell main textarea {
+        min-height: 2.75rem;
+        border-color: #cbd5e1;
+        border-radius: 0.75rem;
+        background-color: #fff;
+        padding-left: 0.875rem;
+        padding-right: 0.875rem;
+        color: #1f2937;
+        font-size: 1rem;
+    }
+
+    .super-admin-shell main input:focus,
+    .super-admin-shell main select:focus,
+    .super-admin-shell main textarea:focus {
+        border-color: #059669;
+        outline: 2px solid transparent;
+        box-shadow: 0 0 0 3px rgb(5 150 105 / 18%);
+    }
+
+    .super-admin-shell main table th {
+        color: #475569;
+        font-size: 0.75rem;
+        letter-spacing: 0.035em;
+    }
+
+    .super-admin-shell main table td {
+        font-size: 0.875rem;
+    }
+
+    .super-admin-shell main table td .text-xs {
+        font-size: 0.8125rem;
+    }
+
+    .super-admin-shell a:focus-visible,
+    .super-admin-shell button:focus-visible {
+        outline: 2px solid #047857;
+        outline-offset: 2px;
+    }
+
+    .guest-shell {
+        color: #1f2937;
+        background: #f5f7fa;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .guest-shell main {
+        box-sizing: border-box;
+        width: 100%;
+    }
+
+    .guest-shell main > section {
+        box-sizing: border-box;
+        width: min(100%, 36rem);
+        min-width: 0;
+    }
+
+    .guest-shell input:not([type="checkbox"]) {
+        box-sizing: border-box;
+        max-width: 100%;
+        min-width: 0;
+        min-height: 3rem;
+        font-size: 1rem;
+    }
+
+    .guest-shell a:focus-visible,
+    .guest-shell button:focus-visible,
+    .guest-shell input:focus-visible {
+        outline: 2px solid #047857;
+        outline-offset: 2px;
     }
 }

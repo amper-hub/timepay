@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Jobs\AnalyzeSelfieProof;
 use App\Models\AttendanceLog;
+use App\Models\AttendanceEventResponse;
 use App\Services\FacePlusPlusService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
@@ -75,6 +77,13 @@ class AttendanceController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        // Optional for compatibility with existing mobile clients. The server
+        // validates the key and remains the sole authority for every punch.
+        $request->validate([
+            'event_id' => ['sometimes', 'uuid'],
+            'captured_at' => ['sometimes', 'date'],
+            'occurred_at' => ['sometimes', 'date'],
+        ]);
         $validated = $request->validate([
             'type' => 'required|in:clock_in,clock_out',
             'latitude' => 'required|numeric|between:-90,90',
@@ -84,9 +93,29 @@ class AttendanceController extends Controller
             'liveness_open' => 'required|image|mimes:jpeg,jpg,png|max:2048',
             'liveness_closed' => 'required|image|mimes:jpeg,jpg,png|max:2048',
             'liveness_reopened' => 'required|image|mimes:jpeg,jpg,png|max:2048',
+            'liveness_mode' => 'sometimes|in:blink,head_turn',
         ]);
 
         $user = auth()->user();
+
+        if (! empty($request->input('event_id'))) {
+            $existingEvent = AttendanceEventResponse::query()
+                ->where('event_id', $request->input('event_id'))
+                ->first();
+
+            if ($existingEvent) {
+                if ($existingEvent->user_id !== $user->id || $existingEvent->company_id !== $user->company_id) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'attendance_event_conflict',
+                        'message' => 'This attendance event ID is already associated with another account.',
+                    ], 409);
+                }
+
+                return response()->json([...$existingEvent->response, 'idempotent_replay' => true]);
+            }
+        }
+
         $user->loadMissing('company');
         $company = $user->company;
 
@@ -150,34 +179,50 @@ class AttendanceController extends Controller
         $isWithinGeofence = $distanceInMeters <= $geofenceRadius;
 
         $selfie = $request->file('selfie') ?? $request->file('photo');
+        $livenessMode = $validated['liveness_mode'] ?? 'blink';
+        $identityReference = $livenessMode === 'blink'
+            ? $request->file('liveness_reopened')
+            : $request->file('liveness_open');
 
         try {
-            $livenessPassed = $this->facePlusPlusService->verifyBlinkSequence(
-                $request->file('liveness_open')->getRealPath(),
-                $request->file('liveness_closed')->getRealPath(),
-                $request->file('liveness_reopened')->getRealPath()
-            );
+            $livenessPassed = $livenessMode === 'blink'
+                ? $this->facePlusPlusService->verifyBlinkSequence(
+                    $request->file('liveness_open')->getRealPath(),
+                    $request->file('liveness_closed')->getRealPath(),
+                    $request->file('liveness_reopened')->getRealPath()
+                )
+                : $this->facePlusPlusService->verifyHeadTurnSequence(
+                    $request->file('liveness_open')->getRealPath(),
+                    $request->file('liveness_closed')->getRealPath(),
+                    $request->file('liveness_reopened')->getRealPath()
+                );
 
             if (! $livenessPassed) {
+                $challengeName = $livenessMode === 'blink' ? 'blink' : 'head movement';
                 return response()->json([
                     'success' => false,
                     'error' => 'face_liveness_failed',
-                    'message' => 'The blink verification did not pass. Please follow the on-screen instructions and try again.',
+                    'message' => "The {$challengeName} verification did not pass. Please follow the on-screen instructions and try again.",
                 ], 422);
             }
 
             $captureResult = $this->facePlusPlusService->compare(
-                $request->file('liveness_reopened')->getRealPath(),
+                $identityReference->getRealPath(),
                 $selfie->getRealPath()
             );
 
             if (! $captureResult['matched']) {
+                $challengeName = $livenessMode === 'blink' ? 'blink check' : 'head movement check';
                 return response()->json([
                     'success' => false,
                     'error' => 'face_capture_mismatch',
-                    'message' => 'The captured selfie did not match the completed blink check. Please try again.',
+                    'message' => "The captured selfie did not match the completed {$challengeName}. Please try again.",
                 ], 422);
             }
+        } catch (\InvalidArgumentException $exception) {
+            throw ValidationException::withMessages([
+                'selfie' => [$exception->getMessage()],
+            ]);
         } catch (\RuntimeException $exception) {
             return response()->json([
                 'success' => false,
@@ -189,15 +234,24 @@ class AttendanceController extends Controller
         $file = $selfie;
         $filename = 'selfie_' . $user->id . '_' . now()->format('YmdHis') . '_' . str()->random(8) . '.' . $file->extension();
         $photoPath = $file->storeAs('selfies', $filename, 'private');
+        $privateDisk = Storage::disk('private');
 
-        if (! $photoPath) {
+        if (! $photoPath || ! $privateDisk->exists($photoPath)) {
             return response()->json([
                 'success' => false,
+                'error' => 'selfie_storage_failed',
                 'message' => 'Punch could not be saved. Please try again.',
             ], 500);
         }
 
-        $selfieAbsolutePath = Storage::disk('private')->path($photoPath);
+        $selfieAbsolutePath = $privateDisk->path($photoPath);
+        if (! is_file($selfieAbsolutePath) || ! is_readable($selfieAbsolutePath)) {
+            return response()->json([
+                'success' => false,
+                'error' => 'selfie_storage_failed',
+                'message' => 'Punch could not be saved. Please try again.',
+            ], 500);
+        }
 
         $isFirstTimeEnrollment = $user->baseline_photo_path === null;
         $faceResult = null;
@@ -210,10 +264,11 @@ class AttendanceController extends Controller
             $user->save();
 
             $currentState = $latestPunchToday?->type === 'clock_in' ? 'clocked_in' : 'clocked_out';
+            $challengeLabel = $livenessMode === 'blink' ? 'blink' : 'head movement';
 
-            return response()->json([
+            $enrollmentResponse = [
                 'success' => true,
-                'message' => 'Face profile enrolled. Blink again to verify this attendance punch.',
+                'message' => "Face profile enrolled. Complete the {$challengeLabel} check again to verify this attendance punch.",
                 'attendance_log' => null,
                 'face_verification' => [
                     'enrolled' => true,
@@ -237,7 +292,19 @@ class AttendanceController extends Controller
                 ],
                 'current_state' => $currentState,
                 'next_expected_punch' => $validated['type'],
-            ], 200);
+            ];
+            if ($request->filled('event_id')) {
+                try {
+                    $this->saveIdempotencyResponse($user, $request->input('event_id'), $enrollmentResponse);
+                } catch (\Illuminate\Database\QueryException $exception) {
+                    $replay = AttendanceEventResponse::query()->where('event_id', $request->input('event_id'))->first();
+                    if (! $replay || $replay->user_id !== $user->id || $replay->company_id !== $user->company_id) throw $exception;
+                    // Keep the baseline photo already stored for this employee.
+                    if ($photoPath !== $user->baseline_photo_path) Storage::disk('private')->delete($photoPath);
+                    return response()->json([...$replay->response, 'idempotent_replay' => true]);
+                }
+            }
+            return response()->json($enrollmentResponse, 200);
         }
 
         $baselineAbsolutePath = $this->resolveBaselinePhotoPath($user->baseline_photo_path);
@@ -254,6 +321,12 @@ class AttendanceController extends Controller
 
         try {
             $faceResult = $this->facePlusPlusService->compare($baselineAbsolutePath, $selfieAbsolutePath);
+        } catch (\InvalidArgumentException $exception) {
+            Storage::disk('private')->delete($photoPath);
+
+            throw ValidationException::withMessages([
+                'selfie' => [$exception->getMessage()],
+            ]);
         } catch (\RuntimeException $exception) {
             Storage::disk('private')->delete($photoPath);
 
@@ -268,19 +341,52 @@ class AttendanceController extends Controller
         $isSuspicious = ! $faceMatched;
         $suspicionReason = $isSuspicious ? 'Face++ Identity Mismatch' : null;
 
-        $attendanceLog = AttendanceLog::create([
-            'user_id' => $user->id,
-            'company_id' => $company->id,
-            'timestamp' => now(),
-            'type' => $validated['type'],
-            'latitude' => (float) $validated['latitude'],
-            'longitude' => (float) $validated['longitude'],
-            'distance_meters' => $distanceInMeters,
-            'photo_path' => $photoPath,
-            'status' => $isSuspicious ? 'flagged' : 'verified',
-            'is_suspicious' => $isSuspicious,
-            'suspicion_reason' => $suspicionReason,
-        ]);
+        try {
+            $attendanceLog = DB::transaction(function () use ($user, $company, $request, $validated, $distanceInMeters, $photoPath, $isSuspicious, $suspicionReason): AttendanceLog {
+                $attendanceLog = AttendanceLog::create([
+                    'user_id' => $user->id,
+                    'company_id' => $company->id,
+                    'event_id' => $request->input('event_id'),
+                    // Client timestamps are audit data and never determine punch order
+                    // or payroll time; accepted server time remains authoritative.
+                    'timestamp' => now(),
+                    'type' => $validated['type'],
+                    'latitude' => (float) $validated['latitude'],
+                    'longitude' => (float) $validated['longitude'],
+                    'distance_meters' => $distanceInMeters,
+                    'photo_path' => $photoPath,
+                    'status' => $isSuspicious ? 'flagged' : 'verified',
+                    'is_suspicious' => $isSuspicious,
+                    'suspicion_reason' => $suspicionReason,
+                ]);
+                if ($request->filled('event_id')) {
+                    $this->saveIdempotencyResponse($user, $request->input('event_id'), [
+                        'success' => true,
+                        'attendance_log' => ['id' => $attendanceLog->id],
+                    ]);
+                }
+                return $attendanceLog;
+            });
+        } catch (\Illuminate\Database\QueryException $exception) {
+            if (empty($request->input('event_id'))) {
+                Storage::disk('private')->delete($photoPath);
+                throw $exception;
+            }
+
+            $duplicate = AttendanceEventResponse::query()->where('event_id', $request->input('event_id'))->first();
+            Storage::disk('private')->delete($photoPath);
+            if (! $duplicate) {
+                throw $exception;
+            }
+            if ($duplicate->user_id !== $user->id || $duplicate->company_id !== $user->company_id) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'attendance_event_conflict',
+                    'message' => 'This attendance event ID is already associated with another account.',
+                ], 409);
+            }
+            return response()->json([...$duplicate->response, 'idempotent_replay' => true]);
+        }
 
         if ($attendanceLog->type === 'clock_in' && ! $isSuspicious) {
             AnalyzeSelfieProof::dispatch($attendanceLog->id);
@@ -290,7 +396,7 @@ class AttendanceController extends Controller
             ? 'Punch recorded and flagged for review because the Face++ identity check did not meet the confidence threshold.'
             : ucfirst(str_replace('_', ' ', $validated['type'])) . ' successful. Face match and geofence checks passed.';
 
-        return response()->json([
+        $punchResponse = [
             'success' => true,
             'message' => $responseMessage,
             'attendance_log' => [
@@ -328,7 +434,31 @@ class AttendanceController extends Controller
             ],
             'current_state' => $attendanceLog->type === 'clock_in' ? 'clocked_in' : 'clocked_out',
             'next_expected_punch' => $attendanceLog->type === 'clock_in' ? 'clock_out' : 'clock_in',
-        ], 200);
+        ];
+        if ($request->filled('event_id')) {
+            try {
+                $responseData = $punchResponse;
+                AttendanceEventResponse::query()
+                    ->where('event_id', $request->input('event_id'))
+                    ->where('user_id', $user->id)
+                    ->update(['response' => $responseData]);
+            } catch (\Illuminate\Database\QueryException $exception) {
+                $replay = AttendanceEventResponse::query()->where('event_id', $request->input('event_id'))->first();
+                if (! $replay || $replay->user_id !== $user->id || $replay->company_id !== $user->company_id) throw $exception;
+                return response()->json([...$replay->response, 'idempotent_replay' => true]);
+            }
+        }
+        return response()->json($punchResponse, 200);
+    }
+
+    private function saveIdempotencyResponse(\App\Models\User $user, string $eventId, array $response): void
+    {
+        AttendanceEventResponse::query()->create([
+            'user_id' => $user->id,
+            'company_id' => $user->company_id,
+            'event_id' => $eventId,
+            'response' => $response,
+        ]);
     }
 
     /**
@@ -443,12 +573,19 @@ class AttendanceController extends Controller
                 ? 'late'
                 : 'on_time';
 
+            $verificationStatus = $dayLogs->contains(fn (AttendanceLog $log) => $log->status === 'rejected')
+                ? 'rejected'
+                : ($dayLogs->contains(fn (AttendanceLog $log) => $log->status === 'flagged' || $log->is_suspicious)
+                    ? 'flagged'
+                    : 'verified');
+
             return [
                 'date' => $date,
                 'time_in' => $clockIn?->timestamp?->toIso8601String(),
                 'time_out' => $clockOut?->timestamp?->toIso8601String(),
                 'total_hours' => $totalHours,
                 'status' => $status,
+                'verification_status' => $verificationStatus,
             ];
         })->values();
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -59,9 +59,14 @@ const formatDate = (value) => {
   });
 };
 
-const isIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+const isIsoDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) === value;
+};
 
 const LeaveScreen = ({ userSessionData }) => {
+  const submittingRef = useRef(false);
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -189,6 +194,8 @@ const LeaveScreen = ({ userSessionData }) => {
   }, [form, isPaidLeaveExhausted]);
 
   const handleSubmit = useCallback(async () => {
+    if (submittingRef.current) return;
+
     const validationError = validateForm();
 
     if (validationError) {
@@ -196,6 +203,7 @@ const LeaveScreen = ({ userSessionData }) => {
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
 
     try {
@@ -219,6 +227,7 @@ const LeaveScreen = ({ userSessionData }) => {
         )
       );
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }, [form, loadLeaves, validateForm]);
@@ -267,9 +276,9 @@ const LeaveScreen = ({ userSessionData }) => {
     <View>
       <View style={styles.header}>
         <Text style={styles.eyebrow}>TimePay Leave</Text>
-        <Text style={styles.title}>Plan time away without the paperwork fog.</Text>
+        <Text style={styles.title}>Leave requests</Text>
         <Text style={styles.subtitle}>
-          Submit requests, track approvals, and keep your leave history tidy.
+          Check your balances, submit time off, and follow each decision.
         </Text>
         <Text style={styles.employeeName}>
           {userSessionData?.user?.name ?? "Employee"}
@@ -495,7 +504,7 @@ const LeaveScreen = ({ userSessionData }) => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#F5F7FA",
   },
   listContent: {
     paddingHorizontal: 20,
@@ -506,8 +515,8 @@ const styles = StyleSheet.create({
     paddingBottom: 18,
   },
   eyebrow: {
-    color: "#059669",
-    fontSize: 12,
+    color: "#047857",
+    fontSize: 13,
     fontWeight: "900",
     letterSpacing: 0.8,
     textTransform: "uppercase",
@@ -515,9 +524,9 @@ const styles = StyleSheet.create({
   title: {
     marginTop: 10,
     color: "#0f172a",
-    fontSize: 30,
-    fontWeight: "900",
-    lineHeight: 36,
+    fontSize: 31,
+    fontWeight: "800",
+    lineHeight: 38,
   },
   subtitle: {
     marginTop: 10,

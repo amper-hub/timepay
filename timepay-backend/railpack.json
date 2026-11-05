@@ -1,12 +1,4 @@
 {
   "$schema": "https://schema.railpack.com",
-  "provider": "php",
-  "steps": {
-    "build": {
-      "commands": [
-        "...",
-        "npm install --include=dev && npm run build && npm prune --omit=dev --ignore-scripts"
-      ]
-    }
-  }
+  "provider": "php"
 }

@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Http;
 
 use Illuminate\Support\Facades\Log;
 
+use InvalidArgumentException;
 use RuntimeException;
 
 
@@ -22,9 +23,14 @@ class FacePlusPlusService
 
 {
 
-    private const DEFAULT_DETECT_URL = 'https\://api-us.faceplusplus.com/facepp/v3/detect';
+    private const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+    private const MAX_IMAGE_DIMENSION = 8000;
+    private const MAX_IMAGE_PIXELS = 16_000_000;
+    private const FACE_PLUS_PLUS_MAX_DIMENSION = 1600;
 
-    private const DEFAULT_COMPARE_URL = 'https\://api-us.faceplusplus.com/facepp/v3/compare';
+    private const DEFAULT_DETECT_URL = 'https://api-us.faceplusplus.com/facepp/v3/detect';
+
+    private const DEFAULT_COMPARE_URL = 'https://api-us.faceplusplus.com/facepp/v3/compare';
 
     private const DEFAULT_CONFIDENCE_THRESHOLD = 80.0;
 
@@ -166,114 +172,98 @@ class FacePlusPlusService
 
     /**
 
-     * Verify that the uploaded samples show one face opening, closing, and
-
-     * reopening both eyes. The mobile ML Kit result is never accepted as proof.
+     * Verify a neutral face followed by turns in opposite directions. The
+     * mobile ML Kit result is never accepted as the server-side liveness proof.
 
      */
 
-    public function verifyBlinkSequence(string $openPhoto, string $closedPhoto, string $reopenedPhoto): bool
+    public function verifyHeadTurnSequence(string $neutralPhoto, string $firstTurnPhoto, string $secondTurnPhoto): bool
 
     {
 
-        $minimumEyeConfidence = (float) config(
+        $neutralMaximumYaw = (float) config('services.faceplusplus.liveness_neutral_max_yaw', 12);
+        $turnMinimumYaw = (float) config('services.faceplusplus.liveness_turn_min_yaw', 18);
+        $yaws = [];
 
-            'services.faceplusplus.eye_confidence_threshold',
-
-            70
-
-        );
-
-
-
-        foreach ([
-
-            ['path' => $openPhoto, 'state' => 'open'],
-
-            ['path' => $closedPhoto, 'state' => 'closed'],
-
-            ['path' => $reopenedPhoto, 'state' => 'open'],
-
-        ] as $sample) {
-
-            $payload = $this->detectImage($sample['path'], 'eyestatus');
-
+        foreach ([$neutralPhoto, $firstTurnPhoto, $secondTurnPhoto] as $path) {
+            $payload = $this->detectImage($path, 'headpose');
             $faces = data_get($payload, 'faces');
 
-
-
             if (! is_array($faces) || count($faces) !== 1) {
-
                 return false;
-
             }
 
-
-
-            $eyeStatus = data_get($faces, '0.attributes.eyestatus');
-
-
-
-            if (! is_array($eyeStatus)) {
-
+            $yaw = $this->nullableFloat(data_get($faces, '0.attributes.headpose.yaw_angle'));
+            if ($yaw === null) {
                 return false;
-
             }
-
-
-
-            foreach (['left_eye_status', 'right_eye_status'] as $eye) {
-
-                $eyeMetrics = data_get($eyeStatus, $eye);
-
-                if (! is_array($eyeMetrics)) {
-
-                    return false;
-
-                }
-
-
-
-                $openConfidence = max(
-
-                    $this->nullableFloat($eyeMetrics['no_glass_eye_open'] ?? null) ?? 0,
-
-                    $this->nullableFloat($eyeMetrics['normal_glass_eye_open'] ?? null) ?? 0
-
-                );
-
-                $closedConfidence = max(
-
-                    $this->nullableFloat($eyeMetrics['no_glass_eye_close'] ?? null) ?? 0,
-
-                    $this->nullableFloat($eyeMetrics['normal_glass_eye_close'] ?? null) ?? 0
-
-                );
-
-
-
-                $stateVerified = $sample['state'] === 'open'
-
-                    ? $openConfidence >= $minimumEyeConfidence && $openConfidence > $closedConfidence
-
-                    : $closedConfidence >= $minimumEyeConfidence && $closedConfidence > $openConfidence;
-
-
-
-                if (! $stateVerified) {
-
-                    return false;
-
-                }
-
-            }
-
+            $yaws[] = $yaw;
         }
 
+        [$neutralYaw, $firstTurnYaw, $secondTurnYaw] = $yaws;
 
+        $firstTurnDelta = $firstTurnYaw - $neutralYaw;
+        $secondTurnDelta = $secondTurnYaw - $neutralYaw;
+
+        return abs($neutralYaw) <= $neutralMaximumYaw
+            && abs($firstTurnDelta) >= $turnMinimumYaw
+            && abs($secondTurnDelta) >= $turnMinimumYaw
+            && ($firstTurnDelta * $secondTurnDelta) < 0;
+
+    }
+
+    /**
+     * Validate open, closed, open eye states from Face++ image analysis.
+     * This classifies each still image; it is not Face++ video liveness or
+     * anti-replay scoring. The mobile ML Kit result is never trusted here.
+     */
+    public function verifyBlinkSequence(string $openPhoto, string $closedPhoto, string $reopenedPhoto): bool
+    {
+        $minimumEyeConfidence = (float) config('services.faceplusplus.eye_confidence_threshold', 70);
+
+        foreach ([
+            ['path' => $openPhoto, 'state' => 'open'],
+            ['path' => $closedPhoto, 'state' => 'closed'],
+            ['path' => $reopenedPhoto, 'state' => 'open'],
+        ] as $sample) {
+            $payload = $this->detectImage($sample['path'], 'eyestatus');
+            $faces = data_get($payload, 'faces');
+
+            if (! is_array($faces) || count($faces) !== 1) {
+                return false;
+            }
+
+            $eyeStatus = data_get($faces, '0.attributes.eyestatus');
+            if (! is_array($eyeStatus)) {
+                return false;
+            }
+
+            foreach (['left_eye_status', 'right_eye_status'] as $eye) {
+                $metrics = data_get($eyeStatus, $eye);
+                if (! is_array($metrics)) {
+                    return false;
+                }
+
+                $openConfidence = max(
+                    $this->nullableFloat($metrics['no_glass_eye_open'] ?? null) ?? 0,
+                    $this->nullableFloat($metrics['normal_glass_eye_open'] ?? null) ?? 0
+                );
+                $closedConfidence = max(
+                    $this->nullableFloat($metrics['no_glass_eye_close'] ?? null) ?? 0,
+                    $this->nullableFloat($metrics['normal_glass_eye_close'] ?? null) ?? 0
+                );
+
+                $verified = $sample['state'] === 'open'
+                    ? $openConfidence >= $minimumEyeConfidence && $openConfidence > $closedConfidence
+                    : $closedConfidence >= $minimumEyeConfidence && $closedConfidence > $openConfidence;
+
+                if (! $verified) {
+                    return false;
+                }
+            }
+        }
 
         return true;
-
     }
 
 
@@ -583,7 +573,7 @@ class FacePlusPlusService
 
             $this->throwIfFacePlusPlusError($payload);
 
-            if (! is_array($payload)) {
+            if (! is_array($payload) || ! isset($payload['faces']) || ! is_array($payload['faces'])) {
 
                 throw new RuntimeException('Face++ returned an invalid detection response.');
 
@@ -593,6 +583,8 @@ class FacePlusPlusService
 
             return $payload;
 
+        } catch (InvalidArgumentException $exception) {
+            throw $exception;
         } catch (ConnectionException|RequestException|RuntimeException $exception) {
 
             $this->logFacePlusPlusFailure('Face++ detection request failed.', $exception);
@@ -622,31 +614,60 @@ class FacePlusPlusService
             throw new RuntimeException('Face++ could not read a verification image.');
         }
 
+        $fileSize = filesize($path);
+
+        if ($fileSize === false || $fileSize === 0 || $fileSize > self::MAX_IMAGE_BYTES) {
+            Log::warning('Face++ image rejected by compressed size limit.', [
+                'bytes' => $fileSize === false ? null : $fileSize,
+                'limit_bytes' => self::MAX_IMAGE_BYTES,
+            ]);
+
+            throw new InvalidArgumentException('The verification image is empty or exceeds the supported file size.');
+        }
+
+        // Inspect the header from disk before allocating an encoded image string
+        // or asking GD to decode potentially hostile dimensions.
+        $imageInfo = @getimagesize($path);
+
+        if ($imageInfo === false) {
+            throw new InvalidArgumentException('The verification upload is not a supported image.');
+        }
+
+        $width = (int) ($imageInfo[0] ?? 0);
+        $height = (int) ($imageInfo[1] ?? 0);
+        $imageType = (int) ($imageInfo[2] ?? 0);
+
+        if (! in_array($imageType, [IMAGETYPE_JPEG, IMAGETYPE_PNG], true)
+            || $width < 1
+            || $height < 1
+            || $width > self::MAX_IMAGE_DIMENSION
+            || $height > self::MAX_IMAGE_DIMENSION
+            || $width > intdiv(self::MAX_IMAGE_PIXELS, $height)) {
+            Log::warning('Face++ image rejected by dimension or format limit.', [
+                'width' => $width,
+                'height' => $height,
+                'image_type' => $imageType,
+                'bytes' => $fileSize,
+            ]);
+
+            throw new InvalidArgumentException('The verification image dimensions or format are not supported.');
+        }
+
         $contents = file_get_contents($path);
 
         if ($contents === false || $contents === '') {
             throw new RuntimeException('Face++ could not read a verification image.');
         }
 
-        $imageInfo = @getimagesizefromstring($contents);
-
-        if ($imageInfo === false) {
-            throw new RuntimeException('The verification upload is not a supported image.');
-        }
-
-        $maxDimension = 1600;
-        $width = (int) $imageInfo[0];
-        $height = (int) $imageInfo[1];
-
         if (function_exists('imagecreatefromstring') && function_exists('imagejpeg')) {
             $source = @imagecreatefromstring($contents);
 
             if ($source === false) {
-                throw new RuntimeException('The verification image could not be decoded.');
+                throw new InvalidArgumentException('The verification image could not be decoded.');
             }
 
             try {
-                $scale = min(1, $maxDimension / max($width, $height));
+                $scale = min(1, self::FACE_PLUS_PLUS_MAX_DIMENSION / max($width, $height));
                 $targetWidth = max(1, (int) round($width * $scale));
                 $targetHeight = max(1, (int) round($height * $scale));
                 $target = imagecreatetruecolor($targetWidth, $targetHeight);
@@ -695,7 +716,7 @@ class FacePlusPlusService
         }
 
         // Without GD, avoid sending images known to exceed conservative limits.
-        if (max($width, $height) > $maxDimension || strlen($contents) > 2_000_000) {
+        if (max($width, $height) > self::FACE_PLUS_PLUS_MAX_DIMENSION || $fileSize > 2_000_000) {
             throw new RuntimeException(
                 'The verification image is too large for Face++. Please capture a smaller image or enable PHP GD.'
             );

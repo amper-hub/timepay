@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "TimePay",
-    "slug": "TimePay",
+    "slug": "timepay",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -22,14 +22,34 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.TimePay"
+      "package": "com.amperhub.timepay"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow TimePay to use your camera to verify attendance.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow TimePay to check whether you are at your workplace."
+        }
+      ],
       "expo-font",
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "3509eedf-c99d-4b76-9c7f-eba68d10bf6f"
+      }
+    },
+    "owner": "axellamper31"
   }
 }
