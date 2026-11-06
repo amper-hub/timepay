@@ -127,8 +127,7 @@ class AutoClockOutEmployees extends Command
                                     }
 
                                     if (
-                                        $clockInAt->lessThan($shiftStart)
-                                        || $clockInAt->greaterThanOrEqualTo($shiftEnd)
+                                        $clockInAt->greaterThanOrEqualTo($shiftEnd)
                                         || $now->lessThan($shiftEnd)
                                     ) {
                                         return 0;
