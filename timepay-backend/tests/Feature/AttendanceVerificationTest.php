@@ -475,6 +475,26 @@ class AttendanceVerificationTest extends TestCase
         $this->assertSame(['selfies/reference.jpg'], Storage::disk('private')->allFiles('selfies'));
     }
 
+    public function test_clock_in_before_the_configured_shift_start_is_rejected(): void
+    {
+        config(['timepay.attendance_timezone' => 'Asia/Manila']);
+        $this->company->update([
+            'work_start_time' => '09:00',
+            'work_end_time' => '17:00',
+            'working_days' => ['Friday'],
+        ]);
+        \\Carbon\\Carbon::setTestNow(\\Carbon\\Carbon::parse('2026-11-06 08:47:00', 'Asia/Manila'));
+
+        $this->post('/api/attendance/clock-in', $this->validPunchPayload(), [
+            'Accept' => 'application/json',
+        ])->assertForbidden()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Cannot clock in outside working hours');
+
+        $this->assertDatabaseCount('attendance_logs', 0);
+        \\Carbon\\Carbon::setTestNow();
+    }
+
     public function test_provider_failure_does_not_create_a_successful_clock_in(): void
     {
         $faceService = Mockery::mock(FacePlusPlusService::class);
