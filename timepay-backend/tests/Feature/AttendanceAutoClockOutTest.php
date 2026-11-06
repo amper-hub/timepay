@@ -20,7 +20,7 @@ class AttendanceAutoClockOutTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_non_overtime_employee_is_automatically_clocked_out_at_the_configured_shift_end(): void
+    public function test_non_overtime_employee_including_a_legacy_early_punch_is_closed_at_shift_end(): void
     {
         config([
             'app.timezone' => 'UTC',
@@ -49,7 +49,7 @@ class AttendanceAutoClockOutTest extends TestCase
         AttendanceLog::query()->create([
             'user_id' => $employee->id,
             'company_id' => $company->id,
-            'timestamp' => Carbon::parse('2026-11-06 01:00:00', 'UTC'),
+            'timestamp' => Carbon::parse('2026-11-06 00:47:00', 'UTC'),
             'type' => 'clock_in',
             'latitude' => 14.5995,
             'longitude' => 120.9842,
