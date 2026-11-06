@@ -7,6 +7,7 @@ use App\Models\PayrollAudit;
 use App\Models\Company;
 use App\Models\User;
 use App\Services\FacePlusPlusService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\UploadedFile;
@@ -483,7 +484,7 @@ class AttendanceVerificationTest extends TestCase
             'work_end_time' => '17:00',
             'working_days' => ['Friday'],
         ]);
-        \\Carbon\\Carbon::setTestNow(\\Carbon\\Carbon::parse('2026-11-06 08:47:00', 'Asia/Manila'));
+        Carbon::setTestNow(Carbon::parse('2026-11-06 08:47:00', 'Asia/Manila'));
 
         $this->post('/api/attendance/clock-in', $this->validPunchPayload(), [
             'Accept' => 'application/json',
@@ -492,7 +493,7 @@ class AttendanceVerificationTest extends TestCase
             ->assertJsonPath('message', 'Cannot clock in outside working hours');
 
         $this->assertDatabaseCount('attendance_logs', 0);
-        \\Carbon\\Carbon::setTestNow();
+        Carbon::setTestNow();
     }
 
     public function test_provider_failure_does_not_create_a_successful_clock_in(): void
