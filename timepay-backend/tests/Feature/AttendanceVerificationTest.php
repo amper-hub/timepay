@@ -450,7 +450,7 @@ class AttendanceVerificationTest extends TestCase
         $this->assertDatabaseCount('attendance_logs', 0);
     }
 
-    public function test_face_identity_mismatch_is_flagged_and_never_marked_verified(): void
+    public function test_face_identity_mismatch_is_rejected_without_creating_an_attendance_record(): void
     {
         Storage::disk('private')->put('selfies/reference.jpg', 'baseline');
         $this->employee->forceFill(['baseline_photo_path' => 'selfies/reference.jpg'])->save();
@@ -464,18 +464,15 @@ class AttendanceVerificationTest extends TestCase
         $faceService->shouldReceive('analyzeSelfieProof')->never();
         $this->app->instance(FacePlusPlusService::class, $faceService);
 
-        $response = $this->post('/api/attendance/clock-in', $this->validPunchPayload(), [
+        $this->post('/api/attendance/clock-in', $this->validPunchPayload(), [
             'Accept' => 'application/json',
-        ]);
+        ])->assertUnprocessable()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('error', 'face_identity_mismatch')
+            ->assertJsonPath('message', 'Face not recognized. Attendance was not recorded. Please try again using your own face.');
 
-        $response->assertOk()
-            ->assertJsonPath('attendance_log.status', 'flagged')
-            ->assertJsonPath('face_verification.matched', false);
-        $this->assertDatabaseCount('attendance_logs', 1);
-        $this->assertDatabaseMissing('attendance_logs', [
-            'user_id' => $this->employee->id,
-            'status' => 'verified',
-        ]);
+        $this->assertDatabaseCount('attendance_logs', 0);
+        $this->assertSame(['selfies/reference.jpg'], Storage::disk('private')->allFiles('selfies'));
     }
 
     public function test_provider_failure_does_not_create_a_successful_clock_in(): void
