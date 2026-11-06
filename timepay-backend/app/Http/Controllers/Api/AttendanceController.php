@@ -566,6 +566,11 @@ class AttendanceController extends Controller
     public function history(Request $request): JsonResponse
     {
         $user = $request->user();
+        $user->loadMissing('company');
+        $timezone = config('timepay.attendance_timezone', config('app.timezone', 'UTC'));
+        $workStartTime = $user->company?->work_start_time
+            ? Carbon::parse($user->company->work_start_time, $timezone)->format('H:i:s')
+            : '09:00:00';
 
         $logs = AttendanceLog::query()
             ->where('company_id', $user->company_id)
@@ -575,7 +580,7 @@ class AttendanceController extends Controller
             ->get()
             ->groupBy(fn (AttendanceLog $log) => $log->timestamp->toDateString());
 
-        $history = $logs->map(function ($dayLogs, string $date) {
+        $history = $logs->map(function ($dayLogs, string $date) use ($workStartTime, $timezone) {
             $clockIn = $dayLogs
                 ->where('type', 'clock_in')
                 ->sortBy('timestamp')
@@ -590,8 +595,13 @@ class AttendanceController extends Controller
                 ? round($clockIn->timestamp->floatDiffInHours($clockOut->timestamp), 2)
                 : null;
 
-            $lateThreshold = Carbon::parse($date)->setTime(9, 0);
-            $status = $clockIn && $clockIn->timestamp->greaterThan($lateThreshold)
+            $lateThreshold = Carbon::createFromFormat(
+                'Y-m-d H:i:s',
+                $date.' '.$workStartTime,
+                $timezone
+            );
+            $clockInTime = $clockIn?->timestamp?->copy()->timezone($timezone);
+            $status = $clockInTime && $clockInTime->greaterThan($lateThreshold)
                 ? 'late'
                 : 'on_time';
 
