@@ -87,6 +87,9 @@
                                     <span class="inline-flex rounded-full border px-2.5 py-1 text-sm font-semibold {{ $log->type === 'clock_in' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-50 text-slate-700' }}">
                                         {{ $log->type === 'clock_in' ? 'Clock In' : 'Clock Out' }}
                                     </span>
+                                    @if ($log->source === 'system')
+                                        <span class="ml-1 inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800">Automatic</span>
+                                    @endif
                                 </td>
                                 <td class="whitespace-nowrap px-5 py-4 text-base text-slate-700">
                                     {{ $log->timestamp?->timezone('Asia/Manila')->format('M d, Y g:i A') ?? '-' }}
@@ -145,7 +148,7 @@
                             <span class="shrink-0 rounded-full border px-2.5 py-1 text-sm font-semibold {{ $log->status === 'verified' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : ($log->status === 'flagged' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-red-200 bg-red-50 text-red-800') }}">{{ str($log->status)->replace('_', ' ')->title() }}</span>
                         </div>
                         <dl class="grid grid-cols-2 gap-3 border-t border-slate-200 pt-3 text-sm">
-                            <div><dt class="text-slate-600">Event</dt><dd class="mt-0.5 font-medium text-slate-900">{{ str($log->type)->replace('_', ' ')->title() }}</dd></div>
+                            <div><dt class="text-slate-600">Event</dt><dd class="mt-0.5 font-medium text-slate-900">{{ str($log->type)->replace('_', ' ')->title() }}@if ($log->source === 'system') <span class="text-blue-700">(Automatic)</span>@endif</dd></div>
                             <div><dt class="text-slate-600">Distance</dt><dd class="mt-0.5 font-medium text-slate-900">{{ number_format((float) $log->distance_meters, 1) }} meters</dd></div>
                             <div class="col-span-2"><dt class="text-slate-600">Date and time</dt><dd class="mt-0.5 font-medium text-slate-900">{{ $log->timestamp?->timezone('Asia/Manila')->format('M d, Y g:i A') ?? '-' }}</dd></div>
                         </dl>

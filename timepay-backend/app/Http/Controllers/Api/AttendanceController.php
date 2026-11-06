@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\AnalyzeSelfieProof;
 use App\Models\AttendanceLog;
 use App\Models\AttendanceEventResponse;
+use App\Models\PayrollProfile;
 use App\Services\FacePlusPlusService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -25,11 +26,6 @@ class AttendanceController extends Controller
      * Maximum allowed distance from the company job site for attendance punches.
      */
     private const GEOFENCE_RADIUS_METERS = 100;
-
-    /**
-     * Employees may clock in shortly before the configured shift start.
-     */
-    private const CLOCK_IN_EARLY_BUFFER_MINUTES = 15;
 
     public function __construct(
         private readonly FacePlusPlusService $facePlusPlusService
@@ -162,6 +158,17 @@ class AttendanceController extends Controller
             ->whereDate('timestamp', today())
             ->latest('timestamp')
             ->first();
+
+        if (
+            $validated['type'] === 'clock_out'
+            && $this->clockOutIsPastNonOvertimeShiftEnd($user, $company, $latestPunchToday)
+        ) {
+            return response()->json([
+                'success' => false,
+                'error' => 'shift_ended',
+                'message' => 'Your scheduled shift has ended and overtime is not enabled. TimePay is closing your attendance automatically.',
+            ], 403);
+        }
 
         $expectedType = $latestPunchToday?->type === 'clock_in' ? 'clock_out' : 'clock_in';
 
@@ -338,8 +345,22 @@ class AttendanceController extends Controller
         }
 
         $faceMatched = $faceResult['matched'];
-        $isSuspicious = ! $faceMatched;
-        $suspicionReason = $isSuspicious ? 'Face++ Identity Mismatch' : null;
+
+        // An identity mismatch is a failed authentication attempt, not an
+        // attendance event requiring employer review. Remove the temporary
+        // selfie and reject the punch before any attendance row is created.
+        if (! $faceMatched) {
+            Storage::disk('private')->delete($photoPath);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'face_identity_mismatch',
+                'message' => 'Face not recognized. Attendance was not recorded. Please try again using your own face.',
+            ], 422);
+        }
+
+        $isSuspicious = false;
+        $suspicionReason = null;
 
         try {
             $attendanceLog = DB::transaction(function () use ($user, $company, $request, $validated, $distanceInMeters, $photoPath, $isSuspicious, $suspicionReason): AttendanceLog {
@@ -525,6 +546,7 @@ class AttendanceController extends Controller
             'last_punch' => $latestPunchToday ? [
                 'id' => $latestPunchToday->id,
                 'type' => $latestPunchToday->type,
+                'source' => $latestPunchToday->source,
                 'status' => $latestPunchToday->status,
                 'timestamp' => $latestPunchToday->timestamp,
                 'is_suspicious' => $latestPunchToday->is_suspicious,
@@ -544,6 +566,11 @@ class AttendanceController extends Controller
     public function history(Request $request): JsonResponse
     {
         $user = $request->user();
+        $user->loadMissing('company');
+        $timezone = config('timepay.attendance_timezone', config('app.timezone', 'UTC'));
+        $workStartTime = $user->company?->work_start_time
+            ? Carbon::parse($user->company->work_start_time, $timezone)->format('H:i:s')
+            : '09:00:00';
 
         $logs = AttendanceLog::query()
             ->where('company_id', $user->company_id)
@@ -553,7 +580,7 @@ class AttendanceController extends Controller
             ->get()
             ->groupBy(fn (AttendanceLog $log) => $log->timestamp->toDateString());
 
-        $history = $logs->map(function ($dayLogs, string $date) {
+        $history = $logs->map(function ($dayLogs, string $date) use ($workStartTime, $timezone) {
             $clockIn = $dayLogs
                 ->where('type', 'clock_in')
                 ->sortBy('timestamp')
@@ -568,8 +595,13 @@ class AttendanceController extends Controller
                 ? round($clockIn->timestamp->floatDiffInHours($clockOut->timestamp), 2)
                 : null;
 
-            $lateThreshold = Carbon::parse($date)->setTime(9, 0);
-            $status = $clockIn && $clockIn->timestamp->greaterThan($lateThreshold)
+            $lateThreshold = Carbon::createFromFormat(
+                'Y-m-d H:i:s',
+                $date.' '.$workStartTime,
+                $timezone
+            );
+            $clockInTime = $clockIn?->timestamp?->copy()->timezone($timezone);
+            $status = $clockInTime && $clockInTime->greaterThan($lateThreshold)
                 ? 'late'
                 : 'on_time';
 
@@ -583,6 +615,7 @@ class AttendanceController extends Controller
                 'date' => $date,
                 'time_in' => $clockIn?->timestamp?->toIso8601String(),
                 'time_out' => $clockOut?->timestamp?->toIso8601String(),
+                'time_out_source' => $clockOut?->source,
                 'total_hours' => $totalHours,
                 'status' => $status,
                 'verification_status' => $verificationStatus,
@@ -626,6 +659,56 @@ class AttendanceController extends Controller
     }
 
     /**
+     * Prevent a non-overtime employee from submitting a manual clock-out
+     * after the configured shift end while the minute scheduler catches up.
+     */
+    private function clockOutIsPastNonOvertimeShiftEnd($user, $company, ?AttendanceLog $latestPunch): bool
+    {
+        if (
+            ! $latestPunch
+            || $latestPunch->type !== 'clock_in'
+            || ! $company->work_start_time
+            || ! $company->work_end_time
+        ) {
+            return false;
+        }
+
+        $overtimeEligible = PayrollProfile::query()
+            ->where('user_id', $user->id)
+            ->value('overtime_eligible');
+
+        if ((bool) $overtimeEligible) {
+            return false;
+        }
+
+        $timezone = config('timepay.attendance_timezone', config('app.timezone', 'UTC'));
+        $clockInAt = $latestPunch->timestamp->copy()->timezone($timezone);
+        $workStartTime = Carbon::parse($company->work_start_time, $timezone)->format('H:i:s');
+        $workEndTime = Carbon::parse($company->work_end_time, $timezone)->format('H:i:s');
+
+        $shiftStart = Carbon::createFromFormat(
+            'Y-m-d H:i:s',
+            $clockInAt->toDateString().' '.$workStartTime,
+            $timezone
+        );
+        $shiftEnd = Carbon::createFromFormat(
+            'Y-m-d H:i:s',
+            $clockInAt->toDateString().' '.$workEndTime,
+            $timezone
+        );
+
+        if ($shiftEnd->lessThanOrEqualTo($shiftStart)) {
+            if ($clockInAt->format('H:i:s') < $workEndTime) {
+                $shiftStart->subDay();
+            } else {
+                $shiftEnd->addDay();
+            }
+        }
+
+        return Carbon::now($timezone)->greaterThanOrEqualTo($shiftEnd);
+    }
+
+    /**
      * Enforce employer-configured clock-in days and hours.
      */
     private function validateClockInSchedule($company): ?JsonResponse
@@ -661,8 +744,7 @@ class AttendanceController extends Controller
             'Y-m-d H:i:s',
             $now->toDateString() . ' ' . $workStartTime,
             $timezone
-        )
-            ->subMinutes(self::CLOCK_IN_EARLY_BUFFER_MINUTES);
+        );
 
         $shiftEnd = Carbon::createFromFormat(
             'Y-m-d H:i:s',
@@ -685,7 +767,7 @@ class AttendanceController extends Controller
             }
         }
 
-        if ($now->lt($shiftStart) || $now->gt($shiftEnd)) {
+        if ($now->lt($shiftStart) || $now->greaterThanOrEqualTo($shiftEnd)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Cannot clock in outside working hours',
