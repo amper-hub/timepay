@@ -496,6 +496,50 @@ class AttendanceVerificationTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_face_identity_mismatch_rejects_clock_out_without_creating_a_clock_out_record(): void
+    {
+        Storage::disk('private')->put('selfies/reference.jpg', 'baseline');
+        $this->employee->forceFill(['baseline_photo_path' => 'selfies/reference.jpg'])->save();
+        AttendanceLog::query()->create([
+            'user_id' => $this->employee->id,
+            'company_id' => $this->company->id,
+            'timestamp' => now()->startOfDay()->addHours(9),
+            'type' => 'clock_in',
+            'latitude' => 14.5995,
+            'longitude' => 120.9842,
+            'distance_meters' => 0,
+            'status' => 'verified',
+            'is_suspicious' => false,
+        ]);
+
+        $faceService = Mockery::mock(FacePlusPlusService::class);
+        $faceService->shouldReceive('verifyHeadTurnSequence')->once()->andReturn(true);
+        $faceService->shouldReceive('compare')->twice()->andReturn(
+            ['confidence' => 95.0, 'threshold' => 80.0, 'matched' => true],
+            ['confidence' => 34.0, 'threshold' => 80.0, 'matched' => false]
+        );
+        $faceService->shouldReceive('analyzeSelfieProof')->never();
+        $this->app->instance(FacePlusPlusService::class, $faceService);
+
+        $this->post('/api/attendance/store', [
+            ...$this->validPunchPayload(),
+            'type' => 'clock_out',
+        ], ['Accept' => 'application/json'])->assertUnprocessable()
+            ->assertJsonPath('error', 'face_identity_mismatch');
+
+        $this->assertDatabaseCount('attendance_logs', 1);
+        $this->assertDatabaseHas('attendance_logs', [
+            'user_id' => $this->employee->id,
+            'type' => 'clock_in',
+            'status' => 'verified',
+        ]);
+        $this->assertDatabaseMissing('attendance_logs', [
+            'user_id' => $this->employee->id,
+            'type' => 'clock_out',
+        ]);
+        $this->assertSame(['selfies/reference.jpg'], Storage::disk('private')->allFiles('selfies'));
+    }
+
     public function test_provider_failure_does_not_create_a_successful_clock_in(): void
     {
         $faceService = Mockery::mock(FacePlusPlusService::class);
