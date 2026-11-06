@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\AnalyzeSelfieProof;
 use App\Models\AttendanceLog;
 use App\Models\AttendanceEventResponse;
+use App\Models\PayrollProfile;
 use App\Services\FacePlusPlusService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -157,6 +158,17 @@ class AttendanceController extends Controller
             ->whereDate('timestamp', today())
             ->latest('timestamp')
             ->first();
+
+        if (
+            $validated['type'] === 'clock_out'
+            && $this->clockOutIsPastNonOvertimeShiftEnd($user, $company, $latestPunchToday)
+        ) {
+            return response()->json([
+                'success' => false,
+                'error' => 'shift_ended',
+                'message' => 'Your scheduled shift has ended and overtime is not enabled. TimePay is closing your attendance automatically.',
+            ], 403);
+        }
 
         $expectedType = $latestPunchToday?->type === 'clock_in' ? 'clock_out' : 'clock_in';
 
@@ -634,6 +646,56 @@ class AttendanceController extends Controller
         $c = 2 * asin(sqrt($a));
 
         return self::EARTH_RADIUS_METERS * $c;
+    }
+
+    /**
+     * Prevent a non-overtime employee from submitting a manual clock-out
+     * after the configured shift end while the minute scheduler catches up.
+     */
+    private function clockOutIsPastNonOvertimeShiftEnd($user, $company, ?AttendanceLog $latestPunch): bool
+    {
+        if (
+            ! $latestPunch
+            || $latestPunch->type !== 'clock_in'
+            || ! $company->work_start_time
+            || ! $company->work_end_time
+        ) {
+            return false;
+        }
+
+        $overtimeEligible = PayrollProfile::query()
+            ->where('user_id', $user->id)
+            ->value('overtime_eligible');
+
+        if ((bool) $overtimeEligible) {
+            return false;
+        }
+
+        $timezone = config('timepay.attendance_timezone', config('app.timezone', 'UTC'));
+        $clockInAt = $latestPunch->timestamp->copy()->timezone($timezone);
+        $workStartTime = Carbon::parse($company->work_start_time, $timezone)->format('H:i:s');
+        $workEndTime = Carbon::parse($company->work_end_time, $timezone)->format('H:i:s');
+
+        $shiftStart = Carbon::createFromFormat(
+            'Y-m-d H:i:s',
+            $clockInAt->toDateString().' '.$workStartTime,
+            $timezone
+        );
+        $shiftEnd = Carbon::createFromFormat(
+            'Y-m-d H:i:s',
+            $clockInAt->toDateString().' '.$workEndTime,
+            $timezone
+        );
+
+        if ($shiftEnd->lessThanOrEqualTo($shiftStart)) {
+            if ($clockInAt->format('H:i:s') < $workEndTime) {
+                $shiftStart->subDay();
+            } else {
+                $shiftEnd->addDay();
+            }
+        }
+
+        return Carbon::now($timezone)->greaterThanOrEqualTo($shiftEnd);
     }
 
     /**
