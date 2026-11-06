@@ -26,11 +26,6 @@ class AttendanceController extends Controller
      */
     private const GEOFENCE_RADIUS_METERS = 100;
 
-    /**
-     * Employees may clock in shortly before the configured shift start.
-     */
-    private const CLOCK_IN_EARLY_BUFFER_MINUTES = 15;
-
     public function __construct(
         private readonly FacePlusPlusService $facePlusPlusService
     ) {
@@ -338,8 +333,22 @@ class AttendanceController extends Controller
         }
 
         $faceMatched = $faceResult['matched'];
-        $isSuspicious = ! $faceMatched;
-        $suspicionReason = $isSuspicious ? 'Face++ Identity Mismatch' : null;
+
+        // An identity mismatch is a failed authentication attempt, not an
+        // attendance event requiring employer review. Remove the temporary
+        // selfie and reject the punch before any attendance row is created.
+        if (! $faceMatched) {
+            Storage::disk('private')->delete($photoPath);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'face_identity_mismatch',
+                'message' => 'Face not recognized. Attendance was not recorded. Please try again using your own face.',
+            ], 422);
+        }
+
+        $isSuspicious = false;
+        $suspicionReason = null;
 
         try {
             $attendanceLog = DB::transaction(function () use ($user, $company, $request, $validated, $distanceInMeters, $photoPath, $isSuspicious, $suspicionReason): AttendanceLog {
@@ -661,8 +670,7 @@ class AttendanceController extends Controller
             'Y-m-d H:i:s',
             $now->toDateString() . ' ' . $workStartTime,
             $timezone
-        )
-            ->subMinutes(self::CLOCK_IN_EARLY_BUFFER_MINUTES);
+        );
 
         $shiftEnd = Carbon::createFromFormat(
             'Y-m-d H:i:s',
@@ -685,7 +693,7 @@ class AttendanceController extends Controller
             }
         }
 
-        if ($now->lt($shiftStart) || $now->gt($shiftEnd)) {
+        if ($now->lt($shiftStart) || $now->greaterThanOrEqualTo($shiftEnd)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Cannot clock in outside working hours',
