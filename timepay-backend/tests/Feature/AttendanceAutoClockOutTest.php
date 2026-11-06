@@ -75,6 +75,27 @@ class AttendanceAutoClockOutTest extends TestCase
         $this->assertDatabaseCount('attendance_logs', 2);
     }
 
+    public function test_new_payroll_profiles_default_to_overtime_disabled(): void
+    {
+        $company = Company::query()->create([
+            'name' => 'Default Eligibility Test Company',
+            'pay_metric' => 'hourly',
+        ]);
+        $employee = User::factory()->create([
+            'company_id' => $company->id,
+            'role' => User::ROLE_EMPLOYEE,
+        ]);
+
+        $profile = PayrollProfile::query()->create([
+            'company_id' => $company->id,
+            'user_id' => $employee->id,
+            'salary_type' => 'hourly',
+            'pay_frequency' => 'monthly',
+        ]);
+
+        $this->assertFalse($profile->fresh()->overtime_eligible);
+    }
+
     public function test_overtime_eligible_employee_is_not_automatically_clocked_out(): void
     {
         config([
