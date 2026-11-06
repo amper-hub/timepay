@@ -24,6 +24,12 @@ class AttendanceVerificationTest extends TestCase
     private Company $company;
     private User $employee;
 
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
