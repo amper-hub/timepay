@@ -534,6 +534,7 @@ class AttendanceController extends Controller
             'last_punch' => $latestPunchToday ? [
                 'id' => $latestPunchToday->id,
                 'type' => $latestPunchToday->type,
+                'source' => $latestPunchToday->source,
                 'status' => $latestPunchToday->status,
                 'timestamp' => $latestPunchToday->timestamp,
                 'is_suspicious' => $latestPunchToday->is_suspicious,
@@ -592,6 +593,7 @@ class AttendanceController extends Controller
                 'date' => $date,
                 'time_in' => $clockIn?->timestamp?->toIso8601String(),
                 'time_out' => $clockOut?->timestamp?->toIso8601String(),
+                'time_out_source' => $clockOut?->source,
                 'total_hours' => $totalHours,
                 'status' => $status,
                 'verification_status' => $verificationStatus,
