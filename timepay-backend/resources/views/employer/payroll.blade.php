@@ -368,16 +368,48 @@
                     @endif
 
                     @if ($activePeriod->status === 'draft')
-                        <div class="mt-5 flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                                <h3 class="font-semibold text-emerald-950">Ready to build the employee register?</h3>
-                                <p class="mt-1 text-base text-emerald-900">Calculating creates a snapshot and moves this period to Awaiting review. The backend applies pay rates, attendance, deductions, and statutory rules.</p>
-                            </div>
-                            <form method="POST" action="{{ route('employer.payroll.calculate', $activePeriod) }}" data-submit-once data-confirm="Calculate this payroll period and create a reviewable snapshot?">
+                        <form id="payroll-generation-form" class="mt-5 space-y-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4" method="POST" action="{{ route('employer.payroll.calculate', $activePeriod) }}" data-submit-once data-confirm="Generate reviewable payroll for only the employees selected below?">
                                 @csrf
-                                <button type="submit" data-loading-label="Calculating..." class="min-h-11 w-full rounded-lg bg-emerald-700 px-4 py-2.5 text-base font-semibold text-white hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2 sm:w-auto">Calculate and send for review</button>
-                            </form>
-                        </div>
+                                <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                                    <div>
+                                        <h3 class="font-semibold text-emerald-950">Step 2 · Select employees</h3>
+                                        <p class="mt-1 text-base text-emerald-900">{{ $activePeriod->period_start->format('M d, Y') }}–{{ $activePeriod->period_end->format('M d, Y') }} · {{ $frequencyLabels[$activePeriod->frequency] ?? 'Payroll' }} · {{ $statusLabels[$activePeriod->status] ?? 'Needs review' }}</p>
+                                        <p class="mt-1 text-sm text-emerald-900">Select employees to include in this payroll period.</p>
+                                    </div>
+                                    <label class="text-sm font-semibold text-slate-800">Search employees<input id="payroll-employee-search" type="search" class="mt-1 block min-h-11 w-full rounded-lg border-slate-300 sm:w-64" placeholder="Name, email, or ID"></label>
+                                </div>
+                                @if ($activePeriod->frequency !== 'yearly' && $eligibleEmployeeCount > 0)
+                                    <div class="flex flex-wrap items-center gap-3">
+                                    <button type="button" id="payroll-select-all" class="min-h-10 rounded-lg border border-emerald-800 px-3 py-2 text-sm font-semibold text-emerald-900">Select all eligible</button>
+                                        <button type="button" id="payroll-deselect-all" class="min-h-10 rounded-lg border border-slate-400 px-3 py-2 text-sm font-semibold text-slate-800">Deselect all</button>
+                                        <p class="text-sm font-semibold text-slate-800"><span id="payroll-selected-count" aria-live="polite">0</span> selected · <span>{{ $eligibleEmployeeCount }}</span> eligible</p>
+                                    </div>
+                                    <div class="max-h-80 space-y-2 overflow-y-auto rounded-lg border border-emerald-200 bg-white p-3">
+                                        @foreach ($employees as $employee)
+                                            @php
+                                                $profile = $employee->payrollProfile;
+                                                $alreadyIncluded = in_array((int) $employee->id, $existingEntryEmployeeIds ?? [], true);
+                                                $eligible = ! $alreadyIncluded && $employee->status === 'active' && $profile?->payroll_eligible && $profile->pay_frequency === $activePeriod->frequency && $employee->compensationHistory->contains(fn ($rate) => $rate->effective_from->lte($activePeriod->period_end) && (! $rate->effective_to || $rate->effective_to->gte($activePeriod->period_start)));
+                                            @endphp
+                                            <label data-payroll-employee-row data-search="{{ strtolower($employee->name.' '.$employee->email.' '.$employee->id) }}" class="flex min-h-12 items-center gap-3 rounded-md border border-slate-200 px-3 py-2 {{ $eligible ? 'cursor-pointer hover:bg-emerald-50' : 'bg-slate-50 text-slate-500' }}">
+                                                <input type="checkbox" name="employee_ids[]" value="{{ $employee->id }}" @disabled(! $eligible) class="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-700">
+                                                <span class="min-w-0 flex-1"><span class="block font-semibold">{{ $employee->name }} · ID {{ $employee->id }}</span><span class="block truncate text-sm">{{ $employee->email }} · {{ $alreadyIncluded ? 'Payroll already exists for this period' : ($eligible ? 'Eligible' : 'Ineligible for this period') }}</span></span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                    <div class="rounded-lg border border-white bg-white p-3 text-sm text-slate-700">
+                                        <p class="font-semibold">Step 3 · Review before generation</p>
+                                        <p class="mt-1">Review basic salary, overtime, gross pay, deductions and estimated net pay before generating. The current attendance model does not record approved overtime hours or rates, so overtime is zero.</p>
+                                        <div id="payroll-preview" class="mt-3 hidden overflow-x-auto"></div>
+                                    </div>
+                                    <div class="flex flex-wrap gap-3">
+                                        <button id="payroll-preview-button" type="button" disabled class="min-h-11 rounded-lg border border-emerald-800 bg-white px-4 py-2.5 font-semibold text-emerald-900 disabled:opacity-50">Preview selected earnings</button>
+                                        <button id="payroll-generate-button" type="submit" disabled data-loading-label="Generating..." class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2.5 text-base font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">Step 4 · Confirm and generate selected payroll</button>
+                                    </div>
+                                @else
+                                    <p class="rounded-lg border border-amber-200 bg-white p-3 text-sm text-amber-900">{{ $activePeriod->frequency === 'yearly' ? 'Annual runs use the existing approved-basic-pay review flow.' : 'No eligible employees are configured for this period.' }}</p>
+                                @endif
+                        </form>
                     @elseif ($activePeriod->status === 'pending_review')
                         <div class="mt-5 rounded-lg border {{ $hasReviewFlags ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50' }} p-4">
                             @if ($hasReviewFlags)
@@ -492,6 +524,9 @@
                                             <p class="mt-1 inline-flex rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">Inactive now · historical payroll snapshot</p>
                                         @endif
                                         <p class="mt-0.5 text-sm text-slate-600">Employee ID: {{ $entry->user_id }} · Period: {{ $activePeriod->period_start->format('M d, Y') }}–{{ $activePeriod->period_end->format('M d, Y') }}</p>
+                                        @if (data_get($entry->calculation_snapshot, 'regular_pay_policy'))
+                                            <p class="mt-1 text-sm text-slate-600">Basic salary {{ $company->formatMoney(number_format(data_get($entry->calculation_snapshot, 'basic_salary_cents', 0) / 100, 2, '.', '')) }} · Overtime {{ $company->formatMoney(number_format(data_get($entry->calculation_snapshot, 'overtime_pay_cents', 0) / 100, 2, '.', '')) }}</p>
+                                        @endif
                                         @if ($entry->employee?->email)
                                             <p class="mt-0.5 text-sm text-slate-600">{{ $entry->employee->email }}</p>
                                         @endif
@@ -604,6 +639,9 @@
                                 @else
                                     <a href="{{ route('employer.payroll', ['section' => 'payments', 'period_id' => $activePeriod->id]) }}" class="mt-4 inline-flex min-h-10 items-center border-t border-slate-200 pt-3 text-sm font-semibold text-emerald-800 underline-offset-2 hover:underline">View payment history and balances</a>
                                 @endif
+                                @if (in_array($activePeriod->status, ['approved', 'partially_paid', 'paid'], true) && $entry->employee)
+                                    <a href="{{ route('employer.payroll.payslip', $entry) }}" class="mt-3 inline-flex min-h-10 items-center rounded-lg border border-emerald-700 px-3 py-2 text-sm font-semibold text-emerald-900">View / print payslip</a>
+                                @endif
                             </article>
                         @empty
                             <div class="rounded-xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center">
@@ -650,6 +688,58 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            const payrollForm = document.getElementById('payroll-generation-form');
+            if (payrollForm) {
+                const boxes = [...payrollForm.querySelectorAll('input[name="employee_ids[]"]:not(:disabled)')];
+                const count = document.getElementById('payroll-selected-count');
+                const generate = document.getElementById('payroll-generate-button');
+                const previewButton = document.getElementById('payroll-preview-button');
+                const previewContainer = document.getElementById('payroll-preview');
+                const updateSelection = () => {
+                    const selected = boxes.filter((box) => box.checked).length;
+                    count.textContent = String(selected);
+                    generate.disabled = selected === 0;
+                    previewButton.disabled = selected === 0;
+                    previewContainer.classList.add('hidden');
+                };
+                document.getElementById('payroll-select-all')?.addEventListener('click', () => { boxes.forEach((box) => { if (box.closest('[data-payroll-employee-row]').hidden === false) box.checked = true; }); updateSelection(); });
+                document.getElementById('payroll-deselect-all')?.addEventListener('click', () => { boxes.forEach((box) => { box.checked = false; }); updateSelection(); });
+                document.getElementById('payroll-employee-search')?.addEventListener('input', (event) => {
+                    const query = event.target.value.trim().toLowerCase();
+                    payrollForm.querySelectorAll('[data-payroll-employee-row]').forEach((row) => { row.hidden = !row.dataset.search.includes(query); });
+                });
+                boxes.forEach((box) => box.addEventListener('change', updateSelection));
+                previewButton.addEventListener('click', async () => {
+                    previewButton.disabled = true;
+                    previewButton.textContent = 'Loading preview...';
+                    try {
+                        const token = payrollForm.querySelector('input[name="_token"]').value;
+                        const response = await fetch(@json($activePeriod ? route('employer.payroll.preview', $activePeriod) : ''), {
+                            method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token},
+                            body: JSON.stringify({employee_ids: boxes.filter((box) => box.checked).map((box) => box.value)}),
+                        });
+                        const result = await response.json();
+                        if (!response.ok) throw new Error(Object.values(result.errors || {}).flat().join(' ') || 'Unable to calculate preview.');
+                        const data = result.data;
+                        const money = (amount) => `${@json($company->currency)} ${Number(amount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                        const table = document.createElement('table'); table.className = 'min-w-full text-left text-sm';
+                        table.innerHTML = '<thead><tr><th class="p-2">Employee</th><th class="p-2">Basic salary</th><th class="p-2">Overtime hours</th><th class="p-2">Overtime pay</th><th class="p-2">Gross pay</th><th class="p-2">Deductions</th><th class="p-2">Net pay</th></tr></thead>';
+                        const body = document.createElement('tbody');
+                        data.employees.forEach((row) => { const tr = document.createElement('tr'); tr.className = 'border-t';
+                            [row.employee_name, money(row.basic_salary), row.overtime_hours, money(row.overtime_pay), money(row.gross_pay), money(row.employee_deductions), money(row.net_pay)].forEach((value) => { const td = document.createElement('td'); td.className = 'p-2'; td.textContent = value; tr.append(td); }); body.append(tr); });
+                        table.append(body); previewContainer.replaceChildren(table);
+                        const summary = document.createElement('p'); summary.className = 'mt-2 font-semibold';
+                        summary.textContent = `Selected employees: ${data.employee_count} · Basic: ${money(data.totals.basic_salary)} · Overtime: ${money(data.totals.overtime_pay)} · Gross: ${money(data.totals.gross_pay)} · Deductions: ${money(data.totals.employee_deductions)} · Estimated net: ${money(data.totals.net_pay)}`;
+                        previewContainer.append(summary); previewContainer.classList.remove('hidden');
+                        generate.dataset.confirm = `Generate payroll for ${data.employee_count} selected employees? Estimated gross ${money(data.totals.gross_pay)}; estimated net ${money(data.totals.net_pay)}.`;
+                    } catch (error) { window.alert(error.message); }
+                    finally { previewButton.disabled = boxes.every((box) => !box.checked); previewButton.textContent = 'Preview selected earnings'; }
+                });
+                payrollForm.addEventListener('submit', (event) => {
+                    if (boxes.filter((box) => box.checked).length === 0) { event.preventDefault(); updateSelection(); }
+                });
+                updateSelection();
+            }
             document.querySelectorAll('form[data-submit-once]').forEach((form) => {
                 form.addEventListener('submit', (event) => {
                     if (form.dataset.submitting === 'true') {

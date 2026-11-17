@@ -24,9 +24,13 @@ class PayrollCalculationService
 {
     private array $ruleCache = [];
 
-    public function calculate(PayrollPeriod $period, int $actorId): PayrollPeriod
+    public function calculate(PayrollPeriod $period, int $actorId, ?array $selectedEmployeeIds = null): PayrollPeriod
     {
-        return DB::transaction(function () use ($period, $actorId): PayrollPeriod {
+        if ($selectedEmployeeIds !== null && $selectedEmployeeIds === []) {
+            throw ValidationException::withMessages(['employees' => 'Select at least one eligible employee.']);
+        }
+
+        return DB::transaction(function () use ($period, $actorId, $selectedEmployeeIds): PayrollPeriod {
             $lockedPeriod = PayrollPeriod::query()->whereKey($period->id)->lockForUpdate()->firstOrFail();
 
             if (! in_array($lockedPeriod->status, ['draft', 'pending_review'], true)) {
@@ -40,8 +44,15 @@ class PayrollCalculationService
             // point at an entry that no longer exists. Capture the period's
             // allocated source logs before deleting allocations so only
             // dangling links proven to belong to this period are removed.
-            $periodEntryIds = $lockedPeriod->entries()->where('company_id', $lockedPeriod->company_id)
-                ->pluck('id')->map(fn ($id): int => (int) $id)->all();
+            $existingEntries = $lockedPeriod->entries()->where('company_id', $lockedPeriod->company_id)->get(['id', 'user_id']);
+            if ($selectedEmployeeIds !== null) {
+                $existingIds = $existingEntries->pluck('user_id')->map(fn ($id): int => (int) $id)->all();
+                if ($existingIds !== []) {
+                    throw ValidationException::withMessages(['employees' => 'This period already contains payroll entries. Recalculation would replace its complete unapproved snapshot.']);
+                }
+                $existingEntries = $existingEntries->whereIn('user_id', $selectedEmployeeIds)->values();
+            }
+            $periodEntryIds = $existingEntries->pluck('id')->map(fn ($id): int => (int) $id)->all();
             $periodAllocationLogIds = PayrollAttendanceAllocation::query()
                 ->where('company_id', $lockedPeriod->company_id)
                 ->where('payroll_period_id', $lockedPeriod->id)
@@ -66,11 +77,18 @@ class PayrollCalculationService
                 }
             }
 
-            PayrollAttendanceAllocation::query()
+            $allocationQuery = PayrollAttendanceAllocation::query()
                 ->where('company_id', $lockedPeriod->company_id)
-                ->where('payroll_period_id', $lockedPeriod->id)
-                ->delete();
-            $lockedPeriod->entries()->delete();
+                ->where('payroll_period_id', $lockedPeriod->id);
+            if ($selectedEmployeeIds !== null) {
+                $allocationQuery->whereIn('user_id', $selectedEmployeeIds);
+            }
+            $allocationQuery->delete();
+            if ($selectedEmployeeIds === null) {
+                $lockedPeriod->entries()->delete();
+            } elseif ($periodEntryIds !== []) {
+                PayrollEntry::query()->whereIn('id', $periodEntryIds)->delete();
+            }
 
             if ($lockedPeriod->frequency === 'yearly') {
                 return $this->calculateThirteenthMonth($lockedPeriod, $actorId);
@@ -82,8 +100,15 @@ class PayrollCalculationService
                 ->where('status', 'active')
                 ->whereHas('payrollProfile', fn ($query) => $query->where('payroll_eligible', true)->where('pay_frequency', $lockedPeriod->frequency))
                 ->with(['payrollProfile', 'company'])
-                ->orderBy('id')
-                ->get();
+                ->when($selectedEmployeeIds !== null, fn ($query) => $query->whereIn('id', $selectedEmployeeIds))
+                ->orderBy('id')->get();
+
+            if ($selectedEmployeeIds !== null) {
+                $foundIds = $employees->pluck('id')->map(fn ($id): int => (int) $id)->all();
+                if (array_diff($selectedEmployeeIds, $foundIds) !== []) {
+                    throw ValidationException::withMessages(['employees' => 'One or more selected employees are not eligible for this payroll period.']);
+                }
+            }
 
             $periodStart = Carbon::parse($lockedPeriod->period_start, config('app.timezone'))->startOfDay();
             // Payroll date ranges are inclusive local dates represented internally as
@@ -94,7 +119,6 @@ class PayrollCalculationService
                 if ($profile->sss_enabled) $this->rule('sss', $lockedPeriod->period_end);
                 if ($profile->philhealth_enabled) $this->rule('philhealth', $lockedPeriod->period_end);
                 if ($profile->pagibig_enabled) $this->rule('pagibig', $lockedPeriod->period_end);
-                if ($profile->withholding_tax_enabled) $this->rule('bir_compensation_tax', $lockedPeriod->period_end);
             }
             $logsByEmployee = AttendanceLog::query()
                 ->where('company_id', $lockedPeriod->company_id)
@@ -210,87 +234,23 @@ class PayrollCalculationService
 
                 $work = $this->calculateBaseEarnings($employee, $profile, $lockedPeriod, $intervalsForPeriod, $flags);
                 $lineData = $work['lines'];
-                $grossCents = $work['gross_cents'];
-                $taxableCents = $work['taxable_cents'];
-
-                foreach ($this->activeProfileItems((int) $employee->id, $lockedPeriod) as $item) {
-                    $amount = $this->toCents($item->amount);
-                    if ($item->category === 'earning') {
-                        $lineData[] = $this->line('earning', $item->code, $item->label, $amount, null, null, $item->taxable, [
-                            'source' => 'recurring_profile_item', 'profile_item_id' => (int) $item->id,
-                            'effective_from' => $item->effective_from->toDateString(), 'effective_to' => $item->effective_to?->toDateString(),
-                        ]);
-                        $grossCents += $amount;
-                        if ($item->taxable) {
-                            $taxableCents += $amount;
-                        }
-                    } else {
-                        $lineData[] = $this->line('employee_deduction', $item->code, $item->label, $amount, null, null, false, [
-                            'source' => 'recurring_profile_item',
-                            'profile_item_id' => (int) $item->id,
-                            'effective_from' => $item->effective_from->toDateString(),
-                            'effective_to' => $item->effective_to?->toDateString(),
-                            'authorization_reference' => $item->authorization_reference,
-                        ]);
-                    }
-                }
-
+                $basicSalaryCents = $work['gross_cents'];
+                $overtimeCents = 0;
+                $grossCents = $basicSalaryCents + $overtimeCents;
+                // The approved regular-pay policy includes only calculated basic salary and approved overtime.
+                // The current attendance model has no approved overtime hours/rate source, so overtime remains zero.
+                $employeeDeductionsCents = 0;
                 $statutory = $this->statutoryForPeriod($profile, $work['monthly_bases'], $lockedPeriod);
-                $statutory['rules']['verification'] = [
-                    'sss' => 'schedule source verified for effective 2025-01-01; monthly base and MPF allocation require payroll review',
-                    'philhealth' => 'only CY 2025 advisory verified; 2026 schedule applicability is unresolved',
-                    'pagibig' => 'current applicable 2026 circular/effective schedule not independently verified',
-                    'bir_compensation_tax' => 'employee tax classifications and exclusions are incomplete',
-                ];
-                if ($profile->sss_enabled) $statutory['rules']['sss_verification'] = $statutory['rules']['verification']['sss'];
-                if ($profile->philhealth_enabled) $statutory['rules']['philhealth_verification'] = $statutory['rules']['verification']['philhealth'];
-                if ($profile->pagibig_enabled) $statutory['rules']['pagibig_verification'] = $statutory['rules']['verification']['pagibig'];
-                if ($profile->sss_enabled) {
-                    $rule = $this->rule('sss', $lockedPeriod->period_end);
-                    $statutory['rules']['sss'] ??= ['name' => $rule['name'], 'effective_from' => $rule['effective_from'], 'configuration' => $rule['configuration']];
-                }
-                if ($profile->philhealth_enabled) {
-                    $rule = $this->rule('philhealth', $lockedPeriod->period_end);
-                    $statutory['rules']['philhealth'] ??= ['name' => $rule['name'], 'effective_from' => $rule['effective_from'], 'configuration' => $rule['configuration']];
-                }
-                if ($profile->pagibig_enabled) {
-                    $rule = $this->rule('pagibig', $lockedPeriod->period_end);
-                    $statutory['rules']['pagibig'] ??= ['name' => $rule['name'], 'effective_from' => $rule['effective_from'], 'configuration' => $rule['configuration']];
+                $employerCents = $statutory['employer_cents'];
+                foreach ($statutory['lines'] as $line) {
+                    if ($line['category'] === 'employer_contribution') {
+                        $lineData[] = $line;
+                    }
                 }
                 if ($profile->sss_enabled || $profile->philhealth_enabled || $profile->pagibig_enabled) {
                     $flags[] = 'unsupported_payroll_rule_requires_review';
                 }
-                if ($profile->withholding_tax_enabled && ! $this->taxInputsAreComplete($employee)) {
-                    $flags[] = 'missing_statutory_input_requires_review';
-                }
-                foreach ($statutory['lines'] as $line) {
-                    $lineData[] = $line;
-                }
-
-                $employeeDeductionsCents = $statutory['employee_cents'];
-                foreach ($lineData as $line) {
-                    if ($line['category'] === 'employee_deduction' && ($line['details']['source'] ?? null) === 'recurring_profile_item') {
-                        $employeeDeductionsCents += $line['amount_cents'];
-                    }
-                }
-
-                if ($profile->withholding_tax_enabled) {
-                    $taxRule = $this->rule('bir_compensation_tax', $lockedPeriod->period_end);
-                    $statutory['rules']['bir_compensation_tax'] = [
-                        'name' => $taxRule['name'], 'effective_from' => $taxRule['effective_from'],
-                        'configuration' => $taxRule['configuration'],
-                    ];
-                    $statutory['rules']['bir_compensation_tax_verification'] = 'Annex E schedule configured; employee tax classifications and exclusions are incomplete';
-                    $taxableAfterStatutory = max(0, $taxableCents - $statutory['employee_statutory_cents']);
-                    $withholdingCents = $this->withholdingTax($employee, $lockedPeriod, $taxableAfterStatutory, $lineData);
-                    if ($withholdingCents !== 0) {
-                        $lineData[] = $this->line('employee_deduction', 'bir_withholding_tax', 'Withholding tax', $withholdingCents, null, null, false, ['rule' => 'BIR Annex E / annualized year-end reconciliation']);
-                        $employeeDeductionsCents += $withholdingCents;
-                    }
-                }
-
-                $netCents = $grossCents - $employeeDeductionsCents;
-                $employerCents = $statutory['employer_cents'];
+                $netCents = $grossCents;
                 if ($netCents < 0) {
                     $flags[] = 'negative_net_pay_requires_review';
                 }
@@ -338,7 +298,6 @@ class PayrollCalculationService
                             'sss_enabled' => $profile->sss_enabled,
                             'philhealth_enabled' => $profile->philhealth_enabled,
                             'pagibig_enabled' => $profile->pagibig_enabled,
-                            'withholding_tax_enabled' => $profile->withholding_tax_enabled,
                         ],
                         'attendance_snapshot' => collect($intervalsForPeriod)->flatMap(function (array $interval) use ($periodStart, $periodEndExclusive): array {
                             $sources = [];
@@ -363,8 +322,12 @@ class PayrollCalculationService
                         ])->values()->all(),
                         'worked_minutes' => $work['worked_minutes'],
                         'payable_days' => $work['payable_days'],
+                        'basic_salary_cents' => $basicSalaryCents,
+                        'overtime_pay_cents' => $overtimeCents,
                         'hourly_daily_monthly_rates' => $work['rates'],
                         'statutory_rules' => $statutory['rules'],
+                        'regular_pay_policy' => 'gross = basic salary + approved overtime; net = gross; deductions, recurring earnings, and employer contributions excluded from regular employee pay.',
+                        'overtime_pay_cents' => 0,
                         'arithmetic' => 'All currency calculations use integer centavo arithmetic; monetary lines are rounded to centavos.',
                     ],
                     'review_flags' => $flags,
@@ -423,6 +386,70 @@ class PayrollCalculationService
             $this->audit($lockedPeriod, $actorId, 'calculated', 'payroll_period', (int) $lockedPeriod->id, null, ['employee_count' => $employees->count(), 'totals' => $totals]);
 
             return $lockedPeriod->fresh(['entries.employee', 'entries.lines']);
+        });
+    }
+
+    /** Return authoritative basic salary estimates for the regular-period employee selection screen. */
+    public function preview(PayrollPeriod $period, array $selectedEmployeeIds): array
+    {
+        if ($period->frequency === 'yearly') {
+            throw ValidationException::withMessages(['period' => 'Use the separate annual 13th-month review flow.']);
+        }
+        if ($selectedEmployeeIds === []) {
+            throw ValidationException::withMessages(['employee_ids' => 'Select at least one eligible employee.']);
+        }
+
+        return DB::transaction(function () use ($period, $selectedEmployeeIds): array {
+            $lockedPeriod = PayrollPeriod::query()->whereKey($period->id)->where('company_id', $period->company_id)
+                ->lockForUpdate()->firstOrFail();
+            if ($lockedPeriod->status !== 'draft' || $lockedPeriod->entries()->exists()) {
+                throw ValidationException::withMessages(['period' => 'Preview is available only before any payroll entries exist.']);
+            }
+
+            $this->assertNoFinalizedOverlap($lockedPeriod);
+            $employees = User::query()->where('company_id', $lockedPeriod->company_id)->whereRaw('LOWER(role) = ?', ['employee'])
+                ->where('status', 'active')->whereIn('id', $selectedEmployeeIds)
+                ->whereHas('payrollProfile', fn ($query) => $query->where('payroll_eligible', true)->where('pay_frequency', $lockedPeriod->frequency))
+                ->with(['payrollProfile', 'company'])->orderBy('id')->get();
+            if ($employees->count() !== count($selectedEmployeeIds)) {
+                throw ValidationException::withMessages(['employee_ids' => 'One or more selected employees are not eligible for this payroll period.']);
+            }
+
+            $start = Carbon::parse($lockedPeriod->period_start, config('app.timezone'))->startOfDay();
+            $endExclusive = Carbon::parse($lockedPeriod->period_end, config('app.timezone'))->startOfDay()->addDay();
+            $logs = AttendanceLog::query()->where('company_id', $lockedPeriod->company_id)->whereIn('user_id', $selectedEmployeeIds)
+                ->where('timestamp', '>=', $start->copy()->subDay())->where('timestamp', '<', $endExclusive->copy()->addDay())
+                ->orderBy('timestamp')->orderBy('id')->get()->groupBy('user_id');
+            $rows = [];
+            $totals = ['basic_salary' => 0, 'overtime_pay' => 0, 'gross_pay' => 0];
+            foreach ($employees as $employee) {
+                $sourceLogs = $logs->get($employee->id, collect());
+                $intervals = $this->verifiedIntervals($sourceLogs);
+                $included = [];
+                foreach ($intervals as $interval) {
+                    if ($interval['incomplete'] ?? false) continue;
+                    $overlapStart = $interval['clock_in']->greaterThan($start) ? $interval['clock_in']->copy() : $start->copy();
+                    $overlapEnd = $interval['clock_out']->lessThan($endExclusive) ? $interval['clock_out']->copy() : $endExclusive->copy();
+                    if ($overlapStart->lt($overlapEnd)) $included[] = [...$interval, 'clock_in' => $overlapStart, 'clock_out' => $overlapEnd];
+                }
+                $flags = [];
+                $work = $this->calculateBaseEarnings($employee, $employee->payrollProfile, $lockedPeriod, $included, $flags);
+                $basic = $work['gross_cents'];
+                $rows[] = ['employee_id' => (int) $employee->id, 'employee_name' => $employee->name,
+                    'basic_salary' => $this->fromCents($basic), 'overtime_hours' => '0.00', 'overtime_rate' => '0.00',
+                    'overtime_pay' => '0.00', 'gross_pay' => $this->fromCents($basic), 'employee_deductions' => '0.00',
+                    'net_pay' => $this->fromCents($basic), 'worked_minutes' => $work['worked_minutes'],
+                    'review_flags' => $flags];
+                $rows[array_key_last($rows)]['review_flags'] = array_values(array_unique($flags));
+                $totals['basic_salary'] += $basic;
+                $totals['gross_pay'] += $basic;
+            }
+            return ['period' => ['id' => $lockedPeriod->id, 'start' => $lockedPeriod->period_start->toDateString(),
+                'end' => $lockedPeriod->period_end->toDateString(), 'frequency' => $lockedPeriod->frequency],
+                'employee_count' => count($rows), 'employees' => $rows,
+                'totals' => ['basic_salary' => $this->fromCents($totals['basic_salary']), 'overtime_pay' => '0.00',
+                    'gross_pay' => $this->fromCents($totals['gross_pay']), 'employee_deductions' => '0.00',
+                    'net_pay' => $this->fromCents($totals['gross_pay'])]];
         });
     }
 
@@ -540,25 +567,8 @@ class PayrollCalculationService
                         $issues[] = "{$employeeLabel}: compensation history changed after calculation; recalculate before approval.";
                     }
 
-                    $recurringLines = $entry->lines->filter(fn (PayrollEntryLine $line): bool => data_get($line->details, 'source') === 'recurring_profile_item');
-                    $activeItems = $this->activeProfileItems((int) $entry->user_id, $locked);
-                    if ($activeItems->pluck('id')->map(fn ($id): int => (int) $id)->sort()->values()->all()
-                        !== $recurringLines->map(fn (PayrollEntryLine $line): int => (int) data_get($line->details, 'profile_item_id'))->sort()->values()->all()) {
-                        $issues[] = "{$employeeLabel}: recurring earnings or deductions changed after calculation; recalculate before approval.";
-                    }
-                    foreach ($recurringLines as $line) {
-                        $item = PayrollProfileItem::query()->where('company_id', $locked->company_id)
-                            ->where('user_id', $entry->user_id)->find(data_get($line->details, 'profile_item_id'));
-                        $expectedCategory = $item?->category === 'earning' ? 'earning' : 'employee_deduction';
-                        if (! $item || $item->code !== $line->code || $item->label !== $line->label
-                            || $this->toCents($item->amount) !== $this->toCents($line->amount)
-                            || $expectedCategory !== $line->category || (bool) $item->taxable !== (bool) $line->taxable
-                            || $item->effective_from->toDateString() !== data_get($line->details, 'effective_from')
-                            || $item->effective_to?->toDateString() !== data_get($line->details, 'effective_to')) {
-                            $issues[] = "{$employeeLabel}: a recurring earning or deduction changed after calculation; recalculate before approval.";
-                            break;
-                        }
-                    }
+                    // Recurring configured earnings and employee deductions are intentionally
+                    // excluded from new regular runs by the approved payroll policy.
 
                     foreach (data_get($snapshot, 'statutory_rules', []) as $code => $ruleSnapshot) {
                         if (str_ends_with($code, '_verification') || $code === 'verification') {
@@ -573,7 +583,7 @@ class PayrollCalculationService
                             $issues[] = "{$employeeLabel}: statutory rule '{$code}' changed or is unavailable; recalculate before approval.";
                         }
                     }
-                    if (($profileSnapshot['withholding_tax_enabled'] ?? false)
+                    if (! ($snapshot['regular_pay_policy'] ?? null) && ($profileSnapshot['withholding_tax_enabled'] ?? false)
                         && ! array_key_exists('bir_compensation_tax', data_get($snapshot, 'statutory_rules', []))) {
                         $issues[] = "{$employeeLabel}: the applicable withholding-tax rule is missing from the calculation snapshot.";
                     }
@@ -611,6 +621,9 @@ class PayrollCalculationService
                 }
                 if ($grossCents === 0 && ((int) $entry->worked_minutes > 0 || (int) $entry->payable_days > 0 || $lineSums['earning'] > 0)) {
                     $issues[] = "{$employeeLabel}: gross pay is zero despite payable attendance or earnings; verify rates and recalculate.";
+                }
+                if (($snapshot['regular_pay_policy'] ?? null) && $deductionCents !== 0) {
+                    $issues[] = "{$employeeLabel}: new regular payroll must not contain employee deductions under the approved payroll policy.";
                 }
                 if ($deductionCents > $grossCents || $netCents < 0) {
                     $issues[] = "{$employeeLabel}: deductions exceed gross pay; correct the calculation before approval.";
@@ -906,7 +919,7 @@ class PayrollCalculationService
         }
         $gross += $monthlyGross;
 
-        $taxable = $gross;
+        $taxable = 0;
         if ($hourlySeconds > 0) {
             $lineData[] = $this->line('earning', 'basic_pay', 'Verified regular hours', $hourlyGross, $hourlySeconds / 3600, null, true,
                 ['overtime_not_split_without_approved_overtime_data' => true, 'duration_unit' => 'seconds', 'display_rounding' => 'nearest whole minute, half up']);

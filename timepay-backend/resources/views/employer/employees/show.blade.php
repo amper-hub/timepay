@@ -96,7 +96,7 @@
         <section class="employer-card space-y-4 p-4 sm:p-6" aria-labelledby="eligibility-heading">
             <div>
                 <h3 id="eligibility-heading" class="employer-section-heading">2. Eligibility and contributions</h3>
-                <p class="mt-1 text-sm text-slate-600">Existing choices are shown below. New profiles keep statutory options unchanged until explicitly set.</p>
+                <p class="mt-1 text-sm text-slate-600">Payroll inclusion and overtime eligibility apply to new regular payroll runs. Employer contributions remain separate from employee net pay.</p>
             </div>
             <form method="POST" action="{{ route('employer.payroll.profiles.update', $returnQuery) }}" data-submit-once class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 @csrf
@@ -106,10 +106,9 @@
                     'payroll_eligible' => ['Include in payroll', $profile?->payroll_eligible],
                     'overtime_eligible' => ['Overtime eligibility', $profile?->overtime_eligible],
                     'rank_and_file' => ['Rank-and-file employee', $profile?->rank_and_file],
-                    'sss_enabled' => ['SSS contribution', $profile?->sss_enabled],
-                    'philhealth_enabled' => ['PhilHealth contribution', $profile?->philhealth_enabled],
-                    'pagibig_enabled' => ['Pag-IBIG contribution', $profile?->pagibig_enabled],
-                    'withholding_tax_enabled' => ['Withholding tax', $profile?->withholding_tax_enabled],
+                    'sss_enabled' => ['Employer SSS contribution', $profile?->sss_enabled],
+                    'philhealth_enabled' => ['Employer PhilHealth contribution', $profile?->philhealth_enabled],
+                    'pagibig_enabled' => ['Employer Pag-IBIG contribution', $profile?->pagibig_enabled],
                 ] as $field => [$label, $current])
                     <label for="{{ $field }}" class="block rounded-lg border border-slate-200 p-3 text-base font-semibold text-slate-900">{{ $label }}
                         <select id="{{ $field }}" name="{{ $field }}" class="mt-2 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
@@ -119,7 +118,7 @@
                         </select>
                         @error($field)<span class="mt-1 block text-sm text-red-700">{{ $message }}</span>@enderror
                     </label>
-                @endforeach
+                    @endforeach
                 <div class="sm:col-span-2 xl:col-span-3"><button type="submit" data-loading-label="Saving settings..." class="min-h-11 rounded-lg border border-emerald-700 px-4 py-2.5 text-base font-semibold text-emerald-900 hover:bg-emerald-50">Save eligibility and contribution settings</button></div>
             </form>
         </section>
@@ -133,7 +132,7 @@
                 <div class="overflow-x-auto rounded-lg border border-slate-200">
                     <table class="min-w-[42rem] w-full divide-y divide-slate-200 text-left text-sm">
                         <thead class="bg-slate-50"><tr><th class="px-3 py-2">Type / reference</th><th class="px-3 py-2">Description</th><th class="px-3 py-2">Amount</th><th class="px-3 py-2">Effective dates</th><th class="px-3 py-2">Tax / authorization</th></tr></thead>
-                        <tbody class="divide-y divide-slate-200">@foreach ($items->sortByDesc('effective_from') as $item)<tr><td class="px-3 py-2">{{ str($item->category)->title() }} · {{ $item->code }}</td><td class="px-3 py-2">{{ $item->label }}</td><td class="px-3 py-2">{{ number_format((float) $item->amount, 2) }}</td><td class="px-3 py-2">{{ $item->effective_from->format('M d, Y') }} – {{ $item->effective_to?->format('M d, Y') ?? 'Open-ended' }}</td><td class="px-3 py-2">{{ $item->category === 'earning' ? ($item->taxable ? 'Taxable' : 'Non-taxable') : ($item->authorization_reference ?: 'Authorization missing') }}</td></tr>@endforeach</tbody>
+                        <tbody class="divide-y divide-slate-200">@foreach ($items->sortByDesc('effective_from') as $item)<tr><td class="px-3 py-2">{{ str($item->category)->title() }} · {{ $item->code }}</td><td class="px-3 py-2">{{ $item->label }}</td><td class="px-3 py-2">{{ number_format((float) $item->amount, 2) }}</td><td class="px-3 py-2">{{ $item->effective_from->format('M d, Y') }} – {{ $item->effective_to?->format('M d, Y') ?? 'Open-ended' }}</td><td class="px-3 py-2">{{ $item->category === 'earning' ? 'Excluded from regular payroll' : ($item->authorization_reference ?: 'Authorization missing; excluded from regular payroll') }}</td></tr>@endforeach</tbody>
                     </table>
                 </div>
             @else
@@ -170,8 +169,6 @@
                     <input id="authorization_reference" name="authorization_reference" maxlength="120" value="{{ old('authorization_reference') }}" placeholder="Required for deductions" class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base">
                     @error('authorization_reference')<span class="mt-1 block text-sm text-red-700">{{ $message }}</span>@enderror
                 </label>
-                <label id="taxable-earning-label" class="flex min-h-11 items-center gap-3 rounded-lg border border-slate-200 px-3 text-base font-semibold text-slate-900"><input id="item_taxable" name="taxable" value="1" type="checkbox" @checked(old('taxable', '1') === '1') class="h-4 w-4 rounded border-slate-300 text-emerald-700">Taxable earning</label>
-                @error('taxable')<span class="text-sm text-red-700">{{ $message }}</span>@enderror
                 <div class="sm:col-span-2 xl:col-span-3"><button type="submit" data-loading-label="Saving item..." class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2.5 text-base font-semibold text-white">Save recurring item</button></div>
             </form>
         </section>
@@ -182,14 +179,9 @@
             if (!form) return;
             const category = form.elements.namedItem('category');
             const authorization = form.elements.namedItem('authorization_reference');
-            const taxable = form.elements.namedItem('taxable');
-            const taxableLabel = document.getElementById('taxable-earning-label');
             const update = () => {
                 const deduction = category.value === 'deduction';
                 authorization.required = deduction;
-                taxableLabel.hidden = deduction;
-                taxable.disabled = deduction;
-                if (deduction) taxable.checked = false;
             };
             category.addEventListener('change', update);
             update();

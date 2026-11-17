@@ -99,7 +99,7 @@ class EmployerPayrollController extends Controller
             ->whereDate('pay_date', '>=', now()->toDateString())->orderBy('pay_date')->limit(5)->get();
 
         $employees = User::query()->where('company_id', $companyId)->whereRaw('LOWER(role) = ?', ['employee'])
-            ->with(['payrollProfile', 'compensationHistory'])->orderBy('name')
+            ->with(['payrollProfile', 'compensationHistory', 'payrollProfile.items'])->orderBy('name')
             ->get(['id', 'name', 'email', 'status', 'hourly_rate', 'daily_rate']);
         $today = Carbon::today(config('app.timezone'));
         $employees->each(function (User $employee) use ($today): void {
@@ -112,6 +112,7 @@ class EmployerPayrollController extends Controller
         });
 
         $payrollSetupIssues = collect();
+        $existingEntryEmployeeIds = [];
         $eligibleEmployeeIds = $employees->filter(fn (User $employee): bool =>
             $employee->status === 'active' && (bool) $employee->payrollProfile?->payroll_eligible
         )->pluck('id');
@@ -135,12 +136,15 @@ class EmployerPayrollController extends Controller
                     ->distinct()->pluck('entries.user_id')->map(fn ($id): int => (int) $id)->all();
             }
 
+            $existingEntryEmployeeIds = $selectedPeriod->entries()->pluck('user_id')->map(fn ($id): int => (int) $id)->all();
             foreach ($employees as $employee) {
                 $profile = $employee->payrollProfile;
                 $reason = null;
 
                 if (! $profile) {
                     $reason = 'Missing pay profile.';
+                } elseif (in_array((int) $employee->id, $existingEntryEmployeeIds, true)) {
+                    $reason = 'Payroll already exists for this employee and period.';
                 } elseif (! $profile->payroll_eligible) {
                     $reason = 'Payroll is turned off in this employee\'s settings.';
                 } elseif ($selectedPeriod->frequency === 'yearly' && ! $profile->rank_and_file) {
@@ -177,6 +181,7 @@ class EmployerPayrollController extends Controller
             'hasCriticalReviewFlags' => $hasCriticalReviewFlags,
             'employees' => $employees,
             'payrollSetupIssues' => $payrollSetupIssues,
+            'existingEntryEmployeeIds' => $existingEntryEmployeeIds,
             'eligibleEmployeeCount' => $eligibleEmployeeCount,
             'payrollSection' => $filters['section'] ?? ($selectedPeriod ? 'details' : 'overview'),
             'deadlines' => $deadlines,
@@ -289,8 +294,75 @@ class EmployerPayrollController extends Controller
     public function calculatePeriod(Request $request, PayrollPeriod $payrollPeriod, PayrollCalculationService $calculator): JsonResponse|RedirectResponse
     {
         $this->assertCompany($request, $payrollPeriod->company_id);
-        $period = $calculator->calculate($payrollPeriod, (int) $request->user()->id);
+        if ($payrollPeriod->status === 'pending_review' && ! $request->has('employee_ids')) {
+            $period = $calculator->calculate($payrollPeriod, (int) $request->user()->id);
+            return $this->respond($request, ['message' => 'Payroll recalculated and is awaiting review.', 'data' => $this->periodDetails($period)], 'Payroll recalculated. Review the updated snapshot before approval.', $period);
+        }
+        $validated = $request->validate([
+            'employee_ids' => 'required|array|min:1',
+            'employee_ids.*' => 'required|integer|distinct',
+        ]);
+        $employeeIds = array_values(array_unique(array_map('intval', $validated['employee_ids'])));
+        if (count($employeeIds) !== count($validated['employee_ids'])) {
+            throw ValidationException::withMessages(['employee_ids' => 'Choose each employee only once.']);
+        }
+        $employees = User::query()->where('company_id', $payrollPeriod->company_id)->whereRaw('LOWER(role) = ?', ['employee'])
+            ->whereIn('id', $employeeIds)->with('payrollProfile')->get();
+        if ($employees->count() !== count($employeeIds)) {
+            throw ValidationException::withMessages(['employee_ids' => 'One or more selected employees do not belong to this company.']);
+        }
+        if ($payrollPeriod->status !== 'draft' || $payrollPeriod->frequency === 'yearly') {
+            throw ValidationException::withMessages(['status' => 'Selected employee generation is available only for a draft regular payroll period.']);
+        }
+        if ($payrollPeriod->entries()->exists()) {
+            throw ValidationException::withMessages(['employee_ids' => 'Payroll entries already exist for this period. Existing entries are preserved.']);
+        }
+        foreach ($employees as $employee) {
+            $profile = $employee->payrollProfile;
+            $reason = null;
+            if (strtolower((string) $employee->status) !== 'active') {
+                $reason = 'employee is not active';
+            } elseif (! $profile || ! $profile->payroll_eligible) {
+                $reason = 'payroll is not enabled';
+            } elseif ($payrollPeriod->frequency === 'yearly') {
+                $reason = 'annual runs require the approved basic pay review flow';
+            } elseif ($profile->pay_frequency !== $payrollPeriod->frequency) {
+                $reason = 'pay frequency does not match the period';
+            } elseif (! $employee->compensationHistory()->whereDate('effective_from', '<=', $payrollPeriod->period_end)
+                ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $payrollPeriod->period_start))->exists()) {
+                $reason = 'no salary rate is effective during this period';
+            }
+            if ($reason !== null) {
+                throw ValidationException::withMessages(['employee_ids' => "{$employee->name}: {$reason}."]);
+            }
+        }
+        if ($payrollPeriod->status !== 'draft' || $payrollPeriod->frequency === 'yearly' || $payrollPeriod->entries()->exists()) {
+            throw ValidationException::withMessages(['period' => 'Preview is available only for a draft regular period with no payroll entries.']);
+        }
+        $period = $calculator->calculate($payrollPeriod, (int) $request->user()->id, $employeeIds);
         return $this->respond($request, ['message' => 'Payroll calculated and is awaiting review.', 'data' => $this->periodDetails($period)], 'Payroll calculated. Review flags and line items before approval.', $period);
+    }
+
+    public function previewPeriod(Request $request, PayrollPeriod $payrollPeriod, PayrollCalculationService $calculator): JsonResponse
+    {
+        $this->assertCompany($request, $payrollPeriod->company_id);
+        $data = $request->validate(['employee_ids' => 'required|array|min:1', 'employee_ids.*' => 'required|integer|distinct']);
+        $ids = array_map('intval', $data['employee_ids']);
+        $employees = User::query()->where('company_id', $payrollPeriod->company_id)->whereRaw('LOWER(role) = ?', ['employee'])
+            ->whereIn('id', $ids)->with('payrollProfile')->get();
+        if ($employees->count() !== count($ids)) {
+            throw ValidationException::withMessages(['employee_ids' => 'One or more selected employees do not belong to this company.']);
+        }
+        foreach ($employees as $employee) {
+            $profile = $employee->payrollProfile;
+            if (strtolower((string) $employee->status) !== 'active' || ! $profile || ! $profile->payroll_eligible
+                || $profile->pay_frequency !== $payrollPeriod->frequency
+                || ! $employee->compensationHistory()->whereDate('effective_from', '<=', $payrollPeriod->period_end)
+                    ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $payrollPeriod->period_start))->exists()) {
+                throw ValidationException::withMessages(['employee_ids' => "{$employee->name}: employee is ineligible or has no salary rate for this period."]);
+            }
+        }
+        return response()->json(['data' => $calculator->preview($payrollPeriod, $ids)]);
     }
 
     public function approvePeriod(Request $request, PayrollPeriod $payrollPeriod, PayrollCalculationService $calculator): JsonResponse|RedirectResponse
@@ -391,7 +463,7 @@ class EmployerPayrollController extends Controller
             'effective_from' => 'nullable|date', 'payment_method' => 'nullable|in:manual_cash,manual_bank_deposit,manual_cheque',
             'overtime_eligible' => 'sometimes|nullable|boolean', 'payroll_eligible' => 'sometimes|nullable|boolean', 'rank_and_file' => 'sometimes|nullable|boolean',
             'standard_hours_per_day' => 'sometimes|integer|min:1|max:24', 'standard_work_days_per_month' => 'sometimes|integer|min:1|max:31',
-            'sss_enabled' => 'sometimes|nullable|boolean', 'philhealth_enabled' => 'sometimes|nullable|boolean', 'pagibig_enabled' => 'sometimes|nullable|boolean', 'withholding_tax_enabled' => 'sometimes|nullable|boolean',
+            'sss_enabled' => 'sometimes|nullable|boolean', 'philhealth_enabled' => 'sometimes|nullable|boolean', 'pagibig_enabled' => 'sometimes|nullable|boolean',
         ]);
         $profile = PayrollProfile::query()->firstOrCreate(
             ['user_id' => $user->id], ['company_id' => $companyId, 'salary_type' => 'hourly', 'pay_frequency' => 'monthly'],
@@ -419,7 +491,7 @@ class EmployerPayrollController extends Controller
 
         $profileValues = collect($data)->only([
             'pay_frequency', 'overtime_eligible', 'payroll_eligible', 'rank_and_file', 'standard_hours_per_day', 'standard_work_days_per_month',
-            'sss_enabled', 'philhealth_enabled', 'pagibig_enabled', 'withholding_tax_enabled',
+            'sss_enabled', 'philhealth_enabled', 'pagibig_enabled',
         ])->reject(fn ($value): bool => $value === null)->all();
         $profile->fill($profileValues)->save();
         if (array_key_exists('payment_method', $data)) {

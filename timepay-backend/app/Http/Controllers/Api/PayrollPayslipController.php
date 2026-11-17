@@ -13,6 +13,22 @@ use Illuminate\Http\Request;
 
 class PayrollPayslipController extends Controller
 {
+    public function downloadForEmployer(Request $request, PayrollEntry $payrollEntry)
+    {
+        $actor = $request->user();
+        abort_unless($actor && in_array(strtoupper((string) $actor->role), [User::ROLE_EMPLOYER, User::ROLE_ADMIN], true), 403);
+        abort_unless($actor->company_id && (int) $actor->company_id === (int) $payrollEntry->company_id, 404);
+        $entry = PayrollEntry::query()->whereKey($payrollEntry->id)
+            ->whereHas('period', fn ($query) => $query->whereIn('status', ['approved', 'partially_paid', 'paid']))
+            ->with(['period', 'employee.company', 'lines', 'payments'])->firstOrFail();
+        $employee = $entry->employee;
+        abort_unless($employee && (int) $employee->company_id === (int) $actor->company_id, 404);
+        $company = $employee->company;
+        $payslip = $this->payslipData($employee, $entry);
+        return Pdf::loadView('pdfs.payroll-payslip', compact('company', 'employee', 'entry', 'payslip'))
+            ->setPaper('a4')->download('timepay-payslip-'.$entry->period->period_start->format('Ymd').'-'.$entry->id.'.pdf');
+    }
+
     public function index(Request $request): JsonResponse
     {
         $employee = $this->authenticatedEmployee($request);

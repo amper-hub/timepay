@@ -62,6 +62,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('periods', [EmployerPayrollController::class, 'periodsApi']);
         Route::post('periods', [EmployerPayrollController::class, 'storePeriod']);
         Route::get('periods/{payrollPeriod}', [EmployerPayrollController::class, 'periodApi']);
+        Route::post('periods/{payrollPeriod}/preview', [EmployerPayrollController::class, 'previewPeriod']);
         Route::post('periods/{payrollPeriod}/calculate', [EmployerPayrollController::class, 'calculatePeriod']);
         Route::post('periods/{payrollPeriod}/approve', [EmployerPayrollController::class, 'approvePeriod']);
         Route::post('periods/{payrollPeriod}/void', [EmployerPayrollController::class, 'voidPeriod']);
