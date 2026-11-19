@@ -162,10 +162,6 @@
                     <td>Gross Pay</td>
                     <td class="amount">{{ $payslip['formatted_gross_pay'] }}</td>
                 </tr>
-                <tr>
-                    <td>Deductions</td>
-                    <td class="amount">{{ $payslip['formatted_deductions'] }}</td>
-                </tr>
                 <tr class="total-row">
                     <td>Net Pay</td>
                     <td class="amount">{{ $payslip['formatted_net_pay'] }}</td>

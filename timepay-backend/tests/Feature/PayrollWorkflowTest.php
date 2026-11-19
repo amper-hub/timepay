@@ -1001,7 +1001,7 @@ class PayrollWorkflowTest extends TestCase
             ->assertSee('Payroll overview')
             ->assertSee('Eligible Employees')
             ->assertSee('Gross payroll')
-            ->assertSee('Total deductions')
+            ->assertDontSee('Total deductions')
             ->assertSee('Net payroll')
             ->assertDontSee('Employer payroll cost');
 
@@ -1014,8 +1014,9 @@ class PayrollWorkflowTest extends TestCase
         $this->get(route('employer.employees.show', User::query()->where('name', 'Setup check employee')->firstOrFail()))
             ->assertOk()
             ->assertSee('1. Pay profile')
-            ->assertSee('2. Eligibility and contributions')
-            ->assertSee('3. Recurring earnings and deductions');
+            ->assertSee('2. Payroll eligibility')
+            ->assertDontSee('Recurring earnings and deductions')
+            ->assertDontSee('Employee deductions');
     }
 
     public function test_payroll_page_uses_calculated_period_values_and_shows_review_warnings(): void
@@ -1036,7 +1037,7 @@ class PayrollWorkflowTest extends TestCase
             ->get(route('employer.payroll', ['period_id' => $period->id]))
             ->assertOk()
             ->assertSee($this->company->formatMoney('125.50'))
-            ->assertSee($this->company->formatMoney('10.00'))
+            ->assertDontSee($this->company->formatMoney('10.00'))
             ->assertSee($this->company->formatMoney('115.50'))
             ->assertSee('Review flags before approval')
             ->assertSee('This work interval overlaps an existing payroll allocation. Review the prior allocation and ensure the same attendance time is not paid twice before recalculating.')
@@ -1102,43 +1103,27 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame('2026-10-16', $rate->effective_from->toDateString());
     }
 
-    public function test_web_recurring_deduction_requires_authorization_and_records_the_item(): void
+    public function test_recurring_item_records_are_preserved_but_profile_ui_and_write_endpoint_are_removed(): void
     {
         $employee = $this->employee('Recurring item employee');
-        $this->actingAs($this->employer)
-            ->from(route('employer.employees.show', $employee))
-            ->post(route('employer.payroll.profile-items.store', ['return_to' => 'employee_profile', 'employee_id' => $employee->id]), [
-                'user_id' => $employee->id,
-                'category' => 'deduction',
-                'code' => 'equipment_recovery',
-                'label' => 'Equipment recovery',
-                'amount' => '50.00',
-                'effective_from' => '2026-10-15',
-            ])
-            ->assertRedirect(route('employer.employees.show', $employee))
-            ->assertSessionHasErrors('authorization_reference');
-
-        $this->assertDatabaseCount('payroll_profile_items', 0);
-
-        $this->from(route('employer.employees.show', $employee))
-            ->post(route('employer.payroll.profile-items.store', ['return_to' => 'employee_profile', 'employee_id' => $employee->id]), [
-                'user_id' => $employee->id,
-                'category' => 'deduction',
-                'code' => 'equipment_recovery',
-                'label' => 'Equipment recovery',
-                'amount' => '50.00',
-                'authorization_reference' => 'SIGNED-AUTH-100',
-                'effective_from' => '2026-10-15',
-            ])
-            ->assertRedirect(route('employer.employees.show', $employee));
-
-        $this->assertDatabaseHas('payroll_profile_items', [
-            'user_id' => $employee->id,
-            'category' => 'deduction',
-            'code' => 'equipment_recovery',
-            'authorization_reference' => 'SIGNED-AUTH-100',
-            'taxable' => false,
+        $item = PayrollProfileItem::query()->create([
+            'company_id' => $employee->company_id, 'user_id' => $employee->id, 'category' => 'deduction',
+            'code' => 'equipment_recovery', 'label' => 'Equipment recovery', 'amount' => '50.00',
+            'taxable' => false, 'authorization_reference' => 'SIGNED-AUTH-100', 'effective_from' => '2026-10-15',
         ]);
+
+        $this->actingAs($this->employer)
+            ->get(route('employer.employees.show', $employee))->assertOk()
+            ->assertDontSee('Recurring earnings and deductions')
+            ->assertDontSee('equipment_recovery')
+            ->assertDontSee('authorized deduction');
+
+        $this->actingAs($this->employer)->post('/employer/payroll/profile-items', [
+            'user_id' => $employee->id, 'category' => 'deduction', 'code' => 'new_deduction',
+            'label' => 'New deduction', 'amount' => '50.00', 'effective_from' => '2026-10-15',
+        ])->assertNotFound();
+
+        $this->assertDatabaseHas('payroll_profile_items', ['id' => $item->id, 'authorization_reference' => 'SIGNED-AUTH-100']);
     }
 
     public function test_payroll_period_status_filter_shows_only_matching_periods(): void
@@ -1297,6 +1282,26 @@ class PayrollWorkflowTest extends TestCase
         $this->actingAs($this->employer)->get(route('employer.payroll.payslip', $otherEntry))->assertNotFound();
     }
 
+    public function test_regular_payslip_does_not_render_employee_deduction_sections(): void
+    {
+        $employee = $this->employee('Regular payslip employee');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly', 'approved');
+        $entry = $this->entry($employee, $period, '125.50', [
+            'regular_pay_policy' => 'gross = basic salary + approved overtime; net = gross.',
+        ]);
+        $entry->lines()->create(['category' => 'earning', 'code' => 'basic_pay', 'label' => 'Basic salary', 'amount' => '125.50', 'taxable' => false]);
+
+        Sanctum::actingAs($employee);
+        $payslip = $this->getJson('/api/payroll/payslips')->assertOk()->json('data.0');
+
+        $this->view('pdfs.payroll-payslip', [
+            'company' => $this->company,
+            'employee' => $employee,
+            'entry' => $entry,
+            'payslip' => $payslip,
+        ])->assertSee('Net pay')->assertDontSee('Employee deductions')->assertDontSee('Historical or 13th-month adjustments');
+    }
+
     public function test_payroll_report_register_exports_and_employee_pdf_use_finalized_entries(): void
     {
         $employee = $this->employee('Report Employee');
@@ -1342,7 +1347,10 @@ class PayrollWorkflowTest extends TestCase
         $profile = $this->profile($employee, ['withholding_tax_enabled' => true]);
 
         $this->actingAs($this->employer)->get(route('employer.employees.show', $employee))
-            ->assertOk()->assertDontSee('Withholding tax')->assertDontSee('Taxable earning');
+            ->assertOk()->assertDontSee('Withholding tax')->assertDontSee('Taxable earning')
+            ->assertDontSee('Employer SSS contribution')->assertDontSee('Employer PhilHealth contribution')
+            ->assertDontSee('Employer Pag-IBIG contribution')->assertDontSee('Recurring earnings and deductions')
+            ->assertDontSee('Save recurring item')->assertDontSee('Deduction authorization reference');
         $this->actingAs($this->employer)->patch('/employer/payroll/profiles?section=settings', [
             'user_id' => $employee->id, 'payroll_eligible' => '1', 'withholding_tax_enabled' => '0',
         ])->assertRedirect(route('employer.employees.show', $employee));
@@ -1350,7 +1358,7 @@ class PayrollWorkflowTest extends TestCase
         $this->assertTrue((bool) $profile->fresh()->withholding_tax_enabled, 'Legacy tax settings must be preserved when omitted from the UI.');
     }
 
-    public function test_employer_can_update_statutory_eligibility_without_touching_compensation(): void
+    public function test_legacy_contribution_inputs_are_ignored_without_touching_compensation(): void
     {
         $employee = $this->employee('Eligibility Employee');
         $profile = $this->profile($employee, [
@@ -1368,9 +1376,9 @@ class PayrollWorkflowTest extends TestCase
         ])->assertRedirect(route('employer.employees.show', $employee));
 
         $profile->refresh();
-        $this->assertFalse($profile->sss_enabled);
+        $this->assertTrue($profile->sss_enabled);
         $this->assertTrue($profile->philhealth_enabled);
-        $this->assertFalse($profile->pagibig_enabled);
+        $this->assertTrue($profile->pagibig_enabled);
         $this->assertTrue($profile->withholding_tax_enabled, 'Legacy employee tax data is preserved and no longer controls regular payroll.');
         $this->assertDatabaseCount('payroll_compensation_histories', 0);
     }

@@ -14,7 +14,11 @@ class PayrollRegisterExport implements FromArray, ShouldAutoSize, WithHeadings, 
 
     public function headings(): array
     {
-        return ['Employee ID', 'Employee Name', 'Hours', 'Days', 'Gross Pay', 'Employee Deductions', 'Employer Contributions', 'Net Pay', 'Paid', 'Balance', 'Review Flags'];
+        return [
+            'Employee ID', 'Employee Name', 'Hours', 'Days', 'Gross Pay',
+            ...($this->period->frequency === 'yearly' ? ['13th-month adjustments'] : []),
+            'Employer Contributions', 'Net Pay', 'Paid', 'Balance', 'Review Flags',
+        ];
     }
 
     public function array(): array
@@ -25,7 +29,7 @@ class PayrollRegisterExport implements FromArray, ShouldAutoSize, WithHeadings, 
             round($entry->worked_minutes / 60, 2),
             (int) $entry->payable_days,
             $entry->gross_pay,
-            $entry->employee_deductions,
+            ...($this->period->frequency === 'yearly' ? [$entry->employee_deductions] : []),
             $entry->employer_contributions,
             $entry->net_pay,
             $entry->amount_paid,

@@ -71,7 +71,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('periods/{payrollPeriod}/register.pdf', [EmployerPayrollController::class, 'exportPeriodPdf']);
         Route::post('entries/{payrollEntry}/payments', [EmployerPayrollController::class, 'recordPayment']);
         Route::patch('profiles/{user}', [EmployerPayrollController::class, 'updateEmployeeRate']);
-        Route::post('profiles/{user}/items', [EmployerPayrollController::class, 'storeProfileItem']);
     });
 
     Route::prefix('employee')->group(function () {

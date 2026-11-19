@@ -149,7 +149,7 @@ class EmployeeController extends Controller
 
         $employee = User::query()->where('company_id', $actor->company_id)
             ->whereRaw('LOWER(role) = ?', ['employee'])
-            ->with(['payrollProfile.items', 'compensationHistory'])
+            ->with(['payrollProfile', 'compensationHistory'])
             ->whereKey($user->id)->firstOrFail();
         $today = Carbon::today(config('app.timezone'));
         $currentRate = $employee->compensationHistory

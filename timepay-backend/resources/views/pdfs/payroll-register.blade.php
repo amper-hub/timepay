@@ -21,20 +21,20 @@
     <div class="muted">{{ $period->period_start->format('M d, Y') }} – {{ $period->period_end->format('M d, Y') }} · {{ str($period->frequency)->replace('_', ' ')->title() }} · {{ str($period->status)->replace('_', ' ')->title() }}</div>
     <div class="summary">
         Gross: {{ $company->formatMoney($period->gross_total) }} &nbsp;&nbsp;
-        Employee deductions: {{ $company->formatMoney($period->deduction_total) }} &nbsp;&nbsp;
+        @if ($period->frequency === 'yearly')13th-month adjustments: {{ $company->formatMoney($period->deduction_total) }} &nbsp;&nbsp;@endif
         Employer contributions: {{ $company->formatMoney($period->employer_contribution_total) }} &nbsp;&nbsp;
         Net: {{ $company->formatMoney($period->net_total) }} &nbsp;&nbsp;
         Paid: {{ $company->formatMoney($period->paid_total) }}
     </div>
     <table>
-        <thead><tr><th>Employee</th><th>Hours / days</th><th class="amount">Gross</th><th class="amount">Deductions</th><th class="amount">Employer contributions</th><th class="amount">Net</th><th class="amount">Paid</th><th>Review flags</th></tr></thead>
+        <thead><tr><th>Employee</th><th>Hours / days</th><th class="amount">Gross</th>@if ($period->frequency === 'yearly')<th class="amount">13th-month adjustments</th>@endif<th class="amount">Employer contributions</th><th class="amount">Net</th><th class="amount">Paid</th><th>Review flags</th></tr></thead>
         <tbody>
             @foreach ($period->entries as $entry)
                 <tr>
                     <td>{{ data_get($entry->calculation_snapshot, 'employee_snapshot.name', $entry->employee?->name) }}</td>
                     <td>{{ number_format($entry->worked_minutes / 60, 2) }} hrs<br>{{ $entry->payable_days }} days</td>
                     <td class="amount">{{ $company->formatMoney($entry->gross_pay) }}</td>
-                    <td class="amount">{{ $company->formatMoney($entry->employee_deductions) }}</td>
+                    @if ($period->frequency === 'yearly')<td class="amount">{{ $company->formatMoney($entry->employee_deductions) }}</td>@endif
                     <td class="amount">{{ $company->formatMoney($entry->employer_contributions) }}</td>
                     <td class="amount">{{ $company->formatMoney($entry->net_pay) }}</td>
                     <td class="amount">{{ $company->formatMoney($entry->amount_paid) }}</td>

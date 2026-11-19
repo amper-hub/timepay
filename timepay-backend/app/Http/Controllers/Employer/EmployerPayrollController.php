@@ -10,7 +10,6 @@ use App\Models\PayrollEntry;
 use App\Models\PayrollPayment;
 use App\Models\PayrollPeriod;
 use App\Models\PayrollProfile;
-use App\Models\PayrollProfileItem;
 use App\Models\User;
 use App\Services\PayrollCalculationService;
 use App\Support\PayrollReviewFlags;
@@ -463,7 +462,6 @@ class EmployerPayrollController extends Controller
             'effective_from' => 'nullable|date', 'payment_method' => 'nullable|in:manual_cash,manual_bank_deposit,manual_cheque',
             'overtime_eligible' => 'sometimes|nullable|boolean', 'payroll_eligible' => 'sometimes|nullable|boolean', 'rank_and_file' => 'sometimes|nullable|boolean',
             'standard_hours_per_day' => 'sometimes|integer|min:1|max:24', 'standard_work_days_per_month' => 'sometimes|integer|min:1|max:31',
-            'sss_enabled' => 'sometimes|nullable|boolean', 'philhealth_enabled' => 'sometimes|nullable|boolean', 'pagibig_enabled' => 'sometimes|nullable|boolean',
         ]);
         $profile = PayrollProfile::query()->firstOrCreate(
             ['user_id' => $user->id], ['company_id' => $companyId, 'salary_type' => 'hourly', 'pay_frequency' => 'monthly'],
@@ -491,7 +489,6 @@ class EmployerPayrollController extends Controller
 
         $profileValues = collect($data)->only([
             'pay_frequency', 'overtime_eligible', 'payroll_eligible', 'rank_and_file', 'standard_hours_per_day', 'standard_work_days_per_month',
-            'sss_enabled', 'philhealth_enabled', 'pagibig_enabled',
         ])->reject(fn ($value): bool => $value === null)->all();
         $profile->fill($profileValues)->save();
         if (array_key_exists('payment_method', $data)) {
@@ -507,89 +504,6 @@ class EmployerPayrollController extends Controller
     {
         $data = $request->validate(['user_id' => 'required|integer']);
         return $this->updateEmployeeRate($request, $this->companyEmployee($request, (int) $data['user_id']));
-    }
-
-    public function storeProfileItem(Request $request, User $user): RedirectResponse|JsonResponse
-    {
-        $companyId = $this->companyId($request);
-        abort_unless((int) $user->company_id === $companyId && strtoupper((string) $user->role) === User::ROLE_EMPLOYEE, 404);
-        $data = $request->validate([
-            'category' => 'required|in:earning,deduction',
-            'code' => ['required', 'string', 'max:60', 'regex:/^[A-Za-z0-9_-]+$/'],
-            'label' => 'required|string|max:120',
-            'amount' => 'required|numeric|gt:0|max:99999999.99',
-            'taxable' => 'sometimes|boolean',
-            'authorization_reference' => 'required_if:category,deduction|nullable|string|max:120',
-            'effective_from' => 'required|date',
-            'effective_to' => 'nullable|date|after_or_equal:effective_from',
-        ]);
-        $effectiveFrom = Carbon::parse($data['effective_from'], config('app.timezone'))->toDateString();
-        $effectiveTo = isset($data['effective_to']) ? Carbon::parse($data['effective_to'], config('app.timezone'))->toDateString() : null;
-
-        $item = DB::transaction(function () use ($companyId, $user, $request, $data, $effectiveFrom, $effectiveTo): PayrollProfileItem {
-            User::query()->where('company_id', $companyId)->whereKey($user->id)->lockForUpdate()->firstOrFail();
-            $finalizedOverlap = PayrollPeriod::query()->where('company_id', $companyId)->whereIn('status', ['approved', 'partially_paid', 'paid'])
-                ->whereDate('period_end', '>=', $effectiveFrom)
-                ->when($effectiveTo, fn ($query) => $query->whereDate('period_start', '<=', $effectiveTo))
-                ->exists();
-            if ($finalizedOverlap) {
-                throw ValidationException::withMessages(['effective_from' => 'Recurring payroll items cannot be changed within a finalized payroll period.']);
-            }
-
-            $items = PayrollProfileItem::query()->where('company_id', $companyId)->where('user_id', $user->id)
-                ->where('category', $data['category'])->where('code', $data['code']);
-            $atStart = (clone $items)->whereDate('effective_from', $effectiveFrom)->first();
-            $next = (clone $items)->whereDate('effective_from', '>', $effectiveFrom)->orderBy('effective_from')->first();
-            $end = $effectiveTo ?? $next?->effective_from->copy()->subDay()->toDateString();
-            if ($end && $next && Carbon::parse($end)->gte($next->effective_from)) {
-                throw ValidationException::withMessages(['effective_to' => 'This effective range overlaps a later version of the same payroll item.']);
-            }
-
-            $before = $atStart?->only(['label', 'amount', 'taxable', 'authorization_reference', 'effective_from', 'effective_to']);
-            if (! $atStart) {
-                $previous = (clone $items)->whereDate('effective_from', '<', $effectiveFrom)
-                    ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $effectiveFrom))
-                    ->orderByDesc('effective_from')->first();
-                if ($previous) {
-                    $previous->update(['effective_to' => Carbon::parse($effectiveFrom)->subDay()->toDateString()]);
-                }
-                $atStart = new PayrollProfileItem([
-                    'company_id' => $companyId,
-                    'user_id' => $user->id,
-                    'category' => $data['category'],
-                    'code' => $data['code'],
-                    'effective_from' => $effectiveFrom,
-                    'created_by' => $request->user()->id,
-                ]);
-            }
-
-            $atStart->fill([
-                'label' => $data['label'],
-                'amount' => $data['amount'],
-                'taxable' => $data['category'] === 'earning' ? (bool) ($data['taxable'] ?? true) : false,
-                'authorization_reference' => $data['category'] === 'deduction' ? $data['authorization_reference'] : null,
-                'effective_to' => $end,
-                'created_by' => $request->user()->id,
-            ])->save();
-
-            $this->auditForUser($companyId, $request->user(), 'payroll_item_updated', $user, [
-                'item_id' => $atStart->id,
-                'category' => $atStart->category,
-                'code' => $atStart->code,
-                'before' => $before,
-                'after' => $atStart->only(['label', 'amount', 'taxable', 'authorization_reference', 'effective_from', 'effective_to']),
-            ]);
-
-            return $atStart;
-        });
-
-        return $this->respond($request, ['message' => 'Recurring payroll item saved.', 'data' => $item], 'Recurring payroll item saved.', null);
-    }
-
-    public function storeSelectedProfileItem(Request $request): RedirectResponse|JsonResponse
-    {
-        $data = $request->validate(['user_id' => 'required|integer']);
-        return $this->storeProfileItem($request, $this->companyEmployee($request, (int) $data['user_id']));
     }
 
     public function exportPeriodXlsx(Request $request, PayrollPeriod $payrollPeriod): BinaryFileResponse

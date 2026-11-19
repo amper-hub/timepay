@@ -34,12 +34,12 @@
             'incomplete_attendance_requires_review' => 'A verified clock-in is missing its matching clock-out. Correct the affected shift and recalculate.',
             'invalid_attendance_requires_review' => 'Attendance has a rejected, flagged, suspicious, or invalid timestamp/type record. Resolve the attendance issue and recalculate.',
             'unsupported_payroll_rule_requires_review' => 'A required statutory rule is missing for this pay period. Configure and verify the effective rule before approval.',
-            'missing_statutory_input_requires_review' => 'Tax eligibility or employee tax classification inputs are not represented in this payroll profile. Complete a qualified payroll review before approval.',
+            'missing_statutory_input_requires_review' => 'A legacy payroll snapshot is missing a required rule. Review the historical calculation before approval.',
             'missing_effective_pay_rate' => 'No applicable compensation rate covers part of this employee’s payable period. Review the rate and effective dates, then recalculate.',
             'missing_effective_hourly_rate' => 'No hourly rate covers part of a payable shift. Review compensation history and effective dates, then recalculate.',
             'zero_compensation_rate_requires_review' => 'A zero compensation rate applies to payable work. Correct the rate explicitly and recalculate.',
             'long_shift_overtime_requires_approval' => 'A shift exceeds the configured standard hours and overtime is not separately calculated. Verify hours and applicable overtime pay before recalculating.',
-            'negative_net_pay_requires_review' => 'Employee deductions exceed gross earnings. Correct the rates, attendance, or deduction entries and recalculate.',
+            'negative_net_pay_requires_review' => 'The calculated net amount is below zero. Review the historical calculation before approval.',
             'monthly_salary_prorated_by_calendar_day' => 'Monthly pay was prorated by calendar days. Confirm the partial-period salary policy and resolve before approval.',
             'overtime_eligibility_disabled' => 'The employee is not marked as overtime eligible.',
             'approved_leave_policy_requires_review' => 'Approved leave needs policy review.',
@@ -104,7 +104,6 @@
             </article>
             @foreach ([
                 ['Gross payroll', 'gross_total'],
-                ['Total deductions', 'deduction_total'],
                 ['Net payroll', 'net_total'],
             ] as [$label, $field])
                 @php
@@ -333,7 +332,6 @@
                     <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Selected payroll breakdown">
                         @foreach ([
                             ['Gross pay', 'gross_total'],
-                            ['Employee deductions', 'deduction_total'],
                             ['Employer contributions', 'employer_contribution_total'],
                             ['Net pay', 'net_total'],
                             ['Paid so far', 'paid_total'],
@@ -399,7 +397,7 @@
                                     </div>
                                     <div class="rounded-lg border border-white bg-white p-3 text-sm text-slate-700">
                                         <p class="font-semibold">Step 3 · Review before generation</p>
-                                        <p class="mt-1">Review basic salary, overtime, gross pay, deductions and estimated net pay before generating. The current attendance model does not record approved overtime hours or rates, so overtime is zero.</p>
+                                        <p class="mt-1">Review basic salary, overtime, gross pay, and estimated net pay before generating. The current attendance model does not record approved overtime hours or rates, so overtime is zero.</p>
                                         <div id="payroll-preview" class="mt-3 hidden overflow-x-auto"></div>
                                     </div>
                                     <div class="flex flex-wrap gap-3">
@@ -567,16 +565,16 @@
 
                                 <dl class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                                     <div><dt class="text-sm text-slate-600">Gross pay</dt><dd class="mt-1 font-medium text-slate-900">{{ $company->formatMoney($entry->gross_pay) }}</dd></div>
-                                    <div><dt class="text-sm text-slate-600">Employee deductions</dt><dd class="mt-1 font-medium text-slate-900">{{ $company->formatMoney($entry->employee_deductions) }}</dd></div>
                                     <div><dt class="text-sm text-slate-600">Employer contributions</dt><dd class="mt-1 font-medium text-slate-900">{{ $company->formatMoney($entry->employer_contributions) }}</dd></div>
                                     <div><dt class="text-sm font-semibold text-slate-700">Take-home pay</dt><dd class="mt-1 text-[1.375rem] font-bold text-emerald-800">{{ $company->formatMoney($entry->net_pay) }}</dd></div>
                                 </dl>
 
                                 <details class="mt-4 border-t border-slate-200 pt-3">
-                                    <summary class="min-h-11 cursor-pointer py-1 text-base font-semibold text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">View earnings and deductions</summary>
+                                    <summary class="min-h-11 cursor-pointer py-1 text-base font-semibold text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">View payroll lines</summary>
                                     @if ($entry->lines->isNotEmpty())
                                         <ul class="mt-2 divide-y divide-slate-100 text-base">
                                             @foreach ($entry->lines as $line)
+                                                @continue(data_get($entry->calculation_snapshot, 'regular_pay_policy') && $line->category === 'employee_deduction')
                                                 <li class="flex flex-col justify-between gap-1 py-2 sm:flex-row sm:items-center sm:gap-4">
                                                     <span class="font-medium text-slate-800">{{ $line->label }} <span class="font-normal text-slate-600">({{ ['earning' => 'Earning', 'employee_deduction' => 'Employee deduction', 'employer_contribution' => 'Employer contribution'][$line->category] ?? 'Payroll item' }})</span></span>
                                                     <span class="font-medium text-slate-900">{{ $company->formatMoney($line->amount) }}</span>
@@ -723,13 +721,13 @@
                         const data = result.data;
                         const money = (amount) => `${@json($company->currency)} ${Number(amount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
                         const table = document.createElement('table'); table.className = 'min-w-full text-left text-sm';
-                        table.innerHTML = '<thead><tr><th class="p-2">Employee</th><th class="p-2">Basic salary</th><th class="p-2">Overtime hours</th><th class="p-2">Overtime pay</th><th class="p-2">Gross pay</th><th class="p-2">Deductions</th><th class="p-2">Net pay</th></tr></thead>';
+                        table.innerHTML = '<thead><tr><th class="p-2">Employee</th><th class="p-2">Basic salary</th><th class="p-2">Overtime hours</th><th class="p-2">Overtime pay</th><th class="p-2">Gross pay</th><th class="p-2">Net pay</th></tr></thead>';
                         const body = document.createElement('tbody');
                         data.employees.forEach((row) => { const tr = document.createElement('tr'); tr.className = 'border-t';
-                            [row.employee_name, money(row.basic_salary), row.overtime_hours, money(row.overtime_pay), money(row.gross_pay), money(row.employee_deductions), money(row.net_pay)].forEach((value) => { const td = document.createElement('td'); td.className = 'p-2'; td.textContent = value; tr.append(td); }); body.append(tr); });
+                            [row.employee_name, money(row.basic_salary), row.overtime_hours, money(row.overtime_pay), money(row.gross_pay), money(row.net_pay)].forEach((value) => { const td = document.createElement('td'); td.className = 'p-2'; td.textContent = value; tr.append(td); }); body.append(tr); });
                         table.append(body); previewContainer.replaceChildren(table);
                         const summary = document.createElement('p'); summary.className = 'mt-2 font-semibold';
-                        summary.textContent = `Selected employees: ${data.employee_count} · Basic: ${money(data.totals.basic_salary)} · Overtime: ${money(data.totals.overtime_pay)} · Gross: ${money(data.totals.gross_pay)} · Deductions: ${money(data.totals.employee_deductions)} · Estimated net: ${money(data.totals.net_pay)}`;
+                        summary.textContent = `Selected employees: ${data.employee_count} · Basic: ${money(data.totals.basic_salary)} · Overtime: ${money(data.totals.overtime_pay)} · Gross: ${money(data.totals.gross_pay)} · Estimated net: ${money(data.totals.net_pay)}`;
                         previewContainer.append(summary); previewContainer.classList.remove('hidden');
                         generate.dataset.confirm = `Generate payroll for ${data.employee_count} selected employees? Estimated gross ${money(data.totals.gross_pay)}; estimated net ${money(data.totals.net_pay)}.`;
                     } catch (error) { window.alert(error.message); }

@@ -34,12 +34,16 @@
         @foreach ($payslip['earnings'] as $line)<tr><td>{{ $line['label'] }}</td><td class="amount">{{ $line['formatted_amount'] }}</td></tr>@endforeach
         <tr class="total"><td>Gross pay</td><td class="amount">{{ $payslip['formatted_gross_pay'] }}</td></tr>
     </tbody></table>
-    <h2>Employee deductions</h2>
-    <table><thead><tr><th>Description</th><th class="amount">Amount</th></tr></thead><tbody>
-        @forelse ($payslip['deduction_lines'] as $line)<tr><td>{{ $line['label'] }}</td><td class="amount">{{ $line['formatted_amount'] }}</td></tr>@empty<tr><td class="muted">No employee deductions were recorded.</td><td class="amount">{{ $payslip['formatted_deductions'] }}</td></tr>@endforelse
-        <tr class="total"><td>Total employee deductions</td><td class="amount">{{ $payslip['formatted_deductions'] }}</td></tr>
-        <tr class="net"><td>Net pay</td><td class="amount">{{ $payslip['formatted_net_pay'] }}</td></tr>
-    </tbody></table>
+    @if (! data_get($entry->calculation_snapshot, 'regular_pay_policy'))
+        <h2>Historical or 13th-month adjustments</h2>
+        <table><thead><tr><th>Description</th><th class="amount">Amount</th></tr></thead><tbody>
+            @forelse ($payslip['deduction_lines'] as $line)<tr><td>{{ $line['label'] }}</td><td class="amount">{{ $line['formatted_amount'] }}</td></tr>@empty<tr><td class="muted">No adjustments were recorded.</td><td class="amount">{{ $payslip['formatted_deductions'] }}</td></tr>@endforelse
+            <tr class="total"><td>Total adjustments</td><td class="amount">{{ $payslip['formatted_deductions'] }}</td></tr>
+            <tr class="net"><td>Net pay</td><td class="amount">{{ $payslip['formatted_net_pay'] }}</td></tr>
+        </tbody></table>
+    @else
+        <table><tbody><tr class="net"><td>Net pay</td><td class="amount">{{ $payslip['formatted_net_pay'] }}</td></tr></tbody></table>
+    @endif
     <h2>Employer contributions · informational only</h2>
     <table><thead><tr><th>Description</th><th class="amount">Amount</th></tr></thead><tbody>
         @forelse ($payslip['employer_contribution_lines'] as $line)<tr><td>{{ $line['label'] }}</td><td class="amount">{{ $line['formatted_amount'] }}</td></tr>@empty<tr><td class="muted">No employer contributions recorded.</td><td class="amount">{{ $payslip['formatted_employer_contributions'] }}</td></tr>@endforelse
@@ -47,8 +51,8 @@
     </tbody></table>
     <h2>Year to date · {{ $payslip['year_to_date']['year'] }}</h2>
     <table><tbody>
-        <tr><td>Gross pay</td><td class="amount">{{ $payslip['year_to_date']['formatted_gross_pay'] }}</td><td>Employee deductions</td><td class="amount">{{ $payslip['year_to_date']['formatted_employee_deductions'] }}</td></tr>
-        <tr><td>Employer contributions</td><td class="amount">{{ $payslip['year_to_date']['formatted_employer_contributions'] }}</td><td>Net pay</td><td class="amount">{{ $payslip['year_to_date']['formatted_net_pay'] }}</td></tr>
+        <tr><td>Gross pay</td><td class="amount">{{ $payslip['year_to_date']['formatted_gross_pay'] }}</td><td>Net pay</td><td class="amount">{{ $payslip['year_to_date']['formatted_net_pay'] }}</td></tr>
+        <tr><td>Employer contributions</td><td class="amount">{{ $payslip['year_to_date']['formatted_employer_contributions'] }}</td><td></td><td></td></tr>
     </tbody></table>
     <div class="card"><strong>Payment status:</strong> {{ str($payslip['payment_status'])->replace('_', ' ')->title() }} · Paid {{ $payslip['formatted_amount_paid'] }} · Balance {{ $payslip['formatted_remaining_balance'] }}<br><span class="muted">Payment status reflects employer-recorded payments. TimePay does not initiate bank transfers.</span></div>
     @if (! empty($payslip['review_flags']))<div class="card"><strong>Payroll review notes</strong><ul>@foreach ($payslip['review_flags'] as $flag)<li>{{ str($flag)->replace('_', ' ') }}</li>@endforeach</ul></div>@endif

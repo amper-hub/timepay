@@ -125,9 +125,7 @@ const PayrollScreen: React.FC<PayrollScreenProps> = () => {
             <Text style={styles.summaryCaption}>Net pay in approved payroll periods</Text>
             <View style={styles.summaryGrid}>
               <SummaryValue label="Gross pay" value={yearToDate.formatted_gross_pay} />
-              <SummaryValue label="Deductions" value={yearToDate.formatted_employee_deductions} />
               <SummaryValue label="Employer contributions" value={yearToDate.formatted_employer_contributions} />
-              <SummaryValue label="Taxable compensation" value={yearToDate.formatted_taxable_compensation} />
             </View>
           </View>
         ) : null}
@@ -189,7 +187,9 @@ const PayslipCard: React.FC<{
 
     <View style={styles.metricsRow}>
       <Metric label="Gross" value={payslip.formatted_gross_pay} />
-      <Metric label="Deductions" value={payslip.formatted_deductions} />
+      {payslip.pay_frequency === "yearly" ? (
+        <Metric label="13th-month adjustments" value={payslip.formatted_deductions} />
+      ) : null}
       <Metric label="Net pay" value={payslip.formatted_net_pay} highlight />
     </View>
 
@@ -200,7 +200,9 @@ const PayslipCard: React.FC<{
     </View>
 
     <PayrollLines title="Earnings" lines={payslip.earnings} />
-    <PayrollLines title="Employee deductions" lines={payslip.deduction_lines} />
+    {payslip.pay_frequency === "yearly" ? (
+      <PayrollLines title="13th-month adjustments" lines={payslip.deduction_lines} />
+    ) : null}
     <PayrollLines title="Employer contributions" lines={payslip.employer_contribution_lines} />
 
     <View style={styles.paymentSummary}>

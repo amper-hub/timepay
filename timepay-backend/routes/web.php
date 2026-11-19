@@ -98,9 +98,7 @@ Route::middleware(['auth'])->prefix('employer')->group(function () {
     Route::get('/payroll/periods/{payrollPeriod}/register.pdf', [EmployerPayrollController::class, 'exportPeriodPdf'])->name('employer.payroll.export.pdf');
     Route::get('/payroll/entries/{payrollEntry}/payslip.pdf', [PayrollPayslipController::class, 'downloadForEmployer'])->name('employer.payroll.payslip');
     Route::patch('/payroll/profile/{user}', [EmployerPayrollController::class, 'updateEmployeeRate'])->name('employer.payroll.profile.update');
-    Route::post('/payroll/profile/{user}/items', [EmployerPayrollController::class, 'storeProfileItem'])->name('employer.payroll.profile.items.store');
     Route::patch('/payroll/profiles', [EmployerPayrollController::class, 'updateSelectedEmployeeRate'])->name('employer.payroll.profiles.update');
-    Route::post('/payroll/profile-items', [EmployerPayrollController::class, 'storeSelectedProfileItem'])->name('employer.payroll.profile-items.store');
     Route::post('/payroll/update/{user}', [EmployerPayrollController::class, 'updateEmployeeRate'])->name('employer.payroll.update');
     Route::post('/payroll/{user}/mark-as-paid', [EmployerPayrollController::class, 'markAsPaid'])->name('employer.payroll.mark-as-paid');
 

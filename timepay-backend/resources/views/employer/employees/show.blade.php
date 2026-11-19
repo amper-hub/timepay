@@ -95,8 +95,8 @@
 
         <section class="employer-card space-y-4 p-4 sm:p-6" aria-labelledby="eligibility-heading">
             <div>
-                <h3 id="eligibility-heading" class="employer-section-heading">2. Eligibility and contributions</h3>
-                <p class="mt-1 text-sm text-slate-600">Payroll inclusion and overtime eligibility apply to new regular payroll runs. Employer contributions remain separate from employee net pay.</p>
+                <h3 id="eligibility-heading" class="employer-section-heading">2. Payroll eligibility</h3>
+                <p class="mt-1 text-sm text-slate-600">Choose whether this employee is included in regular payroll and whether approved overtime applies.</p>
             </div>
             <form method="POST" action="{{ route('employer.payroll.profiles.update', $returnQuery) }}" data-submit-once class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 @csrf
@@ -106,9 +106,6 @@
                     'payroll_eligible' => ['Include in payroll', $profile?->payroll_eligible],
                     'overtime_eligible' => ['Overtime eligibility', $profile?->overtime_eligible],
                     'rank_and_file' => ['Rank-and-file employee', $profile?->rank_and_file],
-                    'sss_enabled' => ['Employer SSS contribution', $profile?->sss_enabled],
-                    'philhealth_enabled' => ['Employer PhilHealth contribution', $profile?->philhealth_enabled],
-                    'pagibig_enabled' => ['Employer Pag-IBIG contribution', $profile?->pagibig_enabled],
                 ] as $field => [$label, $current])
                     <label for="{{ $field }}" class="block rounded-lg border border-slate-200 p-3 text-base font-semibold text-slate-900">{{ $label }}
                         <select id="{{ $field }}" name="{{ $field }}" class="mt-2 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
@@ -119,72 +116,9 @@
                         @error($field)<span class="mt-1 block text-sm text-red-700">{{ $message }}</span>@enderror
                     </label>
                     @endforeach
-                <div class="sm:col-span-2 xl:col-span-3"><button type="submit" data-loading-label="Saving settings..." class="min-h-11 rounded-lg border border-emerald-700 px-4 py-2.5 text-base font-semibold text-emerald-900 hover:bg-emerald-50">Save eligibility and contribution settings</button></div>
+                <div class="sm:col-span-2 xl:col-span-3"><button type="submit" data-loading-label="Saving settings..." class="min-h-11 rounded-lg border border-emerald-700 px-4 py-2.5 text-base font-semibold text-emerald-900 hover:bg-emerald-50">Save payroll eligibility</button></div>
             </form>
         </section>
 
-        <section class="employer-card space-y-4 p-4 sm:p-6" aria-labelledby="recurring-items-heading">
-            <div>
-                <h3 id="recurring-items-heading" class="employer-section-heading">3. Recurring earnings and deductions</h3>
-                <p class="mt-1 text-sm text-slate-600">Existing effective-dated items are listed first. Saving an item uses the current payroll validation and overlap rules.</p>
-            </div>
-            @if ($items->isNotEmpty())
-                <div class="overflow-x-auto rounded-lg border border-slate-200">
-                    <table class="min-w-[42rem] w-full divide-y divide-slate-200 text-left text-sm">
-                        <thead class="bg-slate-50"><tr><th class="px-3 py-2">Type / reference</th><th class="px-3 py-2">Description</th><th class="px-3 py-2">Amount</th><th class="px-3 py-2">Effective dates</th><th class="px-3 py-2">Tax / authorization</th></tr></thead>
-                        <tbody class="divide-y divide-slate-200">@foreach ($items->sortByDesc('effective_from') as $item)<tr><td class="px-3 py-2">{{ str($item->category)->title() }} · {{ $item->code }}</td><td class="px-3 py-2">{{ $item->label }}</td><td class="px-3 py-2">{{ number_format((float) $item->amount, 2) }}</td><td class="px-3 py-2">{{ $item->effective_from->format('M d, Y') }} – {{ $item->effective_to?->format('M d, Y') ?? 'Open-ended' }}</td><td class="px-3 py-2">{{ $item->category === 'earning' ? 'Excluded from regular payroll' : ($item->authorization_reference ?: 'Authorization missing; excluded from regular payroll') }}</td></tr>@endforeach</tbody>
-                    </table>
-                </div>
-            @else
-                <p class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">No recurring items are configured for this employee.</p>
-            @endif
-            <form method="POST" action="{{ route('employer.payroll.profile-items.store', $returnQuery) }}" data-submit-once data-recurring-item-form class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                @csrf
-                <input type="hidden" name="user_id" value="{{ $employee->id }}">
-                <label for="category" class="text-base font-semibold text-slate-900">Item type
-                    <select id="category" name="category" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base"><option value="earning" @selected(old('category', 'earning') === 'earning')>Earning</option><option value="deduction" @selected(old('category') === 'deduction')>Authorized deduction</option></select>
-                    @error('category')<span class="mt-1 block text-sm text-red-700">{{ $message }}</span>@enderror
-                </label>
-                <label for="item_code" class="text-base font-semibold text-slate-900">Item reference
-                    <input id="item_code" name="code" pattern="[A-Za-z0-9_-]+" maxlength="60" value="{{ old('code') }}" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base">
-                    @error('code')<span class="mt-1 block text-sm text-red-700">{{ $message }}</span>@enderror
-                </label>
-                <label for="item_label" class="text-base font-semibold text-slate-900">Payslip description
-                    <input id="item_label" name="label" maxlength="120" value="{{ old('label') }}" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base">
-                    @error('label')<span class="mt-1 block text-sm text-red-700">{{ $message }}</span>@enderror
-                </label>
-                <label for="item_amount" class="text-base font-semibold text-slate-900">Amount per payroll period
-                    <input id="item_amount" name="amount" type="number" inputmode="decimal" min="0.01" max="99999999.99" step="0.01" value="{{ old('amount') }}" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base">
-                    @error('amount')<span class="mt-1 block text-sm text-red-700">{{ $message }}</span>@enderror
-                </label>
-                <label for="item_effective_from" class="text-base font-semibold text-slate-900">Effective from
-                    <input id="item_effective_from" name="effective_from" type="date" value="{{ old('effective_from', now()->toDateString()) }}" required class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base">
-                    @error('effective_from')<span class="mt-1 block text-sm text-red-700">{{ $message }}</span>@enderror
-                </label>
-                <label for="item_effective_to" class="text-base font-semibold text-slate-900">Effective through <span class="font-normal text-slate-600">(optional)</span>
-                    <input id="item_effective_to" name="effective_to" type="date" value="{{ old('effective_to') }}" class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base">
-                    @error('effective_to')<span class="mt-1 block text-sm text-red-700">{{ $message }}</span>@enderror
-                </label>
-                <label for="authorization_reference" class="text-base font-semibold text-slate-900">Deduction authorization reference
-                    <input id="authorization_reference" name="authorization_reference" maxlength="120" value="{{ old('authorization_reference') }}" placeholder="Required for deductions" class="mt-1.5 block min-h-11 w-full rounded-lg border-slate-300 text-base">
-                    @error('authorization_reference')<span class="mt-1 block text-sm text-red-700">{{ $message }}</span>@enderror
-                </label>
-                <div class="sm:col-span-2 xl:col-span-3"><button type="submit" data-loading-label="Saving item..." class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2.5 text-base font-semibold text-white">Save recurring item</button></div>
-            </form>
-        </section>
     </div>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const form = document.querySelector('[data-recurring-item-form]');
-            if (!form) return;
-            const category = form.elements.namedItem('category');
-            const authorization = form.elements.namedItem('authorization_reference');
-            const update = () => {
-                const deduction = category.value === 'deduction';
-                authorization.required = deduction;
-            };
-            category.addEventListener('change', update);
-            update();
-        });
-    </script>
 @endsection
