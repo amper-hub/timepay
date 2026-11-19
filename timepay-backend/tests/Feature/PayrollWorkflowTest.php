@@ -101,6 +101,69 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame(1, $period->fresh()->entries()->count());
     }
 
+    public function test_opening_a_draft_period_starts_with_no_selection_and_hides_unavailable_employees(): void
+    {
+        $eligible = $this->employee('Eligible Weekly Employee');
+        $this->profile($eligible, ['salary_type' => 'monthly', 'pay_frequency' => 'weekly']);
+        $this->rate($eligible, 'monthly', '1200.00');
+
+        $mismatched = $this->employee('Unselected Monthly Employee');
+        $this->profile($mismatched, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($mismatched, 'monthly', '30000.00');
+
+        $period = $this->period($this->company, '2026-10-12', '2026-10-18', 'weekly');
+        $response = $this->actingAs($this->employer)
+            ->get(route('employer.payroll', ['period_id' => $period->id, 'section' => 'details']))
+            ->assertOk()
+            ->assertSee('Eligible Weekly Employee')
+            ->assertSee('No employees selected. Select employees to continue.')
+            ->assertSee('Select all eligible')
+            ->assertSee('Deselect all')
+            ->assertDontSee('Check employee setup before calculating');
+
+        $html = $response->getContent();
+        $this->assertMatchesRegularExpression('/<label data-payroll-employee-row data-eligible="true" data-search="eligible weekly employee[^>]*>.*?<input[^>]*value="'.$eligible->id.'"(?![^>]*checked)/s', $html);
+        $this->assertMatchesRegularExpression('/<label data-payroll-employee-row data-eligible="false" data-search="unselected monthly employee[^>]*hidden[^>]*>.*?Unavailable: The employee pay frequency does not match this payroll period\./s', $html);
+        $this->assertStringContainsString("row.hidden = query ? !matches : row.dataset.eligible !== 'true';", $html);
+        $this->assertStringContainsString('input[name="employee_ids[]"]:not(:disabled)', $html);
+        $this->assertStringContainsString('boxes.forEach((box) => { box.checked = true; });', $html);
+        $this->assertSame(1, $response->viewData('eligibleEmployeeCount'));
+    }
+
+    public function test_server_rejects_inactive_frequency_mismatched_and_incomplete_salary_selections(): void
+    {
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        $inactive = $this->employee('Inactive Selection');
+        $inactive->update(['status' => 'inactive']);
+        $this->profile($inactive, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($inactive, 'monthly', '30000.00');
+
+        $mismatched = $this->employee('Frequency Mismatch Selection');
+        $this->profile($mismatched, ['salary_type' => 'monthly', 'pay_frequency' => 'weekly']);
+        $this->rate($mismatched, 'monthly', '7000.00');
+
+        $missingRate = $this->employee('Salary Coverage Gap Selection');
+        $this->profile($missingRate, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($missingRate, 'monthly', '30000.00', '2026-11-01');
+
+        $partialRate = $this->employee('Partial Salary Coverage Selection');
+        $this->profile($partialRate, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($partialRate, 'monthly', '30000.00', '2026-10-15');
+
+        $excluded = $this->employee('Payroll Disabled Selection');
+        $this->profile($excluded, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly', 'payroll_eligible' => false]);
+        $this->rate($excluded, 'monthly', '30000.00');
+
+        foreach ([$inactive, $mismatched, $missingRate, $partialRate, $excluded] as $employee) {
+            $this->actingAs($this->employer)->postJson(route('employer.payroll.calculate', $period), [
+                'employee_ids' => [$employee->id],
+            ])->assertUnprocessable()->assertJsonValidationErrors('employee_ids');
+        }
+
+        $this->assertSame(0, $period->fresh()->entries()->count());
+    }
+
     public function test_period_generation_rejects_empty_or_cross_company_employee_selection(): void
     {
         $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
@@ -1047,7 +1110,7 @@ class PayrollWorkflowTest extends TestCase
             ->assertSee('View payment history and balances');
     }
 
-    public function test_draft_payroll_shows_company_scoped_employee_setup_warnings(): void
+    public function test_draft_payroll_hides_unavailable_employees_until_searched_and_stays_company_scoped(): void
     {
         $employee = $this->employee('Missing Profile Employee');
         $otherCompany = Company::query()->create(['name' => 'Other Co', 'pay_metric' => 'hourly', 'currency' => 'PHP']);
@@ -1057,10 +1120,12 @@ class PayrollWorkflowTest extends TestCase
         $this->actingAs($this->employer)
             ->get(route('employer.payroll', ['period_id' => $period->id]))
             ->assertOk()
-            ->assertSee('Check employee setup before calculating')
-            ->assertSee('Missing Profile Employee')
-            ->assertSee('Missing pay profile.')
+            ->assertSee('No employees selected. Select employees to continue.')
+            ->assertDontSee('Check employee setup before calculating')
             ->assertDontSee('Other Company Employee');
+
+        $html = $this->get(route('employer.payroll', ['period_id' => $period->id]))->getContent();
+        $this->assertMatchesRegularExpression('/<label data-payroll-employee-row data-eligible="false" data-search="missing profile employee[^>]*hidden[^>]*>.*?Unavailable: Missing pay profile\./s', $html);
     }
 
     public function test_web_period_creation_rejects_an_end_date_before_the_start_date(): void

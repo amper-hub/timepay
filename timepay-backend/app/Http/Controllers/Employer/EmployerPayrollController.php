@@ -110,7 +110,7 @@ class EmployerPayrollController extends Controller
             $employee->setAttribute('payroll_rate_default', $currentRate?->rate);
         });
 
-        $payrollSetupIssues = collect();
+        $employeeSelectionReasons = collect();
         $existingEntryEmployeeIds = [];
         $eligibleEmployeeIds = $employees->filter(fn (User $employee): bool =>
             $employee->status === 'active' && (bool) $employee->payrollProfile?->payroll_eligible
@@ -136,11 +136,17 @@ class EmployerPayrollController extends Controller
             }
 
             $existingEntryEmployeeIds = $selectedPeriod->entries()->pluck('user_id')->map(fn ($id): int => (int) $id)->all();
+            $periodAlreadyHasEntries = $existingEntryEmployeeIds !== [];
+            $eligibleEmployeeIds = collect();
             foreach ($employees as $employee) {
                 $profile = $employee->payrollProfile;
                 $reason = null;
 
-                if (! $profile) {
+                if (strtolower((string) $employee->status) !== 'active') {
+                    $reason = 'Employee is inactive.';
+                } elseif ($periodAlreadyHasEntries) {
+                    $reason = 'Payroll entries already exist for this period.';
+                } elseif (! $profile) {
                     $reason = 'Missing pay profile.';
                 } elseif (in_array((int) $employee->id, $existingEntryEmployeeIds, true)) {
                     $reason = 'Payroll already exists for this employee and period.';
@@ -154,21 +160,19 @@ class EmployerPayrollController extends Controller
                 } elseif ($selectedPeriod->frequency !== 'yearly' && $profile->pay_frequency !== $selectedPeriod->frequency) {
                     $reason = 'The employee pay frequency does not match this payroll period.';
                 } elseif ($selectedPeriod->frequency !== 'yearly') {
-                    $hasEffectiveRate = $employee->compensationHistory->contains(fn ($rate): bool =>
-                        $rate->effective_from->lte($selectedPeriod->period_end)
-                        && (! $rate->effective_to || $rate->effective_to->gte($selectedPeriod->period_start))
-                    );
-                    if (! $hasEffectiveRate) {
-                        $reason = 'No matching pay rate is effective during this period.';
+                    if (! $this->hasSalaryCoverage($employee, $selectedPeriod)) {
+                        $reason = 'A pay rate does not cover the full payroll period.';
                     }
                 }
 
                 if ($reason !== null) {
-                    $payrollSetupIssues->push(['user_id' => (int) $employee->id, 'name' => $employee->name, 'reason' => $reason]);
+                    $employeeSelectionReasons->put((int) $employee->id, $reason);
+                } else {
+                    $eligibleEmployeeIds->push((int) $employee->id);
                 }
             }
 
-            $eligibleEmployeeCount = $eligibleEmployeeIds->diff($payrollSetupIssues->pluck('user_id'))->count();
+            $eligibleEmployeeCount = $eligibleEmployeeIds->count();
         }
 
         return view('employer.payroll', [
@@ -179,7 +183,7 @@ class EmployerPayrollController extends Controller
             'hasReviewFlags' => $hasReviewFlags,
             'hasCriticalReviewFlags' => $hasCriticalReviewFlags,
             'employees' => $employees,
-            'payrollSetupIssues' => $payrollSetupIssues,
+            'employeeSelectionReasons' => $employeeSelectionReasons,
             'existingEntryEmployeeIds' => $existingEntryEmployeeIds,
             'eligibleEmployeeCount' => $eligibleEmployeeCount,
             'payrollSection' => $filters['section'] ?? ($selectedPeriod ? 'details' : 'overview'),
@@ -306,7 +310,7 @@ class EmployerPayrollController extends Controller
             throw ValidationException::withMessages(['employee_ids' => 'Choose each employee only once.']);
         }
         $employees = User::query()->where('company_id', $payrollPeriod->company_id)->whereRaw('LOWER(role) = ?', ['employee'])
-            ->whereIn('id', $employeeIds)->with('payrollProfile')->get();
+            ->whereIn('id', $employeeIds)->with(['payrollProfile', 'compensationHistory'])->get();
         if ($employees->count() !== count($employeeIds)) {
             throw ValidationException::withMessages(['employee_ids' => 'One or more selected employees do not belong to this company.']);
         }
@@ -327,9 +331,8 @@ class EmployerPayrollController extends Controller
                 $reason = 'annual runs require the approved basic pay review flow';
             } elseif ($profile->pay_frequency !== $payrollPeriod->frequency) {
                 $reason = 'pay frequency does not match the period';
-            } elseif (! $employee->compensationHistory()->whereDate('effective_from', '<=', $payrollPeriod->period_end)
-                ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $payrollPeriod->period_start))->exists()) {
-                $reason = 'no salary rate is effective during this period';
+            } elseif (! $this->hasSalaryCoverage($employee, $payrollPeriod)) {
+                $reason = 'salary rates do not cover the full payroll period';
             }
             if ($reason !== null) {
                 throw ValidationException::withMessages(['employee_ids' => "{$employee->name}: {$reason}."]);
@@ -348,7 +351,7 @@ class EmployerPayrollController extends Controller
         $data = $request->validate(['employee_ids' => 'required|array|min:1', 'employee_ids.*' => 'required|integer|distinct']);
         $ids = array_map('intval', $data['employee_ids']);
         $employees = User::query()->where('company_id', $payrollPeriod->company_id)->whereRaw('LOWER(role) = ?', ['employee'])
-            ->whereIn('id', $ids)->with('payrollProfile')->get();
+            ->whereIn('id', $ids)->with(['payrollProfile', 'compensationHistory'])->get();
         if ($employees->count() !== count($ids)) {
             throw ValidationException::withMessages(['employee_ids' => 'One or more selected employees do not belong to this company.']);
         }
@@ -356,8 +359,7 @@ class EmployerPayrollController extends Controller
             $profile = $employee->payrollProfile;
             if (strtolower((string) $employee->status) !== 'active' || ! $profile || ! $profile->payroll_eligible
                 || $profile->pay_frequency !== $payrollPeriod->frequency
-                || ! $employee->compensationHistory()->whereDate('effective_from', '<=', $payrollPeriod->period_end)
-                    ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $payrollPeriod->period_start))->exists()) {
+                || ! $this->hasSalaryCoverage($employee, $payrollPeriod)) {
                 throw ValidationException::withMessages(['employee_ids' => "{$employee->name}: employee is ineligible or has no salary rate for this period."]);
             }
         }
@@ -598,6 +600,27 @@ class EmployerPayrollController extends Controller
         return response()->json(['data' => $items->map(fn (PayrollAudit $audit): array => [
             'action' => $audit->action, 'actor_id' => $audit->actor_id, 'created_at' => $audit->created_at?->toIso8601String(), 'details' => $audit->after_data,
         ])]);
+    }
+
+    private function hasSalaryCoverage(User $employee, PayrollPeriod $period): bool
+    {
+        $rates = $employee->relationLoaded('compensationHistory')
+            ? $employee->compensationHistory
+            : $employee->compensationHistory()->get();
+        $date = $period->period_start->copy()->startOfDay();
+        $lastDate = $period->period_end->copy()->startOfDay();
+
+        while ($date->lte($lastDate)) {
+            $dateKey = $date->toDateString();
+            $covered = $rates->contains(fn ($rate): bool => $rate->effective_from->toDateString() <= $dateKey
+                && (! $rate->effective_to || $rate->effective_to->toDateString() >= $dateKey));
+            if (! $covered) {
+                return false;
+            }
+            $date->addDay();
+        }
+
+        return true;
     }
 
     private function companyId(Request $request): int

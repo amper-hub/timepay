@@ -350,21 +350,6 @@
                         <p class="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-base text-slate-700">The 13th-month amount comes from basic pay in approved payroll snapshots for this calendar year. Review the backend calculation flags before approval.</p>
                     @endif
 
-                    @if ($payrollSetupIssues->isNotEmpty())
-                        <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4" role="status">
-                            <h3 class="font-semibold text-amber-950">Check employee setup before calculating</h3>
-                            <p class="mt-1 text-base text-amber-900">These employees may be excluded from this period under the current payroll settings.</p>
-                            <ul class="mt-3 space-y-2 text-base text-amber-950">
-                                @foreach ($payrollSetupIssues as $issue)
-                                    <li><span class="font-semibold">{{ $issue['name'] }}:</span> {{ $issue['reason'] }}</li>
-                                @endforeach
-                            </ul>
-                            @foreach ($payrollSetupIssues as $issue)
-                                <a href="{{ route('employer.employees.show', ['user' => $issue['user_id']]) }}" class="mt-3 mr-3 inline-flex min-h-11 items-center font-semibold text-amber-950 underline underline-offset-2">Payroll settings for {{ $issue['name'] }}</a>
-                            @endforeach
-                        </div>
-                    @endif
-
                     @if ($activePeriod->status === 'draft')
                         <form id="payroll-generation-form" class="mt-5 space-y-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4" method="POST" action="{{ route('employer.payroll.calculate', $activePeriod) }}" data-submit-once data-confirm="Generate reviewable payroll for only the employees selected below?">
                                 @csrf
@@ -376,28 +361,31 @@
                                     </div>
                                     <label class="text-sm font-semibold text-slate-800">Search employees<input id="payroll-employee-search" type="search" class="mt-1 block min-h-11 w-full rounded-lg border-slate-300 sm:w-64" placeholder="Name, email, or ID"></label>
                                 </div>
-                                @if ($activePeriod->frequency !== 'yearly' && $eligibleEmployeeCount > 0)
+                                @if ($activePeriod->frequency !== 'yearly')
                                     <div class="flex flex-wrap items-center gap-3">
-                                    <button type="button" id="payroll-select-all" class="min-h-10 rounded-lg border border-emerald-800 px-3 py-2 text-sm font-semibold text-emerald-900">Select all eligible</button>
+                                        <button type="button" id="payroll-select-all" class="min-h-10 rounded-lg border border-emerald-800 px-3 py-2 text-sm font-semibold text-emerald-900">Select all eligible</button>
                                         <button type="button" id="payroll-deselect-all" class="min-h-10 rounded-lg border border-slate-400 px-3 py-2 text-sm font-semibold text-slate-800">Deselect all</button>
                                         <p class="text-sm font-semibold text-slate-800"><span id="payroll-selected-count" aria-live="polite">0</span> selected · <span>{{ $eligibleEmployeeCount }}</span> eligible</p>
                                     </div>
                                     <div class="max-h-80 space-y-2 overflow-y-auto rounded-lg border border-emerald-200 bg-white p-3">
                                         @foreach ($employees as $employee)
                                             @php
-                                                $profile = $employee->payrollProfile;
-                                                $alreadyIncluded = in_array((int) $employee->id, $existingEntryEmployeeIds ?? [], true);
-                                                $eligible = ! $alreadyIncluded && $employee->status === 'active' && $profile?->payroll_eligible && $profile->pay_frequency === $activePeriod->frequency && $employee->compensationHistory->contains(fn ($rate) => $rate->effective_from->lte($activePeriod->period_end) && (! $rate->effective_to || $rate->effective_to->gte($activePeriod->period_start)));
+                                                $reason = $employeeSelectionReasons->get((int) $employee->id);
+                                                $eligible = $reason === null;
                                             @endphp
-                                            <label data-payroll-employee-row data-search="{{ strtolower($employee->name.' '.$employee->email.' '.$employee->id) }}" class="flex min-h-12 items-center gap-3 rounded-md border border-slate-200 px-3 py-2 {{ $eligible ? 'cursor-pointer hover:bg-emerald-50' : 'bg-slate-50 text-slate-500' }}">
+                                            <label data-payroll-employee-row data-eligible="{{ $eligible ? 'true' : 'false' }}" data-search="{{ strtolower($employee->name.' '.$employee->email.' '.$employee->id) }}" @if (! $eligible) hidden @endif class="flex min-h-12 items-center gap-3 rounded-md border border-slate-200 px-3 py-2 {{ $eligible ? 'cursor-pointer hover:bg-emerald-50' : 'bg-slate-50 text-slate-500' }}">
                                                 <input type="checkbox" name="employee_ids[]" value="{{ $employee->id }}" @disabled(! $eligible) class="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-700">
-                                                <span class="min-w-0 flex-1"><span class="block font-semibold">{{ $employee->name }} · ID {{ $employee->id }}</span><span class="block truncate text-sm">{{ $employee->email }} · {{ $alreadyIncluded ? 'Payroll already exists for this period' : ($eligible ? 'Eligible' : 'Ineligible for this period') }}</span></span>
+                                                <span class="min-w-0 flex-1"><span class="block font-semibold">{{ $employee->name }} · ID {{ $employee->id }}</span><span class="block truncate text-sm">{{ $employee->email }} · {{ $eligible ? 'Eligible' : 'Unavailable: '.$reason }}</span></span>
                                             </label>
                                         @endforeach
                                     </div>
                                     <div class="rounded-lg border border-white bg-white p-3 text-sm text-slate-700">
                                         <p class="font-semibold">Step 3 · Review before generation</p>
                                         <p class="mt-1">Review basic salary, overtime, gross pay, and estimated net pay before generating. The current attendance model does not record approved overtime hours or rates, so overtime is zero.</p>
+                                        <p id="payroll-no-selection" class="mt-2 font-medium">No employees selected. Select employees to continue.</p>
+                                        @if ($eligibleEmployeeCount === 0)
+                                            <p class="mt-2 text-amber-800">No eligible employees are available for this period. Search an employee to view why they are unavailable.</p>
+                                        @endif
                                         <div id="payroll-preview" class="mt-3 hidden overflow-x-auto"></div>
                                     </div>
                                     <div class="flex flex-wrap gap-3">
@@ -405,7 +393,7 @@
                                         <button id="payroll-generate-button" type="submit" disabled data-loading-label="Generating..." class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2.5 text-base font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">Step 4 · Confirm and generate selected payroll</button>
                                     </div>
                                 @else
-                                    <p class="rounded-lg border border-amber-200 bg-white p-3 text-sm text-amber-900">{{ $activePeriod->frequency === 'yearly' ? 'Annual runs use the existing approved-basic-pay review flow.' : 'No eligible employees are configured for this period.' }}</p>
+                                    <p class="rounded-lg border border-amber-200 bg-white p-3 text-sm text-amber-900">Annual runs use the existing approved-basic-pay review flow.</p>
                                 @endif
                         </form>
                     @elseif ($activePeriod->status === 'pending_review')
@@ -687,24 +675,29 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const payrollForm = document.getElementById('payroll-generation-form');
-            if (payrollForm) {
+            if (payrollForm && document.getElementById('payroll-selected-count')) {
                 const boxes = [...payrollForm.querySelectorAll('input[name="employee_ids[]"]:not(:disabled)')];
                 const count = document.getElementById('payroll-selected-count');
                 const generate = document.getElementById('payroll-generate-button');
                 const previewButton = document.getElementById('payroll-preview-button');
                 const previewContainer = document.getElementById('payroll-preview');
+                const emptySelection = document.getElementById('payroll-no-selection');
                 const updateSelection = () => {
                     const selected = boxes.filter((box) => box.checked).length;
                     count.textContent = String(selected);
+                    emptySelection.hidden = selected > 0;
                     generate.disabled = selected === 0;
                     previewButton.disabled = selected === 0;
                     previewContainer.classList.add('hidden');
                 };
-                document.getElementById('payroll-select-all')?.addEventListener('click', () => { boxes.forEach((box) => { if (box.closest('[data-payroll-employee-row]').hidden === false) box.checked = true; }); updateSelection(); });
+                document.getElementById('payroll-select-all')?.addEventListener('click', () => { boxes.forEach((box) => { box.checked = true; }); updateSelection(); });
                 document.getElementById('payroll-deselect-all')?.addEventListener('click', () => { boxes.forEach((box) => { box.checked = false; }); updateSelection(); });
                 document.getElementById('payroll-employee-search')?.addEventListener('input', (event) => {
                     const query = event.target.value.trim().toLowerCase();
-                    payrollForm.querySelectorAll('[data-payroll-employee-row]').forEach((row) => { row.hidden = !row.dataset.search.includes(query); });
+                    payrollForm.querySelectorAll('[data-payroll-employee-row]').forEach((row) => {
+                        const matches = row.dataset.search.includes(query);
+                        row.hidden = query ? !matches : row.dataset.eligible !== 'true';
+                    });
                 });
                 boxes.forEach((box) => box.addEventListener('change', updateSelection));
                 previewButton.addEventListener('click', async () => {
