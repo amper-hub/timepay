@@ -10,6 +10,7 @@ use App\Http\Controllers\Employer\EmployerGeofenceController;
 use App\Http\Controllers\Employer\EmployerPayrollController;
 use App\Http\Controllers\Employer\LeaveController as EmployerLeaveController;
 use App\Http\Controllers\Employer\SettingsController;
+use App\Http\Controllers\LeaveApplicationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SuperAdmin\AdminUserController;
 use App\Http\Controllers\SuperAdmin\EmployerManagementController;
@@ -29,11 +30,26 @@ Route::get('/', function () {
         return redirect('/super-admin/dashboard');
     }
 
+    if ($user && strtoupper((string) $user->role) === User::ROLE_EMPLOYEE) {
+        return redirect()->route('employee.leaves.index');
+    }
+
     if (! $user) {
         return view('welcome');
     }
 
     return redirect('/employer/dashboard');
+});
+
+Route::middleware(['auth'])->group(function () {
+    Route::get('/employee/leaves', [LeaveApplicationController::class, 'index'])
+        ->name('employee.leaves.index');
+    Route::get('/leave-applications/{leaveRequest}', [LeaveApplicationController::class, 'show'])
+        ->whereNumber('leaveRequest')
+        ->name('leave-applications.show');
+    Route::get('/leave-applications/{leaveRequest}/pdf', [LeaveApplicationController::class, 'download'])
+        ->whereNumber('leaveRequest')
+        ->name('leave-applications.download');
 });
 
 Route::view('/register-employer', 'auth.register-employer')->middleware('guest')->name('employer.register');
@@ -116,6 +132,10 @@ Route::get('/dashboard', function () {
 
     if ($user && $user->isSuperAdmin()) {
         return redirect('/super-admin/dashboard');
+    }
+
+    if ($user && strtoupper((string) $user->role) === User::ROLE_EMPLOYEE) {
+        return redirect()->route('employee.leaves.index');
     }
 
     return redirect('/employer/dashboard');

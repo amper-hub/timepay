@@ -17,6 +17,10 @@ import {
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { fetchLeaveBalance, fetchLeaves, submitLeave } from "../../services/leaveService";
+import {
+  previewAndPrintLeaveApplication,
+  shareLeaveApplication,
+} from "../../services/leaveApplicationService";
 import { getApiErrorMessage } from "../../services/api";
 
 const LEAVE_TYPES = ["Sick", "Vacation", "Emergency", "Unpaid"];
@@ -76,6 +80,8 @@ const LeaveScreen = ({ userSessionData }) => {
   const [form, setForm] = useState(initialForm);
   const [screenError, setScreenError] = useState(null);
   const [leaveBalance, setLeaveBalance] = useState(null);
+  const [activeApplicationId, setActiveApplicationId] = useState(null);
+  const [activeApplicationAction, setActiveApplicationAction] = useState(null);
 
   const balances = useMemo(() => {
     const sickRemaining = leaveBalance?.sick_leave_remaining ?? 0;
@@ -232,6 +238,29 @@ const LeaveScreen = ({ userSessionData }) => {
     }
   }, [form, loadLeaves, validateForm]);
 
+  const handleApplicationAction = useCallback(async (leaveRequestId, action) => {
+    if (activeApplicationId !== null) return;
+
+    setActiveApplicationId(leaveRequestId);
+    setActiveApplicationAction(action);
+
+    try {
+      if (action === "print") {
+        await previewAndPrintLeaveApplication(leaveRequestId);
+      } else {
+        await shareLeaveApplication(leaveRequestId);
+      }
+    } catch (error) {
+      Alert.alert(
+        action === "print" ? "Unable to preview form" : "Unable to share form",
+        error?.message || "Please check your connection and try again."
+      );
+    } finally {
+      setActiveApplicationId(null);
+      setActiveApplicationAction(null);
+    }
+  }, [activeApplicationId]);
+
   const renderLeave = ({ item }) => {
     const status = (item.status || "pending").toLowerCase();
     const badge = statusStyles[status] ?? statusStyles.pending;
@@ -268,6 +297,35 @@ const LeaveScreen = ({ userSessionData }) => {
             <Text style={styles.adminNoteText}>{item.admin_notes}</Text>
           </View>
         ) : null}
+
+        <View style={styles.applicationActions}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`Preview and print ${item.leave_type} leave application`}
+            disabled={activeApplicationId !== null}
+            onPress={() => handleApplicationAction(item.id, "print")}
+            style={[styles.applicationButton, styles.applicationPrintButton, activeApplicationId !== null && styles.applicationButtonDisabled]}
+          >
+            {activeApplicationId === item.id && activeApplicationAction === "print" ? (
+              <ActivityIndicator size="small" color="#047857" />
+            ) : (
+              <Text style={styles.applicationPrintText}>Preview / print</Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`Share or download ${item.leave_type} leave application PDF`}
+            disabled={activeApplicationId !== null}
+            onPress={() => handleApplicationAction(item.id, "share")}
+            style={[styles.applicationButton, styles.applicationShareButton, activeApplicationId !== null && styles.applicationButtonDisabled]}
+          >
+            {activeApplicationId === item.id && activeApplicationAction === "share" ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <Text style={styles.applicationShareText}>Share / download PDF</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
@@ -698,6 +756,41 @@ const styles = StyleSheet.create({
     color: "#475569",
     fontSize: 13,
     lineHeight: 18,
+  },
+  applicationActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 14,
+  },
+  applicationButton: {
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  applicationPrintButton: {
+    borderWidth: 1,
+    borderColor: "#a7f3d0",
+    backgroundColor: "#ecfdf5",
+  },
+  applicationPrintText: {
+    color: "#047857",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  applicationShareButton: {
+    backgroundColor: "#047857",
+  },
+  applicationShareText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  applicationButtonDisabled: {
+    opacity: 0.6,
   },
   centeredState: {
     flex: 1,

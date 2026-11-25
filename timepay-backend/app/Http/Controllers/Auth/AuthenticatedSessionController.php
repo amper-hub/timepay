@@ -36,6 +36,10 @@ class AuthenticatedSessionController extends Controller
             return redirect('/super-admin/dashboard');
         }
 
+        if ($user && strtoupper((string) $user->role) === \App\Models\User::ROLE_EMPLOYEE) {
+            return redirect()->route('employee.leaves.index');
+        }
+
         return redirect('/employer/dashboard');
                 
     }

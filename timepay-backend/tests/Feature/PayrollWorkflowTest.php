@@ -11,11 +11,11 @@ use App\Models\PayrollEntry;
 use App\Models\PayrollEntryLine;
 use App\Models\PayrollPeriod;
 use App\Models\PayrollProfile;
-use App\Models\PayrollProfileItem;
 use App\Models\User;
 use App\Services\PayrollCalculationService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -86,6 +86,7 @@ class PayrollWorkflowTest extends TestCase
             $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
             $this->rate($employee, 'monthly', '30000.00');
         }
+        DB::table('payroll_profiles')->where('user_id', $selected->id)->update(['payroll_eligible' => false]);
         $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
 
         $this->actingAs($this->employer)->post(route('employer.payroll.calculate', $period), [
@@ -177,6 +178,95 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame(0, $period->fresh()->entries()->count());
     }
 
+    public function test_recalculation_keeps_only_the_employees_saved_in_the_original_selection(): void
+    {
+        $employeeA = $this->employee('Selected Employee A');
+        $employeeB = $this->employee('Selected Employee B');
+        $employeeC = $this->employee('Excluded Employee C');
+        foreach ([$employeeA, $employeeB, $employeeC] as $employee) {
+            $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+            $this->rate($employee, 'monthly', '30000.00');
+        }
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        $this->actingAs($this->employer)->post(route('employer.payroll.calculate', $period), [
+            'employee_ids' => [$employeeA->id, $employeeB->id],
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('payroll_entries', ['payroll_period_id' => $period->id, 'user_id' => $employeeA->id]);
+        $this->assertDatabaseHas('payroll_entries', ['payroll_period_id' => $period->id, 'user_id' => $employeeB->id]);
+        $this->assertDatabaseMissing('payroll_entries', ['payroll_period_id' => $period->id, 'user_id' => $employeeC->id]);
+
+        // No employee_ids is the normal draft recalculation request. It must
+        // use the saved entries, never expand to every currently eligible employee.
+        $this->actingAs($this->employer)->post(route('employer.payroll.calculate', $period))->assertRedirect();
+
+        $this->assertEqualsCanonicalizing(
+            [$employeeA->id, $employeeB->id],
+            $period->fresh()->entries()->pluck('user_id')->all(),
+        );
+        $this->assertDatabaseMissing('payroll_entries', ['payroll_period_id' => $period->id, 'user_id' => $employeeC->id]);
+    }
+
+    public function test_pending_recalculation_rejects_empty_or_unavailable_saved_selection(): void
+    {
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly', 'pending_review');
+
+        $this->actingAs($this->employer)->postJson(route('employer.payroll.calculate', $period), ['employee_ids' => []])
+            ->assertUnprocessable()->assertJsonValidationErrors('employee_ids');
+        $this->actingAs($this->employer)->postJson(route('employer.payroll.calculate', $period))
+            ->assertUnprocessable()->assertJsonValidationErrors('employees');
+        $this->assertSame(0, $period->fresh()->entries()->count());
+    }
+
+    public function test_pending_recalculation_rejects_cross_company_employee_ids(): void
+    {
+        $employee = $this->employee('Saved employee');
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($employee, 'monthly', '30000.00');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+        app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id, [$employee->id]);
+
+        $otherCompany = Company::query()->create(['name' => 'Other Payroll Co', 'pay_metric' => 'hourly', 'currency' => 'PHP']);
+        $otherEmployee = $this->employee('Other company employee', $otherCompany);
+
+        $this->actingAs($this->employer)->postJson(route('employer.payroll.calculate', $period), ['employee_ids' => [$otherEmployee->id]])
+            ->assertUnprocessable()->assertJsonValidationErrors('employee_ids');
+        $this->assertEquals([$employee->id], $period->fresh()->entries()->pluck('user_id')->all());
+    }
+
+    public function test_payroll_submission_requires_a_valid_csrf_token_and_authentication(): void
+    {
+        $employee = $this->employee('CSRF Employee');
+        $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly']);
+        $this->rate($employee, 'monthly', '30000.00');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+        $token = str_repeat('a', 40);
+        $this->useStrictCsrfMiddleware();
+
+        $this->actingAs($this->employer)->withSession(['_token' => $token])
+            ->post(route('employer.payroll.calculate', $period), ['_token' => $token, 'employee_ids' => [$employee->id]])
+            ->assertRedirect();
+        $this->assertDatabaseHas('payroll_entries', ['payroll_period_id' => $period->id, 'user_id' => $employee->id]);
+
+        $invalidPeriod = $this->period($this->company, '2026-11-01', '2026-11-30', 'monthly');
+        $this->withSession(['_token' => $token])
+            ->post(route('employer.payroll.calculate', $invalidPeriod), ['_token' => 'invalid-token', 'employee_ids' => [$employee->id]])
+            ->assertStatus(419);
+        $this->assertSame(0, $invalidPeriod->fresh()->entries()->count());
+
+        $this->withSession(['_token' => $token])
+            ->post(route('employer.payroll.calculate', $invalidPeriod), ['employee_ids' => [$employee->id]])
+            ->assertStatus(419);
+        $this->assertSame(0, $invalidPeriod->fresh()->entries()->count());
+
+        $this->app['auth']->forgetGuards();
+        $this->withSession(['_token' => $token])
+            ->post(route('employer.payroll.calculate', $invalidPeriod), ['_token' => $token, 'employee_ids' => [$employee->id]])
+            ->assertRedirect(route('login'));
+        $this->assertSame(0, $invalidPeriod->fresh()->entries()->count());
+    }
+
     public function test_period_generation_cannot_overwrite_existing_entries(): void
     {
         $employee = $this->employee('Existing Payroll Employee');
@@ -198,16 +288,22 @@ class PayrollWorkflowTest extends TestCase
         $employee = $this->employee('Policy Employee');
         $this->profile($employee, ['salary_type' => 'monthly', 'pay_frequency' => 'monthly', 'sss_enabled' => true,
             'philhealth_enabled' => true, 'pagibig_enabled' => true, 'withholding_tax_enabled' => true]);
+        DB::table('payroll_profiles')->where('user_id', $employee->id)->update([
+            'payroll_eligible' => false, 'overtime_eligible' => false, 'sss_enabled' => false,
+            'philhealth_enabled' => false, 'pagibig_enabled' => false,
+        ]);
         $this->rate($employee, 'monthly', '30000.00');
         $oldPeriod = $this->period($this->company, '2026-09-01', '2026-09-30', 'monthly', 'approved');
         $historical = $this->entry($employee, $oldPeriod, '123.45', ['withholding_tax_enabled' => true, 'historical' => 'keep']);
         PayrollEntryLine::query()->create(['payroll_entry_id' => $historical->id, 'category' => 'employee_deduction',
             'code' => 'bir_withholding_tax', 'label' => 'Historical tax', 'amount' => '3.00', 'taxable' => false]);
-        PayrollProfileItem::query()->create(['company_id' => $employee->company_id, 'user_id' => $employee->id, 'category' => 'earning',
-            'code' => 'bonus', 'label' => 'Recurring bonus', 'amount' => '500.00', 'taxable' => true, 'effective_from' => '2026-10-01']);
-        PayrollProfileItem::query()->create(['company_id' => $employee->company_id, 'user_id' => $employee->id, 'category' => 'deduction',
-            'code' => 'loan', 'label' => 'Authorized loan', 'amount' => '100.00', 'taxable' => false,
-            'authorization_reference' => 'AUTH-1', 'effective_from' => '2026-10-01']);
+        DB::table('payroll_profile_items')->insert([
+            ['company_id' => $employee->company_id, 'user_id' => $employee->id, 'category' => 'earning', 'code' => 'bonus',
+                'label' => 'Recurring bonus', 'amount' => '500.00', 'taxable' => true, 'effective_from' => '2026-10-01', 'authorization_reference' => null, 'created_at' => now(), 'updated_at' => now()],
+            ['company_id' => $employee->company_id, 'user_id' => $employee->id, 'category' => 'deduction', 'code' => 'loan',
+                'label' => 'Authorized loan', 'amount' => '100.00', 'taxable' => false, 'authorization_reference' => 'AUTH-1',
+                'effective_from' => '2026-10-01', 'created_at' => now(), 'updated_at' => now()],
+        ]);
         $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
 
         $entry = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id, [$employee->id])->entries->sole();
@@ -222,6 +318,8 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame(0, $entry->lines()->where('code', 'bir_withholding_tax')->count());
         $this->assertSame('keep', data_get($historical->fresh()->calculation_snapshot, 'historical'));
         $this->assertDatabaseHas('payroll_entry_lines', ['payroll_entry_id' => $historical->id, 'code' => 'bir_withholding_tax', 'amount' => '3.00']);
+        $this->assertArrayNotHasKey('overtime_eligible', data_get($entry->calculation_snapshot, 'payroll_profile_snapshot'));
+        $this->assertArrayNotHasKey('sss_enabled', data_get($entry->calculation_snapshot, 'payroll_profile_snapshot'));
     }
 
     public function test_regular_payroll_preview_matches_policy_and_does_not_create_entries(): void
@@ -244,6 +342,7 @@ class PayrollWorkflowTest extends TestCase
     {
         $employee = $this->employee('Annual Pay Employee');
         $this->profile($employee, ['pay_frequency' => 'monthly', 'rank_and_file' => true]);
+        DB::table('payroll_profiles')->where('user_id', $employee->id)->update(['payroll_eligible' => false, 'rank_and_file' => false]);
         $approvedPeriod = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly', 'approved');
         $approvedEntry = $this->entry($employee, $approvedPeriod, '1000.06');
         $approvedEntry->lines()->create([
@@ -259,6 +358,8 @@ class PayrollWorkflowTest extends TestCase
 
         $this->assertSame('83.34', $entry->gross_pay);
         $this->assertSame('0.00', $entry->employee_deductions);
+        $this->assertSame($entry->gross_pay, $entry->net_pay);
+        $this->assertSame(0, $entry->lines()->where('code', 'bir_withholding_tax')->count());
         $this->assertSame('1000.06', data_get($entry->calculation_snapshot, 'basic_salary_in_approved_runs'));
         $this->assertSame('2026-01-01', $calculated->period_start->toDateString());
         $this->assertContains('13th_month_uses_approved_basic_pay_snapshots', $entry->review_flags);
@@ -288,7 +389,7 @@ class PayrollWorkflowTest extends TestCase
 
         $this->postJson("/api/employer/payroll/periods/{$period->id}/approve")->assertUnprocessable()->assertJsonValidationErrors('review_note');
         $this->postJson("/api/employer/payroll/periods/{$period->id}/approve", [
-            'review_note' => 'Reviewed the separated employee’s final 13th-month calculation.',
+            'review_note' => 'Reviewed the separated employeeâ€™s final 13th-month calculation.',
         ])->assertUnprocessable()->assertJsonValidationErrors('payroll');
 
         $this->assertSame('inactive', $employee->fresh()->status);
@@ -522,6 +623,24 @@ class PayrollWorkflowTest extends TestCase
         $this->postJson("/api/employer/payroll/periods/{$period->id}/approve", [
             'review_note' => 'Incomplete attendance and overtime reviewed.',
         ])->assertUnprocessable()->assertJsonValidationErrors('payroll');
+    }
+
+    public function test_legacy_overtime_eligibility_does_not_disable_overtime_calculation_or_add_a_flag(): void
+    {
+        $employee = $this->employee('Legacy overtime setting employee');
+        $this->profile($employee, ['salary_type' => 'hourly', 'pay_frequency' => 'monthly', 'standard_hours_per_day' => 8]);
+        $this->rate($employee, 'hourly', '20.00');
+        DB::table('payroll_profiles')->where('user_id', $employee->id)->update(['overtime_eligible' => false]);
+        $this->attendance($employee, '2026-10-12 08:00:00', 'clock_in');
+        $this->attendance($employee, '2026-10-12 17:00:00', 'clock_out');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly');
+
+        $entry = app(PayrollCalculationService::class)->calculate($period, (int) $this->employer->id, [$employee->id])->entries->sole();
+
+        $this->assertNotContains('overtime_eligibility_disabled', $entry->review_flags);
+        $this->assertContains('long_shift_overtime_requires_approval', $entry->review_flags);
+        $this->assertSame(0, data_get($entry->calculation_snapshot, 'overtime_pay_cents'));
+        $this->assertSame($entry->gross_pay, $entry->net_pay);
     }
 
     public function test_flagged_or_rejected_attendance_blocks_approval(): void
@@ -1005,7 +1124,6 @@ class PayrollWorkflowTest extends TestCase
             $this->assertGreaterThan(0, (float) $entry->employer_contributions);
             $this->assertSame($entry->gross_pay, $entry->net_pay);
         }
-        $this->assertContains('unsupported_payroll_rule_requires_review', $calculated->entries->first()->review_flags);
         $this->assertSame('2025-01-01', data_get($calculated->entries->first()->calculation_snapshot, 'statutory_rules.sss.effective_from'));
     }
 
@@ -1053,7 +1171,7 @@ class PayrollWorkflowTest extends TestCase
         $this->get($response->headers->get('Location'))->assertOk()->assertSee('Employee register');
     }
 
-    public function test_payroll_page_shows_the_simple_summary_and_first_run_empty_state(): void
+    public function test_payroll_page_starts_with_the_four_step_single_page_wizard(): void
     {
         $this->employee('Setup check employee');
 
@@ -1066,6 +1184,14 @@ class PayrollWorkflowTest extends TestCase
             ->assertSee('Gross payroll')
             ->assertDontSee('Total deductions')
             ->assertSee('Net payroll')
+            ->assertSee('Payroll workflow progress')
+            ->assertSee('Select period')
+            ->assertSee('Choose a payroll period')
+            ->assertSee('Select employees')
+            ->assertSee('Review and approve')
+            ->assertSee('Track payments')
+            ->assertSee('payroll-wizard-back')
+            ->assertSee('payroll-wizard-next')
             ->assertDontSee('Employer payroll cost');
 
         $this->get(route('employer.payroll', ['section' => 'periods']))
@@ -1077,9 +1203,10 @@ class PayrollWorkflowTest extends TestCase
         $this->get(route('employer.employees.show', User::query()->where('name', 'Setup check employee')->firstOrFail()))
             ->assertOk()
             ->assertSee('1. Pay profile')
-            ->assertSee('2. Payroll eligibility')
+            ->assertDontSee('Eligibility and contributions')
             ->assertDontSee('Recurring earnings and deductions')
-            ->assertDontSee('Employee deductions');
+            ->assertDontSee('Save eligibility and contribution settings')
+            ->assertDontSee('Save recurring item');
     }
 
     public function test_payroll_page_uses_calculated_period_values_and_shows_review_warnings(): void
@@ -1104,7 +1231,7 @@ class PayrollWorkflowTest extends TestCase
             ->assertSee($this->company->formatMoney('115.50'))
             ->assertSee('Review flags before approval')
             ->assertSee('This work interval overlaps an existing payroll allocation. Review the prior allocation and ensure the same attendance time is not paid twice before recalculating.')
-            ->assertSee('Employee is inactive. Ordinary payroll approval is blocked; review the employee’s outstanding pay separately.')
+            ->assertSee('Employee is inactive. Ordinary payroll approval is blocked; review the employeeâ€™s outstanding pay separately.')
             ->assertSee('Review note')
             ->assertSee('Approval is blocked until critical issues are corrected and the period is recalculated.')
             ->assertSee('View payment history and balances');
@@ -1168,27 +1295,34 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame('2026-10-16', $rate->effective_from->toDateString());
     }
 
-    public function test_recurring_item_records_are_preserved_but_profile_ui_and_write_endpoint_are_removed(): void
+    public function test_legacy_recurring_item_endpoint_is_removed(): void
     {
         $employee = $this->employee('Recurring item employee');
-        $item = PayrollProfileItem::query()->create([
+        DB::table('payroll_profile_items')->insert([
             'company_id' => $employee->company_id, 'user_id' => $employee->id, 'category' => 'deduction',
-            'code' => 'equipment_recovery', 'label' => 'Equipment recovery', 'amount' => '50.00',
-            'taxable' => false, 'authorization_reference' => 'SIGNED-AUTH-100', 'effective_from' => '2026-10-15',
+            'code' => 'equipment_recovery', 'label' => 'Equipment recovery', 'amount' => '50.00', 'taxable' => false,
+            'authorization_reference' => 'SIGNED-AUTH-100', 'effective_from' => '2026-10-15',
+            'created_by' => $this->employer->id, 'created_at' => now(), 'updated_at' => now(),
         ]);
-
+        $this->actingAs($this->employer)->get(route('employer.employees.show', $employee))
+            ->assertOk()->assertDontSee('Recurring earnings and deductions')->assertDontSee('equipment_recovery');
         $this->actingAs($this->employer)
-            ->get(route('employer.employees.show', $employee))->assertOk()
-            ->assertDontSee('Recurring earnings and deductions')
-            ->assertDontSee('equipment_recovery')
-            ->assertDontSee('authorized deduction');
+            ->post('/employer/payroll/profile-items', [
+                'user_id' => $employee->id, 'category' => 'deduction', 'code' => 'equipment_recovery',
+                'label' => 'Equipment recovery', 'amount' => '50.00', 'authorization_reference' => 'SIGNED-AUTH-100',
+                'effective_from' => '2026-10-15',
+            ])->assertNotFound();
 
-        $this->actingAs($this->employer)->post('/employer/payroll/profile-items', [
-            'user_id' => $employee->id, 'category' => 'deduction', 'code' => 'new_deduction',
-            'label' => 'New deduction', 'amount' => '50.00', 'effective_from' => '2026-10-15',
+        Sanctum::actingAs($this->employer);
+        $this->postJson("/api/employer/payroll/profiles/{$employee->id}/items", [
+            'category' => 'earning', 'code' => 'legacy_bonus', 'label' => 'Legacy bonus',
+            'amount' => '10.00', 'effective_from' => '2026-10-15',
         ])->assertNotFound();
 
-        $this->assertDatabaseHas('payroll_profile_items', ['id' => $item->id, 'authorization_reference' => 'SIGNED-AUTH-100']);
+        $this->assertDatabaseHas('payroll_profile_items', [
+            'company_id' => $employee->company_id, 'user_id' => $employee->id,
+            'code' => 'equipment_recovery', 'authorization_reference' => 'SIGNED-AUTH-100',
+        ]);
     }
 
     public function test_payroll_period_status_filter_shows_only_matching_periods(): void
@@ -1287,6 +1421,44 @@ class PayrollWorkflowTest extends TestCase
         $this->assertDatabaseCount('payroll_payments', 2);
     }
 
+    public function test_individual_payments_only_update_the_target_employee_and_period_totals(): void
+    {
+        $employeeA = $this->employee('Payment Employee A');
+        $employeeB = $this->employee('Payment Employee B');
+        $period = $this->period($this->company, '2026-10-01', '2026-10-31', 'monthly', 'approved');
+        $entryA = $this->entry($employeeA, $period, '100.00');
+        $entryB = $this->entry($employeeB, $period, '100.00');
+        Sanctum::actingAs($this->employer);
+
+        $this->postJson("/api/employer/payroll/entries/{$entryA->id}/payments", [
+            'amount' => '100.00', 'payment_date' => '2026-10-15', 'method' => 'manual_cash', 'reference_number' => 'PAY-A-1',
+        ])->assertOk();
+
+        $this->assertSame('100.00', $entryA->fresh()->amount_paid);
+        $this->assertSame('0.00', $entryB->fresh()->amount_paid);
+        $this->assertSame('partially_paid', $period->fresh()->status);
+        $this->assertSame('100.00', $period->fresh()->paid_total);
+
+        $partial = ['amount' => '40.00', 'payment_date' => '2026-10-15', 'method' => 'manual_bank_deposit', 'reference_number' => 'PAY-B-1'];
+        $this->postJson("/api/employer/payroll/entries/{$entryB->id}/payments", $partial)->assertOk();
+        $this->postJson("/api/employer/payroll/entries/{$entryB->id}/payments", $partial)->assertUnprocessable();
+
+        $this->assertSame('100.00', $entryA->fresh()->amount_paid);
+        $this->assertSame('40.00', $entryB->fresh()->amount_paid);
+        $this->assertSame('partially_paid', $period->fresh()->status);
+        $this->assertSame('140.00', $period->fresh()->paid_total);
+
+        $this->postJson("/api/employer/payroll/entries/{$entryB->id}/payments", [
+            ...$partial, 'amount' => '60.00', 'reference_number' => 'PAY-B-2',
+        ])->assertOk();
+
+        $this->assertSame('100.00', $entryA->fresh()->amount_paid);
+        $this->assertSame('100.00', $entryB->fresh()->amount_paid);
+        $this->assertSame('paid', $period->fresh()->status);
+        $this->assertSame('200.00', $period->fresh()->paid_total);
+        $this->assertDatabaseCount('payroll_payments', 3);
+    }
+
     public function test_employee_payslips_use_frozen_identity_and_reject_cross_company_access(): void
     {
         $employee = $this->employee('Original Employee Name');
@@ -1312,7 +1484,7 @@ class PayrollWorkflowTest extends TestCase
         $this->getJson('/api/employee/payroll/ytd?as_of=2026-10-31')->assertOk()
             ->assertJsonPath('data.gross_pay', '125.50')
             ->assertJsonPath('data.taxable_compensation', '125.50')
-            ->assertJsonPath('data.formatted_taxable_compensation', '₱ 125.50');
+            ->assertJsonPath('data.formatted_taxable_compensation', 'â‚± 125.50');
 
         $otherCompany = Company::query()->create(['name' => 'Other Co', 'pay_metric' => 'hourly', 'currency' => 'PHP']);
         $otherEmployee = $this->employee('Other Employee', $otherCompany);
@@ -1406,45 +1578,44 @@ class PayrollWorkflowTest extends TestCase
         $this->assertDatabaseHas('payroll_compensation_histories', ['user_id' => $employeeId, 'basis' => 'daily', 'rate' => '900.00']);
     }
 
-    public function test_employee_settings_hide_tax_controls_and_ignore_legacy_tax_updates(): void
+    public function test_employee_settings_hide_tax_controls_and_reject_obsolete_profile_updates(): void
     {
         $employee = $this->employee('Legacy tax profile employee');
         $profile = $this->profile($employee, ['withholding_tax_enabled' => true]);
 
         $this->actingAs($this->employer)->get(route('employer.employees.show', $employee))
-            ->assertOk()->assertDontSee('Withholding tax')->assertDontSee('Taxable earning')
-            ->assertDontSee('Employer SSS contribution')->assertDontSee('Employer PhilHealth contribution')
-            ->assertDontSee('Employer Pag-IBIG contribution')->assertDontSee('Recurring earnings and deductions')
-            ->assertDontSee('Save recurring item')->assertDontSee('Deduction authorization reference');
+            ->assertOk()->assertDontSee('Withholding tax')->assertDontSee('Taxable earning');
         $this->actingAs($this->employer)->patch('/employer/payroll/profiles?section=settings', [
-            'user_id' => $employee->id, 'payroll_eligible' => '1', 'withholding_tax_enabled' => '0',
-        ])->assertRedirect(route('employer.employees.show', $employee));
+            'user_id' => $employee->id, 'payroll_eligible' => '0', 'withholding_tax_enabled' => '0',
+        ])->assertSessionHasErrors('payroll_eligible');
 
         $this->assertTrue((bool) $profile->fresh()->withholding_tax_enabled, 'Legacy tax settings must be preserved when omitted from the UI.');
     }
 
-    public function test_legacy_contribution_inputs_are_ignored_without_touching_compensation(): void
+    public function test_obsolete_profile_flags_cannot_be_modified_through_the_profile_endpoint(): void
     {
         $employee = $this->employee('Eligibility Employee');
         $profile = $this->profile($employee, [
-            'sss_enabled' => true,
-            'philhealth_enabled' => true,
-            'pagibig_enabled' => true,
             'withholding_tax_enabled' => true,
+        ]);
+        DB::table('payroll_profiles')->where('user_id', $employee->id)->update([
+            'payroll_eligible' => true, 'overtime_eligible' => true, 'rank_and_file' => true,
+            'sss_enabled' => true, 'philhealth_enabled' => true, 'pagibig_enabled' => true,
         ]);
 
         $this->actingAs($this->employer)->patch('/employer/payroll/profiles?section=settings', [
             'user_id' => $employee->id,
+            'payroll_eligible' => '0', 'overtime_eligible' => '0', 'rank_and_file' => '0',
             'sss_enabled' => '0',
-            'philhealth_enabled' => null,
+            'philhealth_enabled' => '0',
             'pagibig_enabled' => '0',
-        ])->assertRedirect(route('employer.employees.show', $employee));
+        ])->assertSessionHasErrors('payroll_eligible');
 
-        $profile->refresh();
-        $this->assertTrue($profile->sss_enabled);
-        $this->assertTrue($profile->philhealth_enabled);
-        $this->assertTrue($profile->pagibig_enabled);
-        $this->assertTrue($profile->withholding_tax_enabled, 'Legacy employee tax data is preserved and no longer controls regular payroll.');
+        $this->assertDatabaseHas('payroll_profiles', [
+            'user_id' => $employee->id, 'payroll_eligible' => true, 'overtime_eligible' => true,
+            'rank_and_file' => true, 'sss_enabled' => true, 'philhealth_enabled' => true, 'pagibig_enabled' => true,
+        ]);
+        $this->assertTrue((bool) $profile->fresh()->withholding_tax_enabled);
         $this->assertDatabaseCount('payroll_compensation_histories', 0);
     }
 
@@ -1500,6 +1671,19 @@ class PayrollWorkflowTest extends TestCase
             'status' => $status,
             'created_by' => $this->employer->id,
         ]);
+    }
+
+    private function useStrictCsrfMiddleware(): void
+    {
+        $middleware = new class(app(), app('encrypter')) extends ValidateCsrfToken
+        {
+            protected function runningUnitTests(): bool
+            {
+                return false;
+            }
+        };
+
+        app()->instance(ValidateCsrfToken::class, $middleware);
     }
 
     private function entry(User $employee, PayrollPeriod $period, string $netPay, array $snapshot = []): PayrollEntry

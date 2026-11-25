@@ -98,7 +98,7 @@ class EmployerPayrollController extends Controller
             ->whereDate('pay_date', '>=', now()->toDateString())->orderBy('pay_date')->limit(5)->get();
 
         $employees = User::query()->where('company_id', $companyId)->whereRaw('LOWER(role) = ?', ['employee'])
-            ->with(['payrollProfile', 'compensationHistory', 'payrollProfile.items'])->orderBy('name')
+            ->with(['payrollProfile', 'compensationHistory'])->orderBy('name')
             ->get(['id', 'name', 'email', 'status', 'hourly_rate', 'daily_rate']);
         $today = Carbon::today(config('app.timezone'));
         $employees->each(function (User $employee) use ($today): void {
@@ -112,9 +112,9 @@ class EmployerPayrollController extends Controller
 
         $employeeSelectionReasons = collect();
         $existingEntryEmployeeIds = [];
-        $eligibleEmployeeIds = $employees->filter(fn (User $employee): bool =>
-            $employee->status === 'active' && (bool) $employee->payrollProfile?->payroll_eligible
-        )->pluck('id');
+        $eligibleEmployeeIds = $selectedPeriod?->frequency === 'yearly'
+            ? $employees->pluck('id')
+            : $employees->filter(fn (User $employee): bool => $employee->status === 'active' && $employee->payrollProfile !== null)->pluck('id');
         $eligibleEmployeeCount = $eligibleEmployeeIds->count();
 
         if ($selectedPeriod?->calculated_at) {
@@ -122,6 +122,7 @@ class EmployerPayrollController extends Controller
         }
 
         if ($selectedPeriod && ! $selectedPeriod->calculated_at) {
+            $eligibleEmployeeIds = collect();
             $approvedBasicPayEmployeeIds = [];
             if ($selectedPeriod->frequency === 'yearly') {
                 $year = $selectedPeriod->period_start->format('Y');
@@ -136,27 +137,19 @@ class EmployerPayrollController extends Controller
             }
 
             $existingEntryEmployeeIds = $selectedPeriod->entries()->pluck('user_id')->map(fn ($id): int => (int) $id)->all();
-            $periodAlreadyHasEntries = $existingEntryEmployeeIds !== [];
-            $eligibleEmployeeIds = collect();
             foreach ($employees as $employee) {
                 $profile = $employee->payrollProfile;
                 $reason = null;
 
-                if (strtolower((string) $employee->status) !== 'active') {
+                if (strtolower((string) $employee->status) !== 'active' && $selectedPeriod->frequency !== 'yearly') {
                     $reason = 'Employee is inactive.';
-                } elseif ($periodAlreadyHasEntries) {
-                    $reason = 'Payroll entries already exist for this period.';
-                } elseif (! $profile) {
-                    $reason = 'Missing pay profile.';
                 } elseif (in_array((int) $employee->id, $existingEntryEmployeeIds, true)) {
                     $reason = 'Payroll already exists for this employee and period.';
-                } elseif (! $profile->payroll_eligible) {
-                    $reason = 'Payroll is turned off in this employee\'s settings.';
-                } elseif ($selectedPeriod->frequency === 'yearly' && ! $profile->rank_and_file) {
-                    $reason = 'The employee is not marked as rank-and-file for a 13th-month run.';
                 } elseif ($selectedPeriod->frequency === 'yearly'
                     && ! in_array((int) $employee->id, $approvedBasicPayEmployeeIds, true)) {
                     $reason = 'No approved basic pay is recorded for this calendar year.';
+                } elseif ($selectedPeriod->frequency !== 'yearly' && ! $profile) {
+                    $reason = 'Missing pay profile.';
                 } elseif ($selectedPeriod->frequency !== 'yearly' && $profile->pay_frequency !== $selectedPeriod->frequency) {
                     $reason = 'The employee pay frequency does not match this payroll period.';
                 } elseif ($selectedPeriod->frequency !== 'yearly') {
@@ -186,7 +179,7 @@ class EmployerPayrollController extends Controller
             'employeeSelectionReasons' => $employeeSelectionReasons,
             'existingEntryEmployeeIds' => $existingEntryEmployeeIds,
             'eligibleEmployeeCount' => $eligibleEmployeeCount,
-            'payrollSection' => $filters['section'] ?? ($selectedPeriod ? 'details' : 'overview'),
+            'payrollSection' => $filters['section'] ?? ($selectedPeriod ? 'details' : 'periods'),
             'deadlines' => $deadlines,
             'filters' => $filters,
         ]);
@@ -325,8 +318,8 @@ class EmployerPayrollController extends Controller
             $reason = null;
             if (strtolower((string) $employee->status) !== 'active') {
                 $reason = 'employee is not active';
-            } elseif (! $profile || ! $profile->payroll_eligible) {
-                $reason = 'payroll is not enabled';
+            } elseif (! $profile) {
+                $reason = 'pay profile is missing';
             } elseif ($payrollPeriod->frequency === 'yearly') {
                 $reason = 'annual runs require the approved basic pay review flow';
             } elseif ($profile->pay_frequency !== $payrollPeriod->frequency) {
@@ -357,7 +350,7 @@ class EmployerPayrollController extends Controller
         }
         foreach ($employees as $employee) {
             $profile = $employee->payrollProfile;
-            if (strtolower((string) $employee->status) !== 'active' || ! $profile || ! $profile->payroll_eligible
+            if (strtolower((string) $employee->status) !== 'active' || ! $profile
                 || $profile->pay_frequency !== $payrollPeriod->frequency
                 || ! $this->hasSalaryCoverage($employee, $payrollPeriod)) {
                 throw ValidationException::withMessages(['employee_ids' => "{$employee->name}: employee is ineligible or has no salary rate for this period."]);
@@ -391,7 +384,7 @@ class EmployerPayrollController extends Controller
             $amountCents = $this->toCents($data['amount']);
             $remaining = $this->toCents($entry->net_pay) - $this->toCents($entry->amount_paid);
             if ($amountCents <= 0 || $amountCents > $remaining) {
-                throw ValidationException::withMessages(['amount' => 'Payment must be positive and cannot exceed the employee’s remaining balance.']);
+                throw ValidationException::withMessages(['amount' => 'Payment must be positive and cannot exceed the employeeâ€™s remaining balance.']);
             }
             if (! empty($data['reference_number']) && PayrollPayment::query()->where('company_id', $entry->company_id)->where('reference_number', $data['reference_number'])->exists()) {
                 throw ValidationException::withMessages(['reference_number' => 'That payment reference has already been recorded.']);
@@ -462,8 +455,10 @@ class EmployerPayrollController extends Controller
             'hourly_rate' => 'nullable|numeric|min:0|max:999999.99', 'daily_rate' => 'nullable|numeric|min:0|max:999999.99',
             'pay_frequency' => 'sometimes|in:hourly,daily,weekly,semimonthly,monthly,yearly',
             'effective_from' => 'nullable|date', 'payment_method' => 'nullable|in:manual_cash,manual_bank_deposit,manual_cheque',
-            'overtime_eligible' => 'sometimes|nullable|boolean', 'payroll_eligible' => 'sometimes|nullable|boolean', 'rank_and_file' => 'sometimes|nullable|boolean',
+            'overtime_eligible' => 'prohibited', 'payroll_eligible' => 'prohibited', 'rank_and_file' => 'prohibited',
+            'withholding_tax_enabled' => 'prohibited',
             'standard_hours_per_day' => 'sometimes|integer|min:1|max:24', 'standard_work_days_per_month' => 'sometimes|integer|min:1|max:31',
+            'sss_enabled' => 'prohibited', 'philhealth_enabled' => 'prohibited', 'pagibig_enabled' => 'prohibited',
         ]);
         $profile = PayrollProfile::query()->firstOrCreate(
             ['user_id' => $user->id], ['company_id' => $companyId, 'salary_type' => 'hourly', 'pay_frequency' => 'monthly'],
@@ -490,7 +485,7 @@ class EmployerPayrollController extends Controller
         }
 
         $profileValues = collect($data)->only([
-            'pay_frequency', 'overtime_eligible', 'payroll_eligible', 'rank_and_file', 'standard_hours_per_day', 'standard_work_days_per_month',
+            'pay_frequency', 'standard_hours_per_day', 'standard_work_days_per_month',
         ])->reject(fn ($value): bool => $value === null)->all();
         $profile->fill($profileValues)->save();
         if (array_key_exists('payment_method', $data)) {

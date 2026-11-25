@@ -25,7 +25,7 @@
             'yearly' => '13th-month run',
         ];
         $reviewFlagLabels = [
-            'employee_status_requires_review' => 'Employee is inactive. Ordinary payroll approval is blocked; review the employee’s outstanding pay separately.',
+            'employee_status_requires_review' => 'Employee is inactive. Ordinary payroll approval is blocked; review the employeeâ€™s outstanding pay separately.',
             'attendance_already_used_or_paid' => 'One or more linked attendance records are already paid or assigned to another payroll. Review the linked attendance and payment history.',
             'attendance_allocation_overlap_requires_review' => 'This work interval overlaps an existing payroll allocation. Review the prior allocation and ensure the same attendance time is not paid twice before recalculating.',
             'duplicate_attendance_requires_review' => 'Duplicate attendance timestamps were found. Review and correct the attendance records, then recalculate.',
@@ -35,7 +35,7 @@
             'invalid_attendance_requires_review' => 'Attendance has a rejected, flagged, suspicious, or invalid timestamp/type record. Resolve the attendance issue and recalculate.',
             'unsupported_payroll_rule_requires_review' => 'A required statutory rule is missing for this pay period. Configure and verify the effective rule before approval.',
             'missing_statutory_input_requires_review' => 'A legacy payroll snapshot is missing a required rule. Review the historical calculation before approval.',
-            'missing_effective_pay_rate' => 'No applicable compensation rate covers part of this employee’s payable period. Review the rate and effective dates, then recalculate.',
+            'missing_effective_pay_rate' => 'No applicable compensation rate covers part of this employeeâ€™s payable period. Review the rate and effective dates, then recalculate.',
             'missing_effective_hourly_rate' => 'No hourly rate covers part of a payable shift. Review compensation history and effective dates, then recalculate.',
             'zero_compensation_rate_requires_review' => 'A zero compensation rate applies to payable work. Correct the rate explicitly and recalculate.',
             'long_shift_overtime_requires_approval' => 'A shift exceeds the configured standard hours and overtime is not separately calculated. Verify hours and applicable overtime pay before recalculating.',
@@ -49,6 +49,9 @@
             'inactive_employee_13th_month_requires_review' => 'This employee is inactive. Review this separate 13th-month amount as final pay; the account remains deactivated.',
         ];
         $criticalReviewFlags = \App\Support\PayrollReviewFlags::critical();
+        $wizardStep = $payrollSection === 'periods' || $payrollSection === 'overview'
+            ? 1
+            : ($payrollSection === 'payments' ? 4 : (($activePeriod?->status === 'draft' || ! $activePeriod) ? 2 : 3));
     @endphp
 
     <style>
@@ -81,18 +84,16 @@
             </div>
         @endif
 
-        <nav aria-label="Payroll sections" class="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1.5 sm:flex sm:overflow-x-auto">
-            @foreach ([
-                'overview' => 'Overview',
-                'periods' => 'Payroll periods',
-                'payments' => 'Payments and history',
-            ] as $section => $label)
-                <a href="{{ route('employer.payroll', array_filter(['section' => $section, 'period_id' => in_array($section, ['payments'], true) ? $activePeriod?->id : null])) }}"
-                    @if ($payrollSection === $section) aria-current="page" @endif
-                    class="inline-flex min-h-10 w-full items-center justify-center rounded-lg px-2 py-2 text-center text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 sm:w-auto sm:shrink-0 sm:justify-start sm:px-3 sm:text-left {{ $payrollSection === $section ? 'bg-emerald-50 text-emerald-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' }}">{{ $label }}</a>
-            @endforeach
+        <nav aria-label="Payroll workflow progress" class="rounded-xl border border-slate-200 bg-white p-3">
+            <ol class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                @foreach ([1 => 'Select period', 2 => 'Select employees', 3 => 'Review and approve', 4 => 'Track payments'] as $step => $label)
+                    <li data-wizard-progress="{{ $step }}" aria-current="{{ $wizardStep === $step ? 'step' : 'false' }}" class="rounded-lg px-3 py-2 text-sm font-semibold {{ $wizardStep === $step ? 'bg-emerald-100 text-emerald-950' : ($wizardStep > $step ? 'bg-slate-100 text-slate-700' : 'text-slate-500') }}"><span class="mr-1">{{ $step }}.</span>{{ $label }}</li>
+                @endforeach
+            </ol>
         </nav>
+        <div id="payroll-wizard-message" class="hidden rounded-lg px-4 py-3 text-sm" role="status" aria-live="polite"></div>
 
+        <div id="payroll-wizard-panel" data-wizard-step="{{ $wizardStep }}" data-period-id="{{ $activePeriod?->id ?? '' }}" aria-live="polite">
         @if ($payrollSection === 'overview')
         <section class="space-y-4">
         <h2 class="employer-section-heading">Payroll overview</h2>
@@ -130,8 +131,8 @@
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <p class="text-sm font-semibold text-slate-600">Selected payroll period</p>
-                        <p class="mt-1 text-lg font-semibold text-slate-950">{{ $activePeriod->period_start->format('M d, Y') }} – {{ $activePeriod->period_end->format('M d, Y') }}</p>
-                        <p class="mt-1 text-sm text-slate-600">{{ $frequencyLabels[$activePeriod->frequency] ?? 'Payroll' }} · {{ $statusLabels[$activePeriod->status] ?? 'Needs review' }}</p>
+                        <p class="mt-1 text-lg font-semibold text-slate-950">{{ $activePeriod->period_start->format('M d, Y') }} â€“ {{ $activePeriod->period_end->format('M d, Y') }}</p>
+                        <p class="mt-1 text-sm text-slate-600">{{ $frequencyLabels[$activePeriod->frequency] ?? 'Payroll' }} Â· {{ $statusLabels[$activePeriod->status] ?? 'Needs review' }}</p>
                     </div>
                     <a href="{{ route('employer.payroll', ['section' => 'details', 'period_id' => $activePeriod->id]) }}" class="employer-secondary-button">Open period details</a>
                 </div>
@@ -238,7 +239,7 @@
                             <div><dt class="text-sm text-slate-600">Paid amount</dt><dd class="mt-0.5 font-semibold text-slate-900">{{ $period->calculated_at ? $company->formatMoney($period->paid_total) : '-' }}</dd></div>
                             <div class="rounded-md bg-emerald-50 px-3 py-2"><dt class="text-sm font-semibold text-emerald-900">Net payroll</dt><dd class="mt-0.5 font-bold text-emerald-800">{{ $period->calculated_at ? $company->formatMoney($period->net_total) : '-' }}</dd></div>
                         </dl>
-                        <a href="{{ route('employer.payroll', ['section' => 'details', 'period_id' => $period->id]) }}" class="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-emerald-700 px-4 py-2 text-base font-semibold text-emerald-800 transition hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">{{ $activePeriod?->id === $period->id ? 'Viewing details' : 'View details' }}</a>
+                        <a data-wizard-period href="{{ route('employer.payroll', ['section' => 'details', 'period_id' => $period->id]) }}" class="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-emerald-700 px-4 py-2 text-base font-semibold text-emerald-800 transition hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">{{ $activePeriod?->id === $period->id ? 'Select this period' : 'Select period' }}</a>
                     </article>
                 @empty
                     <div class="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-8 text-center">
@@ -288,7 +289,7 @@
                                 <td class="whitespace-nowrap px-4 py-4 font-bold text-emerald-800">{{ $period->calculated_at ? $company->formatMoney($period->net_total) : '-' }}</td>
                                 <td class="whitespace-nowrap px-4 py-4 text-slate-700">{{ $period->calculated_at ? $company->formatMoney($period->paid_total) : '-' }}</td>
                                 <td class="whitespace-nowrap px-4 py-4"><span class="inline-flex rounded-full border px-2.5 py-1 text-sm font-semibold {{ $rowStatusTone }}">{{ $statusLabels[$period->status] ?? 'Needs review' }}</span></td>
-                        <td class="whitespace-nowrap px-4 py-4"><a href="{{ route('employer.payroll', ['section' => 'details', 'period_id' => $period->id]) }}" class="inline-flex min-h-11 items-center rounded-lg border border-emerald-200 px-3 py-1.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">{{ $activePeriod?->id === $period->id ? 'Viewing' : 'View details' }}</a></td>
+                        <td class="whitespace-nowrap px-4 py-4"><a data-wizard-period href="{{ route('employer.payroll', ['section' => 'details', 'period_id' => $period->id]) }}" class="inline-flex min-h-11 items-center rounded-lg border border-emerald-200 px-3 py-1.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">{{ $activePeriod?->id === $period->id ? 'Select this period' : 'Select period' }}</a></td>
                             </tr>
                         @empty
                             <tr>
@@ -316,9 +317,9 @@
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                         <p class="text-sm font-semibold text-emerald-800">Step 3</p>
-                        <h2 class="mt-1 text-[1.375rem] font-semibold text-slate-950">Review and approve payroll</h2>
+                        <h2 id="payroll-workflow-title" class="mt-1 text-[1.375rem] font-semibold text-slate-950">Review and approve payroll</h2>
                         @if ($activePeriod)
-                            <p class="mt-1 text-base text-slate-600">{{ $activePeriod->period_start->format('M d, Y') }} - {{ $activePeriod->period_end->format('M d, Y') }} · {{ $frequencyLabels[$activePeriod->frequency] ?? 'Payroll' }}</p>
+                            <p class="mt-1 text-base text-slate-600">{{ $activePeriod->period_start->format('M d, Y') }} - {{ $activePeriod->period_end->format('M d, Y') }} Â· {{ $frequencyLabels[$activePeriod->frequency] ?? 'Payroll' }}</p>
                         @else
                             <p class="mt-1 text-base text-slate-600">Select a payroll period above to review its calculations and next action.</p>
                         @endif
@@ -351,21 +352,21 @@
                     @endif
 
                     @if ($activePeriod->status === 'draft')
-                        <form id="payroll-generation-form" class="mt-5 space-y-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4" method="POST" action="{{ route('employer.payroll.calculate', $activePeriod) }}" data-submit-once data-confirm="Generate reviewable payroll for only the employees selected below?">
+                        <form id="payroll-generation-form" class="mt-5 space-y-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4" method="POST" action="{{ route('employer.payroll.calculate', $activePeriod) }}" data-preview-url="{{ route('employer.payroll.preview', $activePeriod) }}" data-async-payroll data-confirm="Generate reviewable payroll for only the employees selected below?">
                                 @csrf
                                 <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                                     <div>
-                                        <h3 class="font-semibold text-emerald-950">Step 2 · Select employees</h3>
-                                        <p class="mt-1 text-base text-emerald-900">{{ $activePeriod->period_start->format('M d, Y') }}–{{ $activePeriod->period_end->format('M d, Y') }} · {{ $frequencyLabels[$activePeriod->frequency] ?? 'Payroll' }} · {{ $statusLabels[$activePeriod->status] ?? 'Needs review' }}</p>
+                                        <h3 class="font-semibold text-emerald-950">Step 2 Â· Select employees</h3>
+                                        <p class="mt-1 text-base text-emerald-900">{{ $activePeriod->period_start->format('M d, Y') }}â€“{{ $activePeriod->period_end->format('M d, Y') }} Â· {{ $frequencyLabels[$activePeriod->frequency] ?? 'Payroll' }} Â· {{ $statusLabels[$activePeriod->status] ?? 'Needs review' }}</p>
                                         <p class="mt-1 text-sm text-emerald-900">Select employees to include in this payroll period.</p>
                                     </div>
                                     <label class="text-sm font-semibold text-slate-800">Search employees<input id="payroll-employee-search" type="search" class="mt-1 block min-h-11 w-full rounded-lg border-slate-300 sm:w-64" placeholder="Name, email, or ID"></label>
                                 </div>
-                                @if ($activePeriod->frequency !== 'yearly')
+                                @if ($activePeriod->frequency !== 'yearly' && $eligibleEmployeeCount > 0)
                                     <div class="flex flex-wrap items-center gap-3">
-                                        <button type="button" id="payroll-select-all" class="min-h-10 rounded-lg border border-emerald-800 px-3 py-2 text-sm font-semibold text-emerald-900">Select all eligible</button>
+                                    <button type="button" id="payroll-select-all" class="min-h-10 rounded-lg border border-emerald-800 px-3 py-2 text-sm font-semibold text-emerald-900">Select all eligible</button>
                                         <button type="button" id="payroll-deselect-all" class="min-h-10 rounded-lg border border-slate-400 px-3 py-2 text-sm font-semibold text-slate-800">Deselect all</button>
-                                        <p class="text-sm font-semibold text-slate-800"><span id="payroll-selected-count" aria-live="polite">0</span> selected · <span>{{ $eligibleEmployeeCount }}</span> eligible</p>
+                                        <p class="text-sm font-semibold text-slate-800"><span id="payroll-selected-count" aria-live="polite">0</span> selected Â· <span>{{ $eligibleEmployeeCount }}</span> eligible</p>
                                     </div>
                                     <div class="max-h-80 space-y-2 overflow-y-auto rounded-lg border border-emerald-200 bg-white p-3">
                                         @foreach ($employees as $employee)
@@ -375,12 +376,12 @@
                                             @endphp
                                             <label data-payroll-employee-row data-eligible="{{ $eligible ? 'true' : 'false' }}" data-search="{{ strtolower($employee->name.' '.$employee->email.' '.$employee->id) }}" @if (! $eligible) hidden @endif class="flex min-h-12 items-center gap-3 rounded-md border border-slate-200 px-3 py-2 {{ $eligible ? 'cursor-pointer hover:bg-emerald-50' : 'bg-slate-50 text-slate-500' }}">
                                                 <input type="checkbox" name="employee_ids[]" value="{{ $employee->id }}" @disabled(! $eligible) class="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-700">
-                                                <span class="min-w-0 flex-1"><span class="block font-semibold">{{ $employee->name }} · ID {{ $employee->id }}</span><span class="block truncate text-sm">{{ $employee->email }} · {{ $eligible ? 'Eligible' : 'Unavailable: '.$reason }}</span></span>
+                                                <span class="min-w-0 flex-1"><span class="block font-semibold">{{ $employee->name }} Â· ID {{ $employee->id }}</span><span class="block truncate text-sm">{{ $employee->email }} Â· {{ $eligible ? 'Eligible' : 'Unavailable: '.$reason }}</span></span>
                                             </label>
                                         @endforeach
                                     </div>
                                     <div class="rounded-lg border border-white bg-white p-3 text-sm text-slate-700">
-                                        <p class="font-semibold">Step 3 · Review before generation</p>
+                                        <p class="font-semibold">Step 3 Â· Review before generation</p>
                                         <p class="mt-1">Review basic salary, overtime, gross pay, and estimated net pay before generating. The current attendance model does not record approved overtime hours or rates, so overtime is zero.</p>
                                         <p id="payroll-no-selection" class="mt-2 font-medium">No employees selected. Select employees to continue.</p>
                                         @if ($eligibleEmployeeCount === 0)
@@ -390,10 +391,10 @@
                                     </div>
                                     <div class="flex flex-wrap gap-3">
                                         <button id="payroll-preview-button" type="button" disabled class="min-h-11 rounded-lg border border-emerald-800 bg-white px-4 py-2.5 font-semibold text-emerald-900 disabled:opacity-50">Preview selected earnings</button>
-                                        <button id="payroll-generate-button" type="submit" disabled data-loading-label="Generating..." class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2.5 text-base font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">Step 4 · Confirm and generate selected payroll</button>
+                                        <button id="payroll-generate-button" type="submit" disabled data-loading-label="Generating..." class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2.5 text-base font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">Step 4 Â· Confirm and generate selected payroll</button>
                                     </div>
                                 @else
-                                    <p class="rounded-lg border border-amber-200 bg-white p-3 text-sm text-amber-900">Annual runs use the existing approved-basic-pay review flow.</p>
+                                    <p class="rounded-lg border border-amber-200 bg-white p-3 text-sm text-amber-900">{{ $activePeriod->frequency === 'yearly' ? 'Annual runs use the existing approved-basic-pay review flow.' : 'No eligible employees are configured for this period.' }}</p>
                                 @endif
                         </form>
                     @elseif ($activePeriod->status === 'pending_review')
@@ -405,7 +406,7 @@
                                 <h3 class="font-semibold text-emerald-950">Payroll is awaiting your approval</h3>
                                 <p class="mt-1 text-base text-emerald-900">Review the employee totals and calculation details below. Approval locks this payroll snapshot.</p>
                             @endif
-                            <form method="POST" action="{{ route('employer.payroll.approve', $activePeriod) }}" data-submit-once data-confirm="Approve this payroll snapshot? Approved payroll cannot be recalculated.">
+                            <form method="POST" action="{{ route('employer.payroll.approve', $activePeriod) }}" data-wizard-step-three-only data-async-payroll data-confirm="Approve this payroll snapshot? Approved payroll cannot be recalculated.">
                                 @csrf
                                 @if ($hasReviewFlags)
                                     <label for="review_note" class="mt-4 block text-base font-semibold text-amber-950">Review note
@@ -435,13 +436,13 @@
                             <a href="{{ route('employer.payroll.export.pdf', $activePeriod) }}" class="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-3 py-2 text-base font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">Download PDF register</a>
                         @endif
                         @if ($activePeriod->status === 'pending_review')
-                            <form method="POST" action="{{ route('employer.payroll.calculate', $activePeriod) }}" data-submit-once data-confirm="Recalculating replaces this unapproved snapshot and resets the review step. Continue?">
+                            <form method="POST" action="{{ route('employer.payroll.calculate', $activePeriod) }}" data-wizard-step-three-only data-async-payroll data-confirm="Recalculating replaces this unapproved snapshot and resets the review step. Continue?">
                                 @csrf
                                 <button type="submit" data-loading-label="Recalculating..." class="min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-base font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">Recalculate draft</button>
                             </form>
                         @endif
                         @if (in_array($activePeriod->status, ['draft', 'pending_review', 'approved'], true) && $activePeriod->payments_count === 0)
-                            <form method="POST" action="{{ route('employer.payroll.void', $activePeriod) }}" data-submit-once data-confirm="Void this payroll period? Its source attendance remains reserved for audit.">
+                            <form method="POST" action="{{ route('employer.payroll.void', $activePeriod) }}" data-wizard-step-three-only data-submit-once data-confirm="Void this payroll period? Its source attendance remains reserved for audit.">
                                 @csrf
                                 <button type="submit" data-loading-label="Voiding..." class="min-h-11 rounded-lg border border-red-200 px-3 py-2 text-base font-semibold text-red-800 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-700">Void period</button>
                             </form>
@@ -471,7 +472,7 @@
                     <div class="flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-end sm:justify-between">
                         <div>
                             <h3 class="text-[1.375rem] font-semibold text-slate-950">Employee register</h3>
-                            <p class="mt-1 text-base text-slate-600">Review each employee’s pay lines and any calculation warnings.</p>
+                            <p class="mt-1 text-base text-slate-600">Review each employeeâ€™s pay lines and any calculation warnings.</p>
                         </div>
                         <form class="grid gap-2 sm:grid-cols-[minmax(12rem,1fr)_auto_auto]" method="GET" action="{{ route('employer.payroll') }}" aria-label="Search payroll employees">
                             <input type="hidden" name="period_id" value="{{ $activePeriod->id }}">
@@ -507,16 +508,16 @@
                                     <div>
                                         <h4 class="text-lg font-semibold text-slate-950">{{ data_get($entry->calculation_snapshot, 'employee_snapshot.name', $entry->employee?->name ?? 'Employee') }}</h4>
                                         @if ($entry->employee?->status === 'inactive')
-                                            <p class="mt-1 inline-flex rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">Inactive now · historical payroll snapshot</p>
+                                            <p class="mt-1 inline-flex rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">Inactive now Â· historical payroll snapshot</p>
                                         @endif
-                                        <p class="mt-0.5 text-sm text-slate-600">Employee ID: {{ $entry->user_id }} · Period: {{ $activePeriod->period_start->format('M d, Y') }}–{{ $activePeriod->period_end->format('M d, Y') }}</p>
+                                        <p class="mt-0.5 text-sm text-slate-600">Employee ID: {{ $entry->user_id }} Â· Period: {{ $activePeriod->period_start->format('M d, Y') }}â€“{{ $activePeriod->period_end->format('M d, Y') }}</p>
                                         @if (data_get($entry->calculation_snapshot, 'regular_pay_policy'))
-                                            <p class="mt-1 text-sm text-slate-600">Basic salary {{ $company->formatMoney(number_format(data_get($entry->calculation_snapshot, 'basic_salary_cents', 0) / 100, 2, '.', '')) }} · Overtime {{ $company->formatMoney(number_format(data_get($entry->calculation_snapshot, 'overtime_pay_cents', 0) / 100, 2, '.', '')) }}</p>
+                                            <p class="mt-1 text-sm text-slate-600">Basic salary {{ $company->formatMoney(number_format(data_get($entry->calculation_snapshot, 'basic_salary_cents', 0) / 100, 2, '.', '')) }} Â· Overtime {{ $company->formatMoney(number_format(data_get($entry->calculation_snapshot, 'overtime_pay_cents', 0) / 100, 2, '.', '')) }}</p>
                                         @endif
                                         @if ($entry->employee?->email)
                                             <p class="mt-0.5 text-sm text-slate-600">{{ $entry->employee->email }}</p>
                                         @endif
-                                        <p class="mt-1 text-sm text-slate-600">{{ number_format($entry->worked_minutes / 60, 2) }} hours · {{ number_format($entry->payable_days) }} payable days</p>
+                                        <p class="mt-1 text-sm text-slate-600">{{ number_format($entry->worked_minutes / 60, 2) }} hours Â· {{ number_format($entry->payable_days) }} payable days</p>
                                     </div>
                                     @if (($entry->review_flags ?? []) !== [])
                                         <span class="inline-flex min-h-8 items-center rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-950">Review needed</span>
@@ -545,7 +546,7 @@
                                             <p class="mt-2 text-sm text-amber-950">Attendance #{{ $attendanceLog->id }}: {{ str($attendanceLog->type)->replace('_', ' ')->title() }} at {{ $attendanceLog->timestamp->format('M d, Y g:i A') }}.</p>
                                         @endforeach
                                         @if ($entry->attendanceLogs->isNotEmpty() || count(array_intersect(['incomplete_attendance_requires_review', 'duplicate_attendance_requires_review', 'attendance_already_used_or_paid'], $entry->review_flags ?? [])) > 0)
-                                            <a href="{{ route('employer.attendance', ['employee_id' => $entry->user_id, 'from' => $activePeriod->period_start->toDateString(), 'to' => $activePeriod->period_end->toDateString()]) }}" class="mt-2 inline-flex min-h-10 items-center font-semibold text-amber-950 underline underline-offset-2">Review this employee’s attendance in the period</a>
+                                            <a href="{{ route('employer.attendance', ['employee_id' => $entry->user_id, 'from' => $activePeriod->period_start->toDateString(), 'to' => $activePeriod->period_end->toDateString()]) }}" class="mt-2 inline-flex min-h-10 items-center font-semibold text-amber-950 underline underline-offset-2">Review this employeeâ€™s attendance in the period</a>
                                         @endif
                                         <a href="{{ route('employer.employees.show', $entry->employee) }}" class="mt-2 ml-4 inline-flex min-h-10 items-center font-semibold text-amber-950 underline underline-offset-2">Review this employee's payroll settings</a>
                                     </div>
@@ -579,19 +580,19 @@
                                     <div class="flex flex-wrap items-center gap-2">
                                         <h5 class="text-base font-semibold text-slate-900">Payment status</h5>
                                         <span class="inline-flex rounded-full border px-2.5 py-1 text-sm font-semibold {{ $paymentTone }}">{{ $paymentLabels[$entry->payment_status] ?? 'Unpaid' }}</span>
-                                        <span class="text-sm text-slate-600">Paid {{ $company->formatMoney($entry->amount_paid) }} · Remaining {{ $company->formatMoney($entry->remaining_balance) }}</span>
+                                        <span class="text-sm text-slate-600">Paid {{ $company->formatMoney($entry->amount_paid) }} Â· Remaining {{ $company->formatMoney($entry->remaining_balance) }}</span>
                                     </div>
 
                                     @if ($entry->payments->isNotEmpty())
                                         <ul class="mt-2 space-y-1 text-sm text-slate-600">
                                             @foreach ($entry->payments as $payment)
-                                                <li>{{ $payment->payment_date->format('M d, Y') }} · {{ $company->formatMoney($payment->amount) }} · {{ ['manual_cash' => 'Cash', 'manual_bank_deposit' => 'Bank deposit', 'manual_cheque' => 'Cheque'][$payment->method] ?? 'Manual payment' }}@if ($payment->reference_number) · Reference {{ $payment->reference_number }}@endif</li>
+                                                <li>{{ $payment->payment_date->format('M d, Y') }} Â· {{ $company->formatMoney($payment->amount) }} Â· {{ ['manual_cash' => 'Cash', 'manual_bank_deposit' => 'Bank deposit', 'manual_cheque' => 'Cheque'][$payment->method] ?? 'Manual payment' }}@if ($payment->reference_number) Â· Reference {{ $payment->reference_number }}@endif</li>
                                             @endforeach
                                         </ul>
                                     @endif
 
                                     @if (in_array($activePeriod->status, ['approved', 'partially_paid'], true) && $entry->remaining_balance > 0)
-                                        <form method="POST" action="{{ route('employer.payroll.payments.store', ['payrollEntry' => $entry, 'section' => 'payments']) }}" data-submit-once data-confirm="Record this manual payment for {{ data_get($entry->calculation_snapshot, 'employee_snapshot.name', $entry->employee?->name ?? 'this employee') }}?" class="mt-3 grid gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2 xl:grid-cols-3">
+                                        <form method="POST" action="{{ route('employer.payroll.payments.store', ['payrollEntry' => $entry, 'section' => 'payments']) }}" data-async-payroll data-confirm="Record this manual payment for {{ data_get($entry->calculation_snapshot, 'employee_snapshot.name', $entry->employee?->name ?? 'this employee') }}?" class="mt-3 grid gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2 xl:grid-cols-3">
                                             @csrf
                                             <input type="hidden" name="_payroll_entry_id" value="{{ $entry->id }}">
                                             <label for="payment_amount_{{ $entry->id }}" class="text-base font-semibold text-slate-900">Payment amount
@@ -623,7 +624,10 @@
                                     @endif
                                 </div>
                                 @else
-                                    <a href="{{ route('employer.payroll', ['section' => 'payments', 'period_id' => $activePeriod->id]) }}" class="mt-4 inline-flex min-h-10 items-center border-t border-slate-200 pt-3 text-sm font-semibold text-emerald-800 underline-offset-2 hover:underline">View payment history and balances</a>
+                                    <a data-wizard-go="4" href="{{ route('employer.payroll', ['section' => 'payments', 'period_id' => $activePeriod->id]) }}" class="mt-4 inline-flex min-h-10 items-center border-t border-slate-200 pt-3 text-sm font-semibold text-emerald-800 underline-offset-2 hover:underline">View payment history and balances</a>
+                                @endif
+                                @if (in_array($activePeriod->status, ['approved', 'partially_paid', 'paid'], true) && $entry->employee)
+                                    <a href="{{ route('employer.payroll.payslip', $entry) }}" class="mt-3 inline-flex min-h-10 items-center rounded-lg border border-emerald-700 px-3 py-2 text-sm font-semibold text-emerald-900">View / print payslip</a>
                                 @endif
                                 @if (in_array($activePeriod->status, ['approved', 'partially_paid', 'paid'], true) && $entry->employee)
                                     <a href="{{ route('employer.payroll.payslip', $entry) }}" class="mt-3 inline-flex min-h-10 items-center rounded-lg border border-emerald-700 px-3 py-2 text-sm font-semibold text-emerald-900">View / print payslip</a>
@@ -632,7 +636,7 @@
                         @empty
                             <div class="rounded-xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center">
                                 <p class="font-semibold text-slate-900">No employee entries are available for this payroll period.</p>
-                                <p class="mt-1 text-base text-slate-600">Check payroll eligibility, matching pay frequency, effective rates, and approved basic pay for a 13th-month run.</p>
+                                <p class="mt-1 text-base text-slate-600">Check employee status, matching pay frequency, effective rates, and approved basic pay for a 13th-month run.</p>
                                 <a href="{{ route('employer.employees.index') }}" class="mt-3 inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-4 py-2 text-base font-semibold text-emerald-800 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">Open Employees to manage payroll settings</a>
                             </div>
                         @endforelse
@@ -661,7 +665,7 @@
                         <li class="flex flex-col gap-1 py-3 text-base sm:flex-row sm:items-center sm:justify-between">
                             <a href="{{ route('employer.payroll', ['period_id' => $deadline->id]) }}" class="font-medium text-emerald-800 underline-offset-2 hover:underline">{{ $deadline->period_start->format('M d') }} - {{ $deadline->period_end->format('M d, Y') }}</a>
                             <span class="text-slate-600">Pay date {{ $deadline->pay_date?->format('M d, Y') ?? 'Not set' }}</span>
-                            <span class="font-semibold text-slate-900">{{ $company->formatMoney($deadline->net_total) }} · {{ $statusLabels[$deadline->status] ?? 'Needs review' }}</span>
+                            <span class="font-semibold text-slate-900">{{ $company->formatMoney($deadline->net_total) }} Â· {{ $statusLabels[$deadline->status] ?? 'Needs review' }}</span>
                         </li>
                     @endforeach
                 </ul>
@@ -670,12 +674,17 @@
 
         <p class="text-sm leading-5 text-slate-600">Payroll totals and statutory contributions come from the backend calculation snapshot. Review warnings before approval. Attendance gaps, overtime inputs, leave policy, and statutory exceptions may require employer review.</p>
         @endif
+        </div>
+        <div class="flex items-center justify-between gap-3">
+            <button id="payroll-wizard-back" type="button" class="min-h-11 rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50">Back</button>
+            <button id="payroll-wizard-next" type="button" class="min-h-11 rounded-lg bg-emerald-700 px-5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Next</button>
+        </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const payrollForm = document.getElementById('payroll-generation-form');
-            if (payrollForm && document.getElementById('payroll-selected-count')) {
+            if (false && payrollForm) {
                 const boxes = [...payrollForm.querySelectorAll('input[name="employee_ids[]"]:not(:disabled)')];
                 const count = document.getElementById('payroll-selected-count');
                 const generate = document.getElementById('payroll-generate-button');
@@ -690,7 +699,7 @@
                     previewButton.disabled = selected === 0;
                     previewContainer.classList.add('hidden');
                 };
-                document.getElementById('payroll-select-all')?.addEventListener('click', () => { boxes.forEach((box) => { box.checked = true; }); updateSelection(); });
+                document.getElementById('payroll-select-all')?.addEventListener('click', () => { boxes.forEach((box) => { if (box.closest('[data-payroll-employee-row]').hidden === false) box.checked = true; }); updateSelection(); });
                 document.getElementById('payroll-deselect-all')?.addEventListener('click', () => { boxes.forEach((box) => { box.checked = false; }); updateSelection(); });
                 document.getElementById('payroll-employee-search')?.addEventListener('input', (event) => {
                     const query = event.target.value.trim().toLowerCase();
@@ -720,7 +729,7 @@
                             [row.employee_name, money(row.basic_salary), row.overtime_hours, money(row.overtime_pay), money(row.gross_pay), money(row.net_pay)].forEach((value) => { const td = document.createElement('td'); td.className = 'p-2'; td.textContent = value; tr.append(td); }); body.append(tr); });
                         table.append(body); previewContainer.replaceChildren(table);
                         const summary = document.createElement('p'); summary.className = 'mt-2 font-semibold';
-                        summary.textContent = `Selected employees: ${data.employee_count} · Basic: ${money(data.totals.basic_salary)} · Overtime: ${money(data.totals.overtime_pay)} · Gross: ${money(data.totals.gross_pay)} · Estimated net: ${money(data.totals.net_pay)}`;
+                        summary.textContent = `Selected employees: ${data.employee_count} Â· Basic: ${money(data.totals.basic_salary)} Â· Overtime: ${money(data.totals.overtime_pay)} Â· Gross: ${money(data.totals.gross_pay)} Â· Estimated net: ${money(data.totals.net_pay)}`;
                         previewContainer.append(summary); previewContainer.classList.remove('hidden');
                         generate.dataset.confirm = `Generate payroll for ${data.employee_count} selected employees? Estimated gross ${money(data.totals.gross_pay)}; estimated net ${money(data.totals.net_pay)}.`;
                     } catch (error) { window.alert(error.message); }
@@ -799,6 +808,280 @@
                 validatePeriodDates();
             }
 
+        });
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const page = document.querySelector('.payroll-page');
+            if (!page) return;
+
+            const message = document.getElementById('payroll-wizard-message');
+            const backButton = document.getElementById('payroll-wizard-back');
+            const nextButton = document.getElementById('payroll-wizard-next');
+            let step = Number(document.getElementById('payroll-wizard-panel')?.dataset.wizardStep || 1);
+            let busy = false;
+            const selectedEmployeesByPeriod = new Map();
+            const rememberSelection = (panel) => {
+                const form = panel?.querySelector('#payroll-generation-form');
+                const periodId = panel?.dataset.periodId;
+                if (!form || !periodId) return;
+                selectedEmployeesByPeriod.set(String(periodId), [...form.querySelectorAll('input[name="employee_ids[]"]:checked')].map((box) => String(box.value)));
+            };
+
+            const showMessage = (text, kind = 'success') => {
+                message.textContent = text;
+                message.className = `rounded-lg border px-4 py-3 text-sm ${kind === 'error' ? 'border-red-200 bg-red-50 text-red-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`;
+                message.classList.remove('hidden');
+            };
+            const setStep = (value) => {
+                step = value;
+                const panel = document.getElementById('payroll-wizard-panel');
+                if (panel) panel.dataset.wizardStep = String(step);
+                document.querySelectorAll('[data-wizard-progress]').forEach((item) => {
+                    const number = Number(item.dataset.wizardProgress);
+                    item.setAttribute('aria-current', number === step ? 'step' : 'false');
+                    item.classList.toggle('bg-emerald-100', number === step);
+                    item.classList.toggle('text-emerald-950', number === step);
+                    item.classList.toggle('bg-slate-100', number < step);
+                    item.classList.toggle('text-slate-700', number < step);
+                    item.classList.toggle('text-slate-500', number > step);
+                });
+                panel?.querySelectorAll('[data-wizard-step-three-only]').forEach((element) => { element.hidden = step === 2; });
+                const title = panel?.querySelector('#payroll-workflow-title');
+                if (title) title.textContent = step === 2 ? 'Select employees for this payroll period' : 'Review and approve payroll';
+                backButton.disabled = busy || step === 1;
+                nextButton.disabled = busy || (step === 1 && !panel?.dataset.periodId);
+                nextButton.textContent = step === 3 ? 'Track payments' : (step === 4 ? 'Payments tracked' : 'Next');
+                nextButton.disabled ||= step === 4;
+            };
+            const panelUrl = (section, periodId) => {
+                const url = new URL(window.location.href);
+                url.search = '';
+                url.searchParams.set('section', section);
+                if (periodId) url.searchParams.set('period_id', periodId);
+                return url;
+            };
+            const loadPanel = async (section, targetStep, periodId, successText = null) => {
+                rememberSelection(document.getElementById('payroll-wizard-panel'));
+                const url = panelUrl(section, periodId);
+                const response = await fetch(url, {headers: {'Accept': 'text/html', 'X-Requested-With': 'XMLHttpRequest'}, credentials: 'same-origin', cache: 'no-store'});
+                if (!response.ok) throw new Error('Could not load this payroll step. Your current selections are still on the page.');
+                const html = await response.text();
+                const parsed = new DOMParser().parseFromString(html, 'text/html');
+                const newPanel = parsed.getElementById('payroll-wizard-panel');
+                const currentPanel = document.getElementById('payroll-wizard-panel');
+                if (!newPanel || !currentPanel) throw new Error('The payroll step response was incomplete.');
+                newPanel.dataset.wizardStep = String(targetStep);
+                if (periodId) newPanel.dataset.periodId = String(periodId);
+                currentPanel.replaceWith(document.importNode(newPanel, true));
+                const loadedPanel = document.getElementById('payroll-wizard-panel');
+                const selectionForm = loadedPanel?.querySelector('#payroll-generation-form');
+                const savedSelection = selectedEmployeesByPeriod.get(String(periodId));
+                if (selectionForm && savedSelection) {
+                    selectionForm.querySelectorAll('input[name="employee_ids[]"]').forEach((box) => { box.checked = savedSelection.includes(String(box.value)); });
+                }
+                history.replaceState({}, '', url);
+                setStep(targetStep);
+                initPreview(loadedPanel);
+                if (successText) showMessage(successText);
+            };
+            const initPreview = (panel) => {
+                const form = panel?.querySelector('#payroll-generation-form');
+                const button = panel?.querySelector('#payroll-preview-button');
+                const preview = panel?.querySelector('#payroll-preview');
+                if (!form || !button || !preview || button.dataset.bound === 'true') return;
+                button.dataset.bound = 'true';
+                const boxes = [...form.querySelectorAll('input[name="employee_ids[]"]:not(:disabled)')];
+                const generate = panel.querySelector('#payroll-generate-button');
+                const selected = () => boxes.filter((box) => box.checked);
+                const update = () => {
+                    const count = panel.querySelector('#payroll-selected-count');
+                    if (count) count.textContent = String(selected().length);
+                    button.disabled = selected().length === 0;
+                    if (generate) generate.disabled = selected().length === 0;
+                    selectedEmployeesByPeriod.set(String(panel.dataset.periodId), selected().map((box) => String(box.value)));
+                    preview.classList.add('hidden');
+                };
+                panel.querySelector('#payroll-select-all')?.addEventListener('click', () => {
+                    boxes.forEach((box) => { if (!box.closest('[data-payroll-employee-row]').hidden) box.checked = true; });
+                    update();
+                });
+                panel.querySelector('#payroll-deselect-all')?.addEventListener('click', () => { boxes.forEach((box) => { box.checked = false; }); update(); });
+                panel.querySelector('#payroll-employee-search')?.addEventListener('input', (event) => {
+                    const query = event.target.value.trim().toLowerCase();
+                    panel.querySelectorAll('[data-payroll-employee-row]').forEach((row) => { row.hidden = !row.dataset.search.includes(query); });
+                });
+                boxes.forEach((box) => box.addEventListener('change', update));
+                button.addEventListener('click', async () => {
+                    if (selected().length === 0) return;
+                    button.disabled = true;
+                    button.textContent = 'Loading previewâ€¦';
+                    showMessage('Loading selected employeesâ€™ calculation previewâ€¦');
+                    try {
+                        const token = form.querySelector('input[name="_token"]').value;
+                        const response = await fetch(form.dataset.previewUrl, {
+                            method: 'POST', credentials: 'same-origin', headers: {'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': token},
+                            body: JSON.stringify({employee_ids: selected().map((box) => box.value)}),
+                        });
+                        const result = await response.json();
+                        if (!response.ok) throw new Error(Object.values(result.errors || {}).flat().join(' ') || 'Unable to calculate the preview.');
+                        const currency = @json($company->currency);
+                        const money = (amount) => `${currency} ${Number(amount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                        const table = document.createElement('table');
+                        table.className = 'min-w-full text-left text-sm';
+                        const head = document.createElement('thead');
+                        const headerRow = document.createElement('tr');
+                        ['Employee', 'Basic salary', 'Overtime', 'Gross pay', 'Deductions', 'Net pay'].forEach((label) => { const th = document.createElement('th'); th.className = 'p-2'; th.textContent = label; headerRow.append(th); });
+                        head.append(headerRow); table.append(head);
+                        const body = document.createElement('tbody');
+                        result.data.employees.forEach((employee) => {
+                            const row = document.createElement('tr'); row.className = 'border-t';
+                            [employee.employee_name, money(employee.basic_salary), `${employee.overtime_hours} hrs Â· ${money(employee.overtime_pay)}`, money(employee.gross_pay), money(employee.employee_deductions), money(employee.net_pay)].forEach((value) => { const cell = document.createElement('td'); cell.className = 'p-2'; cell.textContent = value; row.append(cell); });
+                            body.append(row);
+                        });
+                        table.append(body); preview.replaceChildren(table);
+                        const total = document.createElement('p'); total.className = 'mt-2 font-semibold';
+                        total.textContent = `Selected ${result.data.employee_count} employees Â· Gross ${money(result.data.totals.gross_pay)} Â· Net ${money(result.data.totals.net_pay)}`;
+                        preview.append(total); preview.classList.remove('hidden');
+                        showMessage('Preview loaded for the selected employees. Choose Next to generate this reviewable snapshot.');
+                    } catch (error) { showMessage(error.message, 'error'); }
+                    finally { button.disabled = selected().length === 0; button.textContent = 'Preview selected earnings'; }
+                });
+                update();
+            };
+
+            page.addEventListener('click', async (event) => {
+                const periodLink = event.target.closest('a[data-wizard-period]');
+                const wizardLink = event.target.closest('a[data-wizard-go]');
+                const paginationLink = event.target.closest('#payroll-wizard-panel a[href*="page="]');
+                if (busy) {
+                    if (periodLink || wizardLink || paginationLink) event.preventDefault();
+                    return;
+                }
+                if (periodLink) {
+                    event.preventDefault();
+                    const url = new URL(periodLink.href);
+                    const id = url.searchParams.get('period_id');
+                    busy = true; setStep(step);
+                    try { await loadPanel('details', 2, id); }
+                    catch (error) { showMessage(error.message, 'error'); }
+                    finally { busy = false; setStep(step); }
+                } else if (wizardLink) {
+                    event.preventDefault();
+                    const panel = document.getElementById('payroll-wizard-panel');
+                    busy = true; setStep(step);
+                    try { await loadPanel('payments', 4, panel.dataset.periodId); }
+                    catch (error) { showMessage(error.message, 'error'); }
+                    finally { busy = false; setStep(step); }
+                } else if (paginationLink && step === 1) {
+                    event.preventDefault();
+                    busy = true; setStep(step);
+                    try {
+                        const url = new URL(paginationLink.href);
+                        const response = await fetch(url, {headers: {'Accept': 'text/html'}, credentials: 'same-origin'});
+                        const parsed = new DOMParser().parseFromString(await response.text(), 'text/html');
+                        const replacement = parsed.getElementById('payroll-wizard-panel');
+                        if (!response.ok || !replacement) throw new Error('Could not load the next payroll periods page.');
+                        document.getElementById('payroll-wizard-panel').replaceWith(document.importNode(replacement, true));
+                        initPreview(document.getElementById('payroll-wizard-panel'));
+                    } catch (error) { showMessage(error.message, 'error'); }
+                    finally { busy = false; setStep(step); }
+                }
+            });
+
+            page.addEventListener('submit', async (event) => {
+                const form = event.target.closest('form[data-async-payroll]');
+                if (!form) return;
+                event.preventDefault();
+                if (busy || form.dataset.submitting === 'true') return;
+                if (!form.reportValidity()) return;
+                if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
+                const formData = new FormData(form);
+                const controlStates = [...form.elements].map((control) => [control, control.disabled]);
+                let panelRefreshFailed = false;
+                busy = true; form.dataset.submitting = 'true'; setStep(step);
+                rememberSelection(document.getElementById('payroll-wizard-panel'));
+                form.elements && [...form.elements].forEach((control) => { control.disabled = true; });
+                const button = event.submitter || form.querySelector('button[type="submit"]');
+                const oldLabel = button?.textContent;
+                if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); button.textContent = button.dataset.loadingLabel || 'Savingâ€¦'; }
+                showMessage('Saving payroll changesâ€¦');
+                try {
+                    const response = await fetch(form.action, {method: 'POST', body: formData, credentials: 'same-origin', headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}});
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(Object.values(result.errors || {}).flat().join(' ') || result.message || 'The payroll request failed.');
+                    const panel = document.getElementById('payroll-wizard-panel');
+                    const currentStep = step;
+                    let refreshSection = currentStep === 4 ? 'payments' : 'details';
+                    let refreshStep = currentStep;
+                    if (form.id === 'payroll-generation-form') refreshStep = 3;
+                    if (form.action.includes('/approve')) refreshStep = 3;
+                    if (form.action.includes('/payments')) refreshStep = 4;
+                    try {
+                        await loadPanel(refreshSection, refreshStep, panel.dataset.periodId, result.message || 'Payroll updated successfully.');
+                    } catch (refreshError) {
+                        panelRefreshFailed = true;
+                        form.dataset.submitting = 'true';
+                        if (button) button.disabled = true;
+                        showMessage(`${result.message || 'The server confirmed the payroll change.'} The page could not refresh, so this form is locked against duplicate submission. Use Back and Next to reload the saved payroll state.`, 'error');
+                    }
+                } catch (error) {
+                    showMessage(error.message || 'The request could not be completed. Your selections remain available.', 'error');
+                } finally {
+                    busy = false;
+                    if (form.isConnected && !panelRefreshFailed) controlStates.forEach(([control, wasDisabled]) => { control.disabled = wasDisabled; });
+                    if (button?.isConnected && !panelRefreshFailed) { button.disabled = false; button.removeAttribute('aria-busy'); button.textContent = oldLabel; }
+                    if (!panelRefreshFailed) form.dataset.submitting = 'false';
+                    setStep(step);
+                }
+            });
+
+            backButton.addEventListener('click', async () => {
+                if (busy || step <= 1) return;
+                if (step === 4) {
+                    const panel = document.getElementById('payroll-wizard-panel');
+                    busy = true; setStep(step);
+                    try { await loadPanel('details', 3, panel.dataset.periodId); }
+                    catch (error) { showMessage(error.message, 'error'); }
+                    finally { busy = false; setStep(step); }
+                } else if (step === 2) {
+                    const periodId = document.getElementById('payroll-wizard-panel').dataset.periodId;
+                    busy = true; setStep(step);
+                    try { await loadPanel('periods', 1, periodId); }
+                    catch (error) { showMessage(error.message, 'error'); }
+                    finally { busy = false; setStep(step); }
+                } else {
+                    setStep(step - 1);
+                }
+            });
+            nextButton.addEventListener('click', async () => {
+                if (busy) return;
+                const panel = document.getElementById('payroll-wizard-panel');
+                if (step === 1) {
+                    const periodId = panel.dataset.periodId;
+                    if (!periodId) { showMessage('Select a payroll period to continue.', 'error'); return; }
+                    busy = true; setStep(step);
+                    try { await loadPanel('details', 2, periodId); }
+                    catch (error) { showMessage(error.message, 'error'); }
+                    finally { busy = false; setStep(step); }
+                } else if (step === 2) {
+                    const form = panel.querySelector('#payroll-generation-form');
+                    if (form) {
+                        const chosen = form.querySelectorAll('input[name="employee_ids[]"]:checked').length;
+                        if (!chosen) { showMessage('Select at least one eligible employee before continuing.', 'error'); return; }
+                        form.requestSubmit(form.querySelector('#payroll-generate-button'));
+                    } else if (panel.dataset.periodId) setStep(3);
+                } else if (step === 3) {
+                    const periodId = panel.dataset.periodId;
+                    busy = true; setStep(step);
+                    try { await loadPanel('payments', 4, periodId); }
+                    catch (error) { showMessage(error.message, 'error'); }
+                    finally { busy = false; setStep(step); }
+                }
+            });
+
+            initPreview(document.getElementById('payroll-wizard-panel'));
+            setStep(step);
         });
     </script>
 @endsection

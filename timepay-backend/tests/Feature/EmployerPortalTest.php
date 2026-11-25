@@ -86,7 +86,7 @@ class EmployerPortalTest extends TestCase
             ->assertSee('Add Employee');
     }
 
-    public function test_employee_profile_shows_only_pay_settings_and_hides_preserved_legacy_items(): void
+    public function test_employee_profile_omits_legacy_eligibility_and_recurring_item_settings(): void
     {
         $employee = $this->employee('Payroll Profile One');
         $other = $this->employee('Payroll Profile Two');
@@ -112,10 +112,11 @@ class EmployerPortalTest extends TestCase
             'company_id' => $this->company->id, 'user_id' => $other->id, 'basis' => 'hourly',
             'rate' => '125.00', 'effective_from' => now()->subDays(4)->toDateString(), 'changed_by' => $this->employer->id,
         ]);
-        \App\Models\PayrollProfileItem::query()->create([
+        \Illuminate\Support\Facades\DB::table('payroll_profile_items')->insert([
             'company_id' => $this->company->id, 'user_id' => $employee->id, 'category' => 'earning',
             'code' => 'meal_allowance', 'label' => 'Meal allowance', 'amount' => '300.00', 'taxable' => true,
             'effective_from' => '2026-01-01', 'effective_to' => '2026-12-31', 'created_by' => $this->employer->id,
+            'created_at' => now(), 'updated_at' => now(),
         ]);
 
         $this->actingAs($this->employer)
@@ -126,11 +127,14 @@ class EmployerPortalTest extends TestCase
             ->assertSee('value="7"', false)
             ->assertSee('value="20"', false)
             ->assertSee('value="weekly" selected', false)
-            ->assertDontSee('meal_allowance')
-            ->assertDontSee('Meal allowance')
+            ->assertDontSee('Eligibility and contributions')
             ->assertDontSee('Recurring earnings and deductions')
+            ->assertDontSee('meal_allowance')
             ->assertDontSee('Payroll Profile Two')
             ->assertDontSee('125.00');
+        $this->assertDatabaseHas('payroll_profile_items', [
+            'company_id' => $this->company->id, 'user_id' => $employee->id, 'code' => 'meal_allowance',
+        ]);
     }
 
     public function test_employee_profile_settings_save_and_reopen_without_changing_another_employee(): void
@@ -175,16 +179,9 @@ class EmployerPortalTest extends TestCase
         $this->assertSame('900.00', $savedRate->rate);
         $this->assertSame($effectiveFrom, $savedRate->effective_from->toDateString());
 
-        $this->post('/employer/payroll/profile-items', [
-            'user_id' => $employee->id, 'category' => 'earning', 'code' => 'meal_allowance',
-            'label' => 'Meal allowance', 'amount' => '350.00', 'taxable' => '1',
-            'effective_from' => '2026-11-01', 'effective_to' => '2026-12-31',
-        ])->assertNotFound();
-
-        $this->assertDatabaseCount('payroll_profile_items', 0);
         $this->get(route('employer.employees.show', $employee))
-            ->assertOk()->assertSee('value="900.00"', false)->assertDontSee('Meal allowance')
-            ->assertDontSee('Recurring earnings and deductions');
+            ->assertOk()->assertSee('value="900.00"', false)
+            ->assertDontSee('Eligibility and contributions')->assertDontSee('Recurring earnings and deductions');
     }
 
     public function test_employee_profile_route_rejects_an_employee_from_another_company(): void

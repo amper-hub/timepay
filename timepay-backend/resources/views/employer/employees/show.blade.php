@@ -6,7 +6,6 @@
 @section('content')
     @php
         $profile = $employee->payrollProfile;
-        $items = $profile?->items ?? collect();
         $returnQuery = ['return_to' => 'employee_profile', 'employee_id' => $employee->id];
     @endphp
     <div class="mx-auto max-w-6xl space-y-6">
@@ -15,7 +14,7 @@
                 <a href="{{ route('employer.employees.index') }}" class="text-sm font-semibold text-emerald-800 underline">&larr; Employees</a>
                 <p class="mt-4 text-sm font-semibold text-emerald-700">Employee profile</p>
                 <h2 class="employer-page-heading">{{ $employee->name }}</h2>
-                <p class="employer-page-description">{{ $employee->email }} · Employee ID #{{ $employee->id }} · {{ str($employee->status)->title() }}</p>
+                <p class="employer-page-description">{{ $employee->email }} Â· Employee ID #{{ $employee->id }} Â· {{ str($employee->status)->title() }}</p>
             </div>
             <a href="{{ route('employer.payroll') }}" class="employer-secondary-button">Open Payroll</a>
         </header>
@@ -88,37 +87,11 @@
             @if ($employee->compensationHistory->isNotEmpty())
                 <details class="rounded-lg border border-slate-200 p-3">
                     <summary class="cursor-pointer font-semibold text-slate-800">Compensation history</summary>
-                    <ul class="mt-3 divide-y divide-slate-200">@foreach ($employee->compensationHistory->sortByDesc('effective_from') as $rate)<li class="py-2 text-sm text-slate-700">{{ str($rate->basis)->title() }} · {{ $rate->rate }} · {{ $rate->effective_from->format('M d, Y') }} through {{ $rate->effective_to?->format('M d, Y') ?? 'Current' }}</li>@endforeach</ul>
+                    <ul class="mt-3 divide-y divide-slate-200">@foreach ($employee->compensationHistory->sortByDesc('effective_from') as $rate)<li class="py-2 text-sm text-slate-700">{{ str($rate->basis)->title() }} Â· {{ $rate->rate }} Â· {{ $rate->effective_from->format('M d, Y') }} through {{ $rate->effective_to?->format('M d, Y') ?? 'Current' }}</li>@endforeach</ul>
                 </details>
             @endif
         </section>
 
-        <section class="employer-card space-y-4 p-4 sm:p-6" aria-labelledby="eligibility-heading">
-            <div>
-                <h3 id="eligibility-heading" class="employer-section-heading">2. Payroll eligibility</h3>
-                <p class="mt-1 text-sm text-slate-600">Choose whether this employee is included in regular payroll and whether approved overtime applies.</p>
-            </div>
-            <form method="POST" action="{{ route('employer.payroll.profiles.update', $returnQuery) }}" data-submit-once class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                @csrf
-                @method('PATCH')
-                <input type="hidden" name="user_id" value="{{ $employee->id }}">
-                @foreach ([
-                    'payroll_eligible' => ['Include in payroll', $profile?->payroll_eligible],
-                    'overtime_eligible' => ['Overtime eligibility', $profile?->overtime_eligible],
-                    'rank_and_file' => ['Rank-and-file employee', $profile?->rank_and_file],
-                ] as $field => [$label, $current])
-                    <label for="{{ $field }}" class="block rounded-lg border border-slate-200 p-3 text-base font-semibold text-slate-900">{{ $label }}
-                        <select id="{{ $field }}" name="{{ $field }}" class="mt-2 block min-h-11 w-full rounded-lg border-slate-300 text-base focus:border-emerald-700 focus:ring-emerald-700">
-                            <option value="" @selected((string) old($field, $current === null ? '' : (int) $current) === '')>Keep current setting{{ $profile ? ' ('.($current ? 'enabled' : 'disabled').')' : '' }}</option>
-                            <option value="1" @selected((string) old($field, $current === null ? '' : (int) $current) === '1')>Enabled</option>
-                            <option value="0" @selected((string) old($field, $current === null ? '' : (int) $current) === '0')>Disabled</option>
-                        </select>
-                        @error($field)<span class="mt-1 block text-sm text-red-700">{{ $message }}</span>@enderror
-                    </label>
-                    @endforeach
-                <div class="sm:col-span-2 xl:col-span-3"><button type="submit" data-loading-label="Saving settings..." class="min-h-11 rounded-lg border border-emerald-700 px-4 py-2.5 text-base font-semibold text-emerald-900 hover:bg-emerald-50">Save payroll eligibility</button></div>
-            </form>
-        </section>
-
     </div>
+
 @endsection

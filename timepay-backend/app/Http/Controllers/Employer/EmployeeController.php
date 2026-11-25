@@ -140,7 +140,7 @@ class EmployeeController extends Controller
         ]);
     }
 
-    /** Show a company-scoped employee profile and its existing payroll settings. */
+    /** Show a company-scoped employee profile and its compensation settings. */
     public function show(Request $request, User $user): View
     {
         $actor = $request->user();
