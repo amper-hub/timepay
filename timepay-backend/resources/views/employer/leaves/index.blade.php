@@ -66,6 +66,7 @@
                                 <td class="px-5 py-4">
                                     <p class="font-semibold text-slate-900">{{ $leave->user?->name ?? 'Unknown employee' }}</p>
                                     <p class="mt-0.5 text-sm text-slate-600">{{ $leave->user?->email }}</p>
+                                    <a href="{{ route('leave-applications.show', $leave) }}" class="mt-2 inline-flex text-sm font-semibold text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950">View application form</a>
                                 </td>
                                 <td class="px-5 py-4">
                                     <p class="font-semibold text-slate-900">{{ $leave->leave_type }}</p>
@@ -112,6 +113,7 @@
                             <div class="min-w-0">
                                 <h4 class="truncate font-semibold text-slate-900">{{ $leave->user?->name ?? 'Unknown employee' }}</h4>
                                 <p class="break-all text-sm text-slate-600">{{ $leave->user?->email }}</p>
+                                <a href="{{ route('leave-applications.show', $leave) }}" class="mt-2 inline-flex text-sm font-semibold text-emerald-800 underline decoration-emerald-300 underline-offset-2">View application form</a>
                             </div>
                             <span data-leave-status class="shrink-0 rounded-full border px-2.5 py-1 text-sm font-semibold {{ $statusTone[$leave->status] ?? $statusTone['pending'] }}">{{ str($leave->status)->title() }}</span>
                         </div>

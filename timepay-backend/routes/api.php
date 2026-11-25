@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\MobilePasswordResetController;
 use App\Http\Controllers\Api\PayrollPayslipController;
 use App\Http\Controllers\Api\StorageHealthController;
 use App\Http\Controllers\Api\ProfileController as ApiProfileController;
+use App\Http\Controllers\LeaveApplicationController;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -62,6 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('periods', [EmployerPayrollController::class, 'periodsApi']);
         Route::post('periods', [EmployerPayrollController::class, 'storePeriod']);
         Route::get('periods/{payrollPeriod}', [EmployerPayrollController::class, 'periodApi']);
+        Route::post('periods/{payrollPeriod}/preview', [EmployerPayrollController::class, 'previewPeriod']);
         Route::post('periods/{payrollPeriod}/calculate', [EmployerPayrollController::class, 'calculatePeriod']);
         Route::post('periods/{payrollPeriod}/approve', [EmployerPayrollController::class, 'approvePeriod']);
         Route::post('periods/{payrollPeriod}/void', [EmployerPayrollController::class, 'voidPeriod']);
@@ -70,7 +72,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('periods/{payrollPeriod}/register.pdf', [EmployerPayrollController::class, 'exportPeriodPdf']);
         Route::post('entries/{payrollEntry}/payments', [EmployerPayrollController::class, 'recordPayment']);
         Route::patch('profiles/{user}', [EmployerPayrollController::class, 'updateEmployeeRate']);
-        Route::post('profiles/{user}/items', [EmployerPayrollController::class, 'storeProfileItem']);
     });
 
     Route::prefix('employee')->group(function () {
@@ -82,5 +83,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('leave-balance', [LeaveController::class, 'balance']);
         Route::get('leaves', [LeaveController::class, 'index']);
         Route::post('leaves', [LeaveController::class, 'store']);
+        Route::get('leaves/{leaveRequest}/application.pdf', [LeaveApplicationController::class, 'download'])
+            ->whereNumber('leaveRequest')
+            ->name('api.employee.leaves.application');
     });
 });

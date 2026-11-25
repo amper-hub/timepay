@@ -140,7 +140,7 @@ class EmployeeController extends Controller
         ]);
     }
 
-    /** Show a company-scoped employee profile and its existing payroll settings. */
+    /** Show a company-scoped employee profile and its compensation settings. */
     public function show(Request $request, User $user): View
     {
         $actor = $request->user();
@@ -149,7 +149,7 @@ class EmployeeController extends Controller
 
         $employee = User::query()->where('company_id', $actor->company_id)
             ->whereRaw('LOWER(role) = ?', ['employee'])
-            ->with(['payrollProfile.items', 'compensationHistory'])
+            ->with(['payrollProfile', 'compensationHistory'])
             ->whereKey($user->id)->firstOrFail();
         $today = Carbon::today(config('app.timezone'));
         $currentRate = $employee->compensationHistory
