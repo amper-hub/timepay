@@ -7,6 +7,7 @@ use App\Models\PayrollAudit;
 use App\Models\Company;
 use App\Models\User;
 use App\Services\FacePlusPlusService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\UploadedFile;
@@ -22,6 +23,12 @@ class AttendanceVerificationTest extends TestCase
 
     private Company $company;
     private User $employee;
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
 
     protected function setUp(): void
     {
@@ -450,7 +457,7 @@ class AttendanceVerificationTest extends TestCase
         $this->assertDatabaseCount('attendance_logs', 0);
     }
 
-    public function test_face_identity_mismatch_is_flagged_and_never_marked_verified(): void
+    public function test_face_identity_mismatch_is_rejected_without_creating_an_attendance_record(): void
     {
         Storage::disk('private')->put('selfies/reference.jpg', 'baseline');
         $this->employee->forceFill(['baseline_photo_path' => 'selfies/reference.jpg'])->save();
@@ -464,18 +471,79 @@ class AttendanceVerificationTest extends TestCase
         $faceService->shouldReceive('analyzeSelfieProof')->never();
         $this->app->instance(FacePlusPlusService::class, $faceService);
 
-        $response = $this->post('/api/attendance/clock-in', $this->validPunchPayload(), [
+        $this->post('/api/attendance/clock-in', $this->validPunchPayload(), [
             'Accept' => 'application/json',
+        ])->assertUnprocessable()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('error', 'face_identity_mismatch')
+            ->assertJsonPath('message', 'Face not recognized. Attendance was not recorded. Please try again using your own face.');
+
+        $this->assertDatabaseCount('attendance_logs', 0);
+        $this->assertSame(['selfies/reference.jpg'], Storage::disk('private')->allFiles('selfies'));
+    }
+
+    public function test_clock_in_before_the_configured_shift_start_is_rejected(): void
+    {
+        config(['timepay.attendance_timezone' => 'Asia/Manila']);
+        $this->company->update([
+            'work_start_time' => '09:00',
+            'work_end_time' => '17:00',
+            'working_days' => ['Friday'],
+        ]);
+        Carbon::setTestNow(Carbon::parse('2026-11-06 08:47:00', 'Asia/Manila'));
+
+        $this->post('/api/attendance/clock-in', $this->validPunchPayload(), [
+            'Accept' => 'application/json',
+        ])->assertForbidden()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Cannot clock in outside working hours');
+
+        $this->assertDatabaseCount('attendance_logs', 0);
+        Carbon::setTestNow();
+    }
+
+    public function test_face_identity_mismatch_rejects_clock_out_without_creating_a_clock_out_record(): void
+    {
+        Storage::disk('private')->put('selfies/reference.jpg', 'baseline');
+        $this->employee->forceFill(['baseline_photo_path' => 'selfies/reference.jpg'])->save();
+        AttendanceLog::query()->create([
+            'user_id' => $this->employee->id,
+            'company_id' => $this->company->id,
+            'timestamp' => now()->startOfDay()->addHours(9),
+            'type' => 'clock_in',
+            'latitude' => 14.5995,
+            'longitude' => 120.9842,
+            'distance_meters' => 0,
+            'status' => 'verified',
+            'is_suspicious' => false,
         ]);
 
-        $response->assertOk()
-            ->assertJsonPath('attendance_log.status', 'flagged')
-            ->assertJsonPath('face_verification.matched', false);
+        $faceService = Mockery::mock(FacePlusPlusService::class);
+        $faceService->shouldReceive('verifyHeadTurnSequence')->once()->andReturn(true);
+        $faceService->shouldReceive('compare')->twice()->andReturn(
+            ['confidence' => 95.0, 'threshold' => 80.0, 'matched' => true],
+            ['confidence' => 34.0, 'threshold' => 80.0, 'matched' => false]
+        );
+        $faceService->shouldReceive('analyzeSelfieProof')->never();
+        $this->app->instance(FacePlusPlusService::class, $faceService);
+
+        $this->post('/api/attendance/store', [
+            ...$this->validPunchPayload(),
+            'type' => 'clock_out',
+        ], ['Accept' => 'application/json'])->assertUnprocessable()
+            ->assertJsonPath('error', 'face_identity_mismatch');
+
         $this->assertDatabaseCount('attendance_logs', 1);
-        $this->assertDatabaseMissing('attendance_logs', [
+        $this->assertDatabaseHas('attendance_logs', [
             'user_id' => $this->employee->id,
+            'type' => 'clock_in',
             'status' => 'verified',
         ]);
+        $this->assertDatabaseMissing('attendance_logs', [
+            'user_id' => $this->employee->id,
+            'type' => 'clock_out',
+        ]);
+        $this->assertSame(['selfies/reference.jpg'], Storage::disk('private')->allFiles('selfies'));
     }
 
     public function test_provider_failure_does_not_create_a_successful_clock_in(): void
